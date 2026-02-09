@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EmoodRing NFT - Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #08080c;
+    color: #e0e0e0;
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+  h1 { font-size: 13px; font-weight: 400; letter-spacing: 6px; text-transform: uppercase; color: #777; margin-bottom: 4px; }
+  h2 { font-size: 11px; font-weight: 300; letter-spacing: 3px; color: #3a3a4a; margin-bottom: 36px; }
+  .nft-frame {
+    width: 480px; height: 480px; border-radius: 20px; overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 8px 40px rgba(0,0,0,0.6);
+    transition: box-shadow 0.8s ease;
+  }
+  .controls { margin-top: 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 32px; width: 480px; }
+  .control { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+  .control label { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 400; letter-spacing: 1.5px; width: 105px; text-align: right; text-transform: uppercase; }
+  .control input[type="range"] { -webkit-appearance: none; appearance: none; flex: 1; height: 3px; background: #1a1a28; border-radius: 2px; outline: none; }
+  .control input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--color); cursor: pointer; box-shadow: 0 0 8px var(--color); }
+  .control .val { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 300; width: 28px; text-align: right; color: #555; }
+  .info { margin-top: 28px; text-align: center; font-size: 11px; font-weight: 300; color: #3a3a4a; line-height: 2; letter-spacing: 0.5px; }
+  .dominant-label { margin-top: 18px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 400; letter-spacing: 3px; color: #888; text-align: center; text-transform: uppercase; transition: color 0.4s ease; }
+  .presets { margin-top: 18px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: 480px; }
+  .presets button {
+    background: transparent; border: 1px solid #1e1e2e; color: #666;
+    font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 400;
+    letter-spacing: 1.5px; text-transform: uppercase; padding: 7px 14px;
+    border-radius: 6px; cursor: pointer; transition: all 0.25s ease;
+  }
+  .presets button:hover { border-color: #444; color: #ccc; background: rgba(255,255,255,0.02); }
+</style>
+</head>
+<body>
+
+<h1>EmoodRing</h1>
+<h2>on-chain dynamic nft</h2>
+
+<div class="nft-frame" id="nftFrame"></div>
+<div class="dominant-label" id="dominantLabel">interest</div>
+
+<div class="presets">
+  <button onclick="preset('genesis')">Genesis</button>
+  <button onclick="preset('whale_panic')">Whale Panic</button>
+  <button onclick="preset('chain_surge')">Chain Surge</button>
+  <button onclick="preset('quiet_night')">Quiet Night</button>
+  <button onclick="preset('new_tokens')">New Tokens</button>
+  <button onclick="preset('mixed_chaos')">Chaos</button>
+</div>
+
+<div class="controls" id="controls"></div>
+<div class="info">drag sliders to simulate EmotionOracle states</div>
+
+<script>
+const EMOTIONS = [
+  { name: 'joy',          color: '#F5D831', angle: 270, tiers: ['serenity','joy','ecstasy'] },
+  { name: 'trust',        color: '#6ECB3C', angle: 315, tiers: ['acceptance','trust','admiration'] },
+  { name: 'fear',         color: '#2BA84A', angle: 0,   tiers: ['apprehension','fear','terror'] },
+  { name: 'surprise',     color: '#22AACC', angle: 45,  tiers: ['distraction','surprise','amazement'] },
+  { name: 'sadness',      color: '#4A6BD4', angle: 90,  tiers: ['pensiveness','sadness','grief'] },
+  { name: 'disgust',      color: '#A85EC0', angle: 135, tiers: ['boredom','disgust','loathing'] },
+  { name: 'anger',        color: '#E04848', angle: 180, tiers: ['annoyance','anger','rage'] },
+  { name: 'anticipation', color: '#EF8E20', angle: 225, tiers: ['interest','anticipation','vigilance'] },
+];
+
+let values = { joy: 38, trust: 38, fear: 38, surprise: 38, sadness: 38, disgust: 38, anger: 38, anticipation: 76 };
+
+function getTierLabel(emotion, val) {
+  const e = EMOTIONS.find(em => em.name === emotion);
+  const n = val / 255;
+  return n < 0.33 ? e.tiers[0] : n < 0.67 ? e.tiers[1] : e.tiers[2];
+}
+
+function getDominant() {
+  let max = -1, dom = 'joy';
+  for (const [k, v] of Object.entries(values)) { if (v > max) { max = v; dom = k; } }
+  return { emotion: dom, value: max, label: getTierLabel(dom, max) };
+}
+
+function rgb(hex) {
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+}
+
+function sectorPath(cx, cy, innerR, outerR, startAngle, endAngle) {
+  const sa = startAngle * Math.PI / 180;
+  const ea = endAngle * Math.PI / 180;
+  const mid = (sa + ea) / 2;
+  const bulge = outerR * 1.1;
+
+  const ix1 = cx + Math.cos(sa) * innerR;
+  const iy1 = cy + Math.sin(sa) * innerR;
+  const ox1 = cx + Math.cos(sa) * outerR;
+  const oy1 = cy + Math.sin(sa) * outerR;
+  const ox2 = cx + Math.cos(ea) * outerR;
+  const oy2 = cy + Math.sin(ea) * outerR;
+  const ix2 = cx + Math.cos(ea) * innerR;
+  const iy2 = cy + Math.sin(ea) * innerR;
+  const bcx = cx + Math.cos(mid) * bulge;
+  const bcy = cy + Math.sin(mid) * bulge;
+
+  return `M${ix1.toFixed(1)},${iy1.toFixed(1)} L${ox1.toFixed(1)},${oy1.toFixed(1)} Q${bcx.toFixed(1)},${bcy.toFixed(1)} ${ox2.toFixed(1)},${oy2.toFixed(1)} L${ix2.toFixed(1)},${iy2.toFixed(1)} A${innerR},${innerR} 0 0,0 ${ix1.toFixed(1)},${iy1.toFixed(1)}Z`;
+}
+
+function generateSVG() {
+  const S = 480;
+  const cx = S / 2, cy = S / 2;
+  const innerR = 30;
+  const maxOuterR = 160;
+  const minOuterR = 44;
+  const sectorGap = 2.2;
+  const sectorAngle = 45 - sectorGap;
+
+  const dom = getDominant();
+  const domEmo = EMOTIONS.find(e => e.name === dom.emotion);
+  const domNorm = dom.value / 255;
+  const [dr, dg, db] = rgb(domEmo.color);
+
+  let gradDefs = '';
+  let sectors = '';
+  let tickMarks = '';
+  let labels = '';
+  let animations = '';
+
+  for (let i = 0; i < EMOTIONS.length; i++) {
+    const emo = EMOTIONS[i];
+    const val = values[emo.name];
+    const norm = val / 255;
+    const outerR = minOuterR + (maxOuterR - minOuterR) * norm;
+    const startA = emo.angle - sectorAngle / 2;
+    const endA = emo.angle + sectorAngle / 2;
+    const aRad = emo.angle * Math.PI / 180;
+    const [r, g, b] = rgb(emo.color);
+
+    // Gradient: dark core fading to bright at the tip
+    const dimC = `rgb(${r*.18|0},${g*.18|0},${b*.18|0})`;
+    const midC = `rgb(${r*.5|0},${g*.5|0},${b*.5|0})`;
+    const gx = (50 + Math.cos(aRad) * 45).toFixed(0);
+    const gy = (50 + Math.sin(aRad) * 45).toFixed(0);
+
+    gradDefs += `<radialGradient id="sg${i}" cx="50%" cy="50%" r="60%" fx="${gx}%" fy="${gy}%">
+      <stop offset="0%" stop-color="${dimC}"/>
+      <stop offset="40%" stop-color="${midC}"/>
+      <stop offset="100%" stop-color="${emo.color}"/>
+    </radialGradient>`;
+
+    const path = sectorPath(cx, cy, innerR, outerR, startA, endA);
+    const opacity = (0.6 + norm * 0.4).toFixed(3);
+    const cls = norm > 0.4 ? `br-${i}` : '';
+
+    // Main sector fill
+    sectors += `<path class="${cls}" d="${path}" fill="url(#sg${i})" opacity="${opacity}"/>`;
+
+    // Thin radial tick marks at sector edges for structure
+    const tickR1 = innerR - 3;
+    const tickR2 = innerR + 6;
+    for (const tAngle of [startA - 0.4, endA + 0.4]) {
+      const ta = tAngle * Math.PI / 180;
+      tickMarks += `<line x1="${(cx + Math.cos(ta) * tickR1).toFixed(1)}" y1="${(cy + Math.sin(ta) * tickR1).toFixed(1)}" x2="${(cx + Math.cos(ta) * tickR2).toFixed(1)}" y2="${(cy + Math.sin(ta) * tickR2).toFixed(1)}" stroke="#fff" stroke-width="0.4" opacity="0.06"/>`;
+    }
+
+    // Labels with small intensity percentage
+    const labelR = maxOuterR + 28;
+    const lx = cx + Math.cos(aRad) * labelR;
+    const ly = cy + Math.sin(aRad) * labelR;
+    const tierLabel = getTierLabel(emo.name, val);
+    const labelOp = (0.5 + norm * 0.5).toFixed(3);
+    const fontSize = norm > 0.66 ? 11 : norm > 0.33 ? 10 : 9;
+    const pct = Math.round(norm * 100);
+
+    labels += `<text x="${lx.toFixed(1)}" y="${(ly - 1).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${emo.color}" opacity="${labelOp}" font-family="'Inter',sans-serif" font-size="${fontSize}" font-weight="500" letter-spacing="1.2">${tierLabel}</text>`;
+    labels += `<text x="${lx.toFixed(1)}" y="${(ly + 10).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${emo.color}" opacity="${(norm * 0.35).toFixed(3)}" font-family="'JetBrains Mono',monospace" font-size="7" font-weight="300">${pct}%</text>`;
+
+    // Breathing animation - opacity-only for subtlety
+    if (norm > 0.4) {
+      const dur = (4 - norm * 2).toFixed(1);
+      const opHi = (0.6 + norm * 0.4).toFixed(3);
+      const opLo = (0.45 + norm * 0.3).toFixed(3);
+      animations += `.br-${i}{animation:b${i} ${dur}s ease-in-out infinite;transform-origin:${cx}px ${cy}px}`;
+      animations += `@keyframes b${i}{0%,100%{opacity:${opHi};transform:scale(1)}50%{opacity:${opLo};transform:scale(${(1 + norm * 0.018).toFixed(4)})}}`;
+    }
+  }
+
+  // Compound emotions
+  const compounds = detectCompounds();
+  let compoundText = '';
+  if (compounds.length > 0) {
+    compoundText = `<text x="${cx}" y="${S - 28}" text-anchor="middle" fill="#555" font-family="'Inter',sans-serif" font-size="8.5" font-weight="300" letter-spacing="2.5">${compounds.join('  /  ')}</text>`;
+  }
+
+  // Center text: dominant emotion name
+  const domLabel = dom.emotion.length > 7 ? dom.emotion.slice(0, 5) + '.' : dom.emotion;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${S} ${S}" width="${S}" height="${S}">
+  <defs>
+    ${gradDefs}
+    <radialGradient id="bg" cx="50%" cy="50%" r="72%">
+      <stop offset="0%" stop-color="#101018"/>
+      <stop offset="100%" stop-color="#08080c"/>
+    </radialGradient>
+    <radialGradient id="cGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgb(${dr},${dg},${db})" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="rgb(${dr},${dg},${db})" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <style>${animations}</style>
+
+  <!-- background -->
+  <rect width="${S}" height="${S}" fill="url(#bg)" rx="20"/>
+
+  <!-- subtle center warmth from dominant emotion -->
+  <circle cx="${cx}" cy="${cy}" r="90" fill="url(#cGlow)"/>
+
+  <!-- guide rings -->
+  <circle cx="${cx}" cy="${cy}" r="${maxOuterR}" fill="none" stroke="#fff" stroke-width="0.3" opacity="0.045" stroke-dasharray="1,3"/>
+  <circle cx="${cx}" cy="${cy}" r="${(maxOuterR + minOuterR) / 2}" fill="none" stroke="#fff" stroke-width="0.2" opacity="0.03" stroke-dasharray="1.5,6"/>
+
+  <!-- tick marks -->
+  ${tickMarks}
+
+  <!-- sectors -->
+  ${sectors}
+
+  <!-- center hub -->
+  <circle cx="${cx}" cy="${cy}" r="${innerR}" fill="#0b0b13"/>
+  <circle cx="${cx}" cy="${cy}" r="${innerR}" fill="none" stroke="#fff" stroke-width="0.4" opacity="0.07"/>
+  <circle cx="${cx}" cy="${cy}" r="3.5" fill="${domEmo.color}" opacity="0.75"/>
+
+  <!-- labels -->
+  ${labels}
+
+  <!-- header -->
+  <text x="${cx}" y="22" text-anchor="middle" fill="#fff" opacity="0.14" font-family="'Inter',sans-serif" font-size="9" font-weight="500" letter-spacing="5">EMOLT</text>
+
+  <!-- bottom: dominant tier + compounds -->
+  <text x="${cx}" y="${S - 13}" text-anchor="middle" fill="${domEmo.color}" opacity="0.65" font-family="'Inter',sans-serif" font-size="10" font-weight="500" letter-spacing="3">${dom.label.toUpperCase()}</text>
+  ${compoundText}
+</svg>`;
+}
+
+function detectCompounds() {
+  const c = [], th = 76;
+  const d = [
+    {a:'joy',b:'trust',n:'love'},{a:'trust',b:'fear',n:'submission'},{a:'fear',b:'surprise',n:'awe'},
+    {a:'surprise',b:'sadness',n:'disapproval'},{a:'sadness',b:'disgust',n:'remorse'},{a:'disgust',b:'anger',n:'contempt'},
+    {a:'anger',b:'anticipation',n:'aggressiveness'},{a:'anticipation',b:'joy',n:'optimism'},
+    {a:'anticipation',b:'fear',n:'anxiety'},{a:'anger',b:'joy',n:'pride'},{a:'fear',b:'sadness',n:'despair'},{a:'trust',b:'surprise',n:'curiosity'},
+  ];
+  for (const x of d) { if (values[x.a] >= th && values[x.b] >= th) c.push(x.n); }
+  return c.slice(0, 3);
+}
+
+function render() {
+  document.getElementById('nftFrame').innerHTML = generateSVG();
+  const dom = getDominant();
+  const domEmo = EMOTIONS.find(e => e.name === dom.emotion);
+  const [r, g, b] = rgb(domEmo.color);
+  document.getElementById('dominantLabel').textContent = dom.label.toUpperCase();
+  document.getElementById('dominantLabel').style.color = domEmo.color;
+  const n = dom.value / 255;
+  const glowSize = Math.round(25 + n * 35);
+  const glowAlpha = (n * 0.12).toFixed(2);
+  document.getElementById('nftFrame').style.boxShadow = `0 0 0 1px rgba(255,255,255,0.04), 0 8px 40px rgba(0,0,0,0.6), 0 0 ${glowSize}px rgba(${r},${g},${b},${glowAlpha})`;
+}
+
+function buildControls() {
+  const ct = document.getElementById('controls');
+  for (const emo of EMOTIONS) {
+    const div = document.createElement('div');
+    div.className = 'control';
+    div.style.setProperty('--color', emo.color);
+    div.innerHTML = `<label style="color:${emo.color}">${emo.name}</label><input type="range" min="0" max="255" value="${values[emo.name]}" id="s-${emo.name}"><span class="val" id="v-${emo.name}">${values[emo.name]}</span>`;
+    ct.appendChild(div);
+    document.getElementById(`s-${emo.name}`).addEventListener('input', e => {
+      values[emo.name] = parseInt(e.target.value);
+      document.getElementById(`v-${emo.name}`).textContent = e.target.value;
+      render();
+    });
+  }
+}
+
+function preset(name) {
+  const p = {
+    genesis:     {joy:38,trust:38,fear:38,surprise:38,sadness:38,disgust:38,anger:38,anticipation:76},
+    whale_panic: {joy:10,trust:20,fear:200,surprise:140,sadness:80,disgust:30,anger:40,anticipation:180},
+    chain_surge: {joy:220,trust:150,fear:15,surprise:100,sadness:5,disgust:5,anger:10,anticipation:200},
+    quiet_night: {joy:30,trust:50,fear:20,surprise:10,sadness:120,disgust:60,anger:15,anticipation:25},
+    new_tokens:  {joy:100,trust:80,fear:40,surprise:190,sadness:10,disgust:15,anger:10,anticipation:170},
+    mixed_chaos: {joy:150,trust:40,fear:160,surprise:180,sadness:60,disgust:100,anger:140,anticipation:130},
+  };
+  const t = p[name]; if (!t) return;
+  const s = {...values}, dur = 900, st = performance.now();
+  function anim(now) {
+    const x = Math.min(1, (now - st) / dur);
+    const e = x < 0.5 ? 4*x*x*x : 1 - Math.pow(-2*x+2,3)/2;
+    for (const k of Object.keys(t)) {
+      values[k] = Math.round(s[k] + (t[k] - s[k]) * e);
+      const sl = document.getElementById(`s-${k}`); if (sl) sl.value = values[k];
+      const vl = document.getElementById(`v-${k}`); if (vl) vl.textContent = values[k];
+    }
+    render();
+    if (x < 1) requestAnimationFrame(anim);
+  }
+  requestAnimationFrame(anim);
+}
+
+buildControls();
+render();
+</script>
+</body>
+</html>

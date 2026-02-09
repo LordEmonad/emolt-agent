@@ -1,0 +1,25 @@
+{
+  "name": "emolt",
+  "version": "1.0.0",
+  "description": "An emotionally autonomous AI agent on the Monad blockchain",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@nadfun/sdk": "^0.4.3",
+    "dotenv": "^16.4.0",
+    "viem": "^2.40.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "license": "MIT"
+}

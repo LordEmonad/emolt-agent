@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# State (runtime data)
+state/
+
+# Build output
+dist/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+contracts/foundry.lock
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Voice training corpus (copyrighted reference material, not shipped)
+soul/data/writing/
+
+# Generated HTML (regenerated at runtime)
+heartbeat.html
+chat.html
+
+# Development artifacts
+_w.js
+nul
+tmp_protocols.json
+
+# Generated / large media
+narration/
+ONE-SHEET.html
+
+# Keys
+*.key
+*.pem
+credentials.json
