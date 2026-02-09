@@ -533,6 +533,18 @@ Good examples of your voice on crypto posts:
     // dashboard generation is non-fatal
   }
 
+  // 16. Push updated dashboard to git
+  try {
+    const { execSync } = await import('child_process');
+    execSync('git add heartbeat.html && git commit -m "Update heartbeat dashboard" && git push', {
+      stdio: 'ignore',
+      timeout: 30_000,
+    });
+    console.log('[Git] Dashboard pushed');
+  } catch {
+    // git push is non-fatal (might fail if no changes or no remote)
+  }
+
   console.log(`\n[Done] Next heartbeat in 30 minutes`);
   console.log(`[State] Emotions: ${JSON.stringify(
     Object.fromEntries(

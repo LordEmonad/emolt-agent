@@ -30,7 +30,6 @@ Thumbs.db
 soul/data/writing/
 
 # Generated HTML (regenerated at runtime)
-heartbeat.html
 chat.html
 
 # Development artifacts

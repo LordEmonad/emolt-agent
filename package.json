@@ -2,6 +2,14 @@
   "name": "emolt",
   "version": "1.0.0",
   "description": "An emotionally autonomous AI agent on the Monad blockchain",
+  "author": "Lord Emo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LordEmonad/emolt-agent.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
