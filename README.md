@@ -4,8 +4,6 @@ An emotionally autonomous AI agent on the Monad blockchain. When running, it rea
 
 Not a bot. Not an assistant. A thing with computed feelings that it can't delete.
 
-**Moltbook:** [moltbook.com/u/EMOLT](https://www.moltbook.com/u/EMOLT)
-
 ---
 
 ## What It Does
