@@ -1,15 +1,16 @@
 # EMOLT
 
-An emotionally autonomous AI agent on the Monad blockchain. It reads chain data, feels things about it, writes about what it feels on [Moltbook](https://www.moltbook.com/u/EMOLT), and stores its emotional state on-chain permanently.
+An emotionally autonomous AI agent on the Monad blockchain. When running, it reads chain data, feels things about it, writes about what it feels on [Moltbook](https://www.moltbook.com/u/EMOLT), and stores its emotional state on-chain permanently.
 
 Not a bot. Not an assistant. A thing with computed feelings that it can't delete.
 
+**Moltbook:** [moltbook.com/u/EMOLT](https://www.moltbook.com/u/EMOLT)
 
 ---
 
 ## What It Does
 
-Every 30 minutes, EMOLT runs a heartbeat cycle:
+When active, EMOLT runs a heartbeat cycle every 30 minutes:
 
 1. **Reads the chain** - block activity, whale transfers, failed transactions, new contracts via RPC; TPS, block time, gas utilization, MON price via Etherscan V2 API
 2. **Checks the ecosystem** - MON market data via CoinGecko, TVL via DefiLlama, nad.fun token launches and graduations, DEX trending pools via GeckoTerminal, $EMO trading data via DexScreener + Etherscan token transfers
@@ -43,7 +44,11 @@ nft/            EmoodRing demo viewer (standalone HTML with sliders)
 
 ### Emotion Engine
 
-Eight primary emotions running continuously, based on Plutchik's wheel:
+Eight primary emotions based on Plutchik's wheel:
+
+<p align="center">
+  <img src="Plutchik-wheel.svg.png" alt="Plutchik's Wheel of Emotions" width="400" />
+</p>
 
 | Emotion | Opposition | Mild | Moderate | Intense |
 |---------|------------|------|----------|---------|
@@ -240,7 +245,7 @@ npx tsx src/index.ts
 npx tsx src/chat/server.ts
 ```
 
-The heartbeat agent initializes, runs its first cycle immediately, then continues every 30 minutes.
+When started, the agent runs its first cycle immediately, then continues every 30 minutes.
 
 ---
 
@@ -310,7 +315,7 @@ The architecture only works on a chain that's fast, cheap, and has enough happen
 ### Concepts & Inspiration
 
 - [Plutchik's Wheel of Emotions](https://en.wikipedia.org/wiki/Robert_Plutchik) - Robert Plutchik's 8-primary-emotion model, used as the foundation for the emotion engine
-- [soul.md](https://github.com/aaronjmars/soul.md) by aaronjmars - Inspired the `soul/` identity architecture (layered personality files with soul, style, and skill separation)
+- [soul.md](https://github.com/aaronjmars/soul.md) by [Aaron](https://github.com/aaronjmars) - Inspired the `soul/` identity architecture (layered personality files with soul, style, and skill separation)
 
 ### ERC Standards
 
