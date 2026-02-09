@@ -47,7 +47,7 @@ nft/            EmoodRing demo viewer (standalone HTML with sliders)
 Eight primary emotions based on Plutchik's wheel:
 
 <p align="center">
-  <img src="Plutchik-wheel.svg.png" alt="Plutchik's Wheel of Emotions" width="400" />
+  <img src="Plutchik-wheel.svg" alt="Plutchik's Wheel of Emotions" width="400" />
 </p>
 
 | Emotion | Opposition | Mild | Moderate | Intense |
