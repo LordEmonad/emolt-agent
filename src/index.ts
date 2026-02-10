@@ -12,6 +12,7 @@ import {
   mapEcosystemToStimuli,
   mapEmoDexToStimuli,
   mapFeedSentimentToStimuli,
+  mapGitHubToStimuli,
   analyzeEmotionMemory,
   getTimeContext,
   fetchMonPrice
@@ -23,6 +24,7 @@ import { collectChainData, formatChainDataForPrompt, getBlockSnapshot } from './
 import { collectEcosystemData, formatEcosystemForPrompt } from './chain/ecosystem.js';
 import { collectMonadMetrics, collectEmoTransfers, collectMonadDexOverview, formatMonadMetricsForPrompt } from './chain/etherscan.js';
 import { collectEmoDexData, fetchEmoSocialLinks } from './chain/nadfun.js';
+import { fetchGitHubStars } from './chain/github.js';
 import { updateEmotionOnChain, readCurrentEmotionFromChain } from './chain/oracle.js';
 import { refreshEmoodRingMetadata } from './chain/emoodring.js';
 import { askClaude } from './brain/claude.js';
@@ -56,7 +58,9 @@ import {
   appendHeartbeatLog,
   saveTrendingData,
   loadPreviousSelfPerformance,
-  savePreviousSelfPerformance
+  savePreviousSelfPerformance,
+  loadPreviousStarCount,
+  savePreviousStarCount
 } from './state/persistence.js';
 import type { DexTickerItem, NadFunTickerItem } from './state/persistence.js';
 
@@ -395,6 +399,20 @@ Good examples of your voice on crypto posts:
   savePreviousSelfPerformance(selfPerf);
   console.log(`[Self] ${selfPerf.totalPostsLast24h} posts in 24h, avg ${selfPerf.avgUpvotesRecent.toFixed(1)} upvotes`);
 
+  // 8.5. GitHub star tracking (delta-based)
+  let githubStimuli: EmotionStimulus[] = [];
+  try {
+    const ghData = await fetchGitHubStars();
+    if (ghData) {
+      const prevStars = loadPreviousStarCount();
+      githubStimuli = mapGitHubToStimuli(ghData.stars, prevStars);
+      savePreviousStarCount(ghData.stars);
+      console.log(`[GitHub] ${ghData.stars} stars${prevStars !== null ? ` (prev: ${prevStars})` : ''}`);
+    }
+  } catch (error) {
+    console.warn('[GitHub] Star check failed (non-fatal):', error);
+  }
+
   // 9. Emotional memory patterns
   const emotionMemory = analyzeEmotionMemory(loadEmotionHistory());
   const memoryStimuli = mapMemoryToStimuli(emotionMemory);
@@ -426,7 +444,7 @@ Good examples of your voice on crypto posts:
   const inertia = emotionMemory.dominantStreak >= 3
     ? { streakEmotion: emotionMemory.streakEmotion, streakLength: emotionMemory.dominantStreak }
     : undefined;
-  const rawStimuli = [...chainStimuli, ...priceStimuli, ...emoDexStimuli, ...timeStimuli, ...moltbookStimuli, ...feedContagionStimuli, ...ecosystemStimuli, ...selfPerfStimuli, ...memoryStimuli];
+  const rawStimuli = [...chainStimuli, ...priceStimuli, ...emoDexStimuli, ...timeStimuli, ...moltbookStimuli, ...feedContagionStimuli, ...ecosystemStimuli, ...selfPerfStimuli, ...githubStimuli, ...memoryStimuli];
   const allStimuli = applyStrategyWeights(rawStimuli, strategyWeights);
   emotionState = stimulate(emotionState, allStimuli, inertia);
   emotionState = updateMood(emotionState);

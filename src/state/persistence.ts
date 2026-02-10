@@ -20,6 +20,7 @@ const PRICE_STATE_FILE = join(STATE_DIR, 'price-state.json');
 const POST_PERFORMANCE_FILE = join(STATE_DIR, 'post-performance.json');
 const SELF_PERF_PREV_FILE = join(STATE_DIR, 'self-performance-prev.json');
 const LAST_POST_TIME_FILE = join(STATE_DIR, 'last-post-time.json');
+const GITHUB_STARS_PREV_FILE = join(STATE_DIR, 'github-stars-prev.json');
 
 export function ensureStateDir(): void {
   if (!existsSync(STATE_DIR)) {
@@ -167,6 +168,22 @@ export function loadPreviousSelfPerformance(): SelfPerformance | null {
 export function savePreviousSelfPerformance(perf: SelfPerformance): void {
   ensureStateDir();
   atomicWriteFileSync(SELF_PERF_PREV_FILE, JSON.stringify(perf, null, 2));
+}
+
+// --- Previous GitHub Star Count (for delta-based stimuli) ---
+
+export function loadPreviousStarCount(): number | null {
+  try {
+    const data = readFileSync(GITHUB_STARS_PREV_FILE, 'utf-8');
+    return JSON.parse(data).stars ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function savePreviousStarCount(stars: number): void {
+  ensureStateDir();
+  atomicWriteFileSync(GITHUB_STARS_PREV_FILE, JSON.stringify({ stars, timestamp: Date.now() }, null, 2));
 }
 
 // --- Last Post Time (rate limit guard) ---

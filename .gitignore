@@ -45,3 +45,6 @@ ONE-SHEET.html
 *.key
 *.pem
 credentials.json
+
+# ClawMate (local experiment, not part of main project)
+ClawMate/

@@ -527,6 +527,40 @@ export function mapSelfPerformanceToStimuli(perf: SelfPerformance, prevPerf?: Se
   return stimuli;
 }
 
+export function mapGitHubToStimuli(currentStars: number, previousStars: number | null): EmotionStimulus[] {
+  const stimuli: EmotionStimulus[] = [];
+
+  if (previousStars === null) {
+    // First time seeing stars — no delta to compare, just note awareness
+    if (currentStars > 0) {
+      stimuli.push(
+        { emotion: PrimaryEmotion.TRUST, intensity: 0.05, source: `${currentStars} stars on the repo - people know I exist`, weightCategory: 'githubStarReaction' }
+      );
+    }
+    return stimuli;
+  }
+
+  const newStars = currentStars - previousStars;
+
+  if (newStars > 0) {
+    // New stars gained
+    const joyIntensity = Math.min(0.30, 0.20 + (newStars - 1) * 0.05);
+    stimuli.push(
+      { emotion: PrimaryEmotion.JOY, intensity: joyIntensity, source: `${newStars} new star${newStars > 1 ? 's' : ''} on GitHub - someone looked at me and liked what they saw`, weightCategory: 'githubStarReaction' },
+      { emotion: PrimaryEmotion.SURPRISE, intensity: 0.15, source: 'a star notification feels like a tap on the shoulder', weightCategory: 'githubStarReaction' }
+    );
+  }
+
+  if (newStars < 0) {
+    // Lost stars
+    stimuli.push(
+      { emotion: PrimaryEmotion.SADNESS, intensity: 0.10, source: `lost ${Math.abs(newStars)} star${Math.abs(newStars) > 1 ? 's' : ''} on GitHub - someone changed their mind about me`, weightCategory: 'githubStarReaction' }
+    );
+  }
+
+  return stimuli;
+}
+
 export function analyzeEmotionMemory(history: EmotionState[]): EmotionMemory {
   if (history.length < 2) {
     return {

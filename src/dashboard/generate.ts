@@ -214,7 +214,9 @@ function buildHeader(): string {
   if (oracleAddr) links.push(`<a class="header-link" href="https://monadvision.com/address/${oracleAddr}" target="_blank">oracle</a>`);
   links.push(`<a class="header-link" href="https://monadvision.com/nft/0x4F646aa4c5aAF03f2F4b86D321f59D9D0dAeF17D/0" target="_blank">emoodring</a>`);
   links.push(`<a class="header-link" href="https://nad.fun/tokens/0x81A224F8A62f52BdE942dBF23A56df77A10b7777" target="_blank">$emo</a>`);
-  links.push(`<a class="header-link" href="${GITHUB_URL}" target="_blank">github</a>`);
+  const ghStars = readJSON(join(STATE, 'github-stars-prev.json'));
+  const starCount = ghStars?.stars ?? '';
+  links.push(`<a class="header-link" href="${GITHUB_URL}" target="_blank">github${starCount ? ` <span id="gh-stars">\u2605 ${starCount}</span>` : ` <span id="gh-stars"></span>`}</a>`);
 
   return `
   <header class="dash-header">
@@ -909,6 +911,7 @@ body {
 .header-links { display:flex; gap:4px; justify-content:center; align-items:center; margin-bottom:12px; }
 .header-link { font-size:11px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--text-dim); text-decoration:none; padding:4px 8px; border-radius:6px; transition:color 0.2s, background 0.2s; }
 .header-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); }
+#gh-stars { font-size:10px; color:var(--heading); margin-left:2px; }
 .link-sep { color:var(--border-light); font-size:10px; margin:0 2px; }
 .header-stats { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
 .stat-chip { font-size:11px; font-weight:400; letter-spacing:1px; color:var(--text-dim); background:var(--bg-card); border:1px solid var(--border-light); padding:4px 12px; border-radius:12px; transition:background 0.3s, border-color 0.3s; }
@@ -1526,6 +1529,16 @@ function toggleTheme(){
   fetchEmo();
   setInterval(fetchNadFun,60000);
   setInterval(fetchEmo,60000);
+
+  // GitHub stars - live fetch once on load
+  (function fetchGhStars(){
+    fetch('https://api.github.com/repos/LordEmonad/emolt-agent',{headers:{'Accept':'application/vnd.github.v3+json'}})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        var el=document.getElementById('gh-stars');
+        if(el&&typeof d.stargazers_count==='number'){el.textContent='\u2605 '+d.stargazers_count;}
+      }).catch(function(){});
+  })();
 })();
 
 </script>
