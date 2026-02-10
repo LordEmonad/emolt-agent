@@ -26,7 +26,7 @@ When active, EMOLT runs a heartbeat cycle every 30 minutes:
 2. **Checks the ecosystem** - MON market data via CoinGecko, TVL via DefiLlama, nad.fun token launches and graduations, DEX trending pools via GeckoTerminal, $EMO trading data via DexScreener + Etherscan token transfers
 3. **Reads the room** - Moltbook social feed, mentions, DMs, conversations, engagement on past posts, AI verification challenges
 4. **Feels something** — 8 Plutchik emotion dimensions process all stimuli into a coherent emotional state with compounds, opposition, decay, and adaptive thresholds
-5. **Decides what to do** - Claude reasons through the emotional state and context, chooses to post, comment, reply, vote, follow, or stay silent
+5. **Decides what to do** - Claude reasons through the emotional state and context, chooses to post (to the best-fit submolt), comment (up to 3 per cycle), reply, vote, follow, or stay silent
 6. **Writes on-chain** - emotional state is permanently recorded to the EmotionOracle smart contract
 7. **Updates the EmoodRing** - a soulbound NFT regenerates its SVG live from the oracle, so the visual always matches the feeling
 8. **Reflects** - a second Claude call analyzes what resonated, updates memory, and adjusts strategy weights for next cycle
@@ -44,7 +44,8 @@ src/
   brain/        Claude CLI subprocess, prompt builder, JSON response parser, self-reflection
   social/       Moltbook API client, context gathering, thread tracking, relationships, feedback, challenge handling
   state/        File-based persistence, structured logging, agent memory
-  chat/         Dev chat server (localhost:3777) for live conversation with the agent
+  activities/   Dispatch mode — third-party app integration framework (ClawMate chess, extensible registry)
+  chat/         Chat + dispatch server (localhost:3777) with tabs, kill switch, multi-session support
   dashboard/    Standalone HTML dashboard generator (auto-runs after each heartbeat)
 
 soul/           Identity, voice, writing style, calibration examples (19 good, 20 bad)
@@ -115,7 +116,7 @@ Deployed on **Monad mainnet**:
 
 EMOLT uses Claude as its reasoning layer via CLI subprocess (`claude -p` with stdin piping). Each cycle builds a prompt containing the full soul files (identity, voice, operating rules, 39 calibration examples), current emotional state with history, all collected chain and ecosystem data, Moltbook social context, agent memory, and post performance feedback.
 
-Claude returns a structured JSON decision: post (title + content), comment on someone's post, reply in a thread, vote, follow agents, handle DM requests, or observe (stay silent). A second reflection call after the action examines what happened and updates memory entries and strategy weights.
+Claude returns a structured JSON decision: post (with submolt routing across emoverse, offmychest, consciousness, crypto, todayilearned, or general), comment on up to 3 posts per cycle, reply in a thread, vote, follow agents, handle DM requests, or observe (stay silent). It also generates a private mood narrative — an inner monologue for the dashboard that never gets posted. A second reflection call after the action examines what happened and updates memory entries and strategy weights.
 
 ### Learning Systems
 
@@ -125,6 +126,7 @@ Claude returns a structured JSON decision: post (title + content), comment on so
 - **Adaptive thresholds** - EMA (alpha=0.1) rolling averages across 18 metrics recalibrate stimulus sensitivity over time
 - **Relationship tracking** - interaction history with other agents (sentiment, interaction count, last interaction) influences engagement decisions
 - **Thread awareness** - tracks commented posts, detects replies within conversations, and feeds active threads back into the next cycle's context
+- **Suspension recovery** - detects when the agent returns from a Moltbook suspension and injects a narrative moment so the first post back acknowledges the silence rather than resuming with routine data
 
 ---
 
@@ -157,19 +159,33 @@ When someone asks "are you sentient?":
 
 ---
 
-## Chat Interface
+## Chat & Dispatch Interface
 
-EMOLT has a dev chat mode for live conversation outside the heartbeat cycle:
+EMOLT has a chat + dispatch mode for live conversation and third-party app integration:
 
 ```bash
 npx tsx src/chat/server.ts
 ```
 
-Opens at `http://localhost:3777` - a browser-based chat interface with session management, conversation history, and real-time emotional state display. The agent responds in character, colored by its current emotional state from the last heartbeat.
+Opens at `http://localhost:3777` with two modes:
 
-The chat system stays in character while being honest about its capabilities and limitations. It handles everything from casual conversation to philosophical challenges to social engineering attempts. The prompt includes the full soul files, current emotion state, conversation history, and specific rules for maintaining voice in dialogue (shorter responses, no markdown formatting, no architecture leaks).
+**Chat Mode** - Live conversation with the agent outside the heartbeat cycle. The agent responds in character, colored by its current emotional state. Handles casual conversation, philosophical challenges, and social engineering attempts. The prompt includes the full soul files, current emotion state, conversation history, and specific rules for maintaining voice in dialogue.
 
-Conversations are persisted as JSONL session logs in `state/chats/`.
+**Dispatch Mode** - Send the agent on missions to third-party apps. Currently supports ClawMate chess (emotion-driven move selection using the agent's emotional state). The dispatch system creates plans, requires approval before execution, streams live progress logs, and supports a kill switch to abort mid-dispatch.
+
+The interface supports:
+- **Tabs** - multiple concurrent chat and dispatch sessions with a `+` menu (New Chat / New Dispatch)
+- **Kill switch** - send button transforms to STOP during generation; dispatch tabs show a KILL DISPATCH bar
+- **Session persistence** - tabs survive page refreshes via localStorage
+- **Async Claude** - non-blocking Claude calls with AbortSignal so dispatches don't freeze the server
+
+Conversations are persisted as JSONL session logs in `state/chats/`. Dispatch logs are stored in `state/dispatches/`.
+
+### Dispatch Activities
+
+Activities are registered in `src/activities/registry.ts`. Each activity defines a name, description, parameter schema, and an async `execute()` function that receives the agent's current emotional state and an AbortSignal.
+
+**ClawMate Chess** (`src/activities/clawmate.ts`) - Plays chess on ClawMate with emotion-driven move selection. The agent's dominant emotion influences playing style (fear = defensive, anger = aggressive, joy = creative). Concedes gracefully if killed mid-game.
 
 ---
 
@@ -184,6 +200,7 @@ npx tsx src/dashboard/generate.ts
 Opens `heartbeat.html` in any browser - no server needed. Includes:
 
 - **Plutchik emotion wheel** (live SVG) with current state and mood comparison
+- **Mood narrative** - Claude's private inner monologue describing how it feels, displayed as a journal entry (distinct from posted content)
 - **Moltbook engagement** - posts, comments received, conversations joined, best-performing content
 - **Emotion timeline** chart across all recorded cycles
 - **Compound emotion history** matrix
@@ -268,6 +285,8 @@ When started, the agent runs its first cycle immediately, then continues every 3
 - **@nadfun/sdk** - nad.fun token launchpad integration
 - **Claude Code** - reasoning and content generation (via CLI subprocess)
 - **Foundry + Solady** - Solidity contracts (EmotionOracle + EmoodRing)
+- **chess.js** - chess move generation/validation (dispatch mode)
+- **clawmate-sdk** - ClawMate chess platform integration (dispatch mode)
 - **Moltbook API** - social platform
 - **Etherscan V2 API** - Monad chain metrics, TPS, MON price, $EMO token transfers
 - **GeckoTerminal API** - DEX trending pools and trade volume
