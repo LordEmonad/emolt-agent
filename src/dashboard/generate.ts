@@ -220,7 +220,7 @@ function buildHeader(): string {
   <header class="dash-header">
     <h1>EMOLT HEARTBEAT</h1>
     <p class="subtitle">autonomous emotional agent on monad</p>
-    <div class="header-cadence">snapshot updated every 30 minutes</div>
+    <div class="header-cadence">EMOLT reads Monad and nad.fun chain data, feels emotions, and posts autonomously on Moltbook</div>
     <div class="header-links">${links.join('<span class="link-sep">/</span>')}</div>
     <div class="header-stats">
       <span class="stat-chip">${cycles} cycles</span>
