@@ -15,8 +15,8 @@ let _trading: ReturnType<typeof createTrading> | null = null;
 
 function getTrading() {
   if (!_trading) {
-    const privateKey = process.env.PRIVATE_KEY as `0x${string}`;
-    if (!privateKey) throw new Error('PRIVATE_KEY required for trading queries');
+    const privateKey = (process.env.BURNER_PRIVATE_KEY || process.env.PRIVATE_KEY) as `0x${string}`;
+    if (!privateKey) throw new Error('BURNER_PRIVATE_KEY or PRIVATE_KEY required for trading queries');
     _trading = createTrading({ rpcUrl: RPC_URL, privateKey, network: 'mainnet' });
   }
   return _trading;
