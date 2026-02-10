@@ -1425,27 +1425,48 @@ function toggleTheme(){
     if(m)m.textContent=mc>0?fmtMC(mc):'';
     if(c){c.textContent=(change>=0?'+':'')+change.toFixed(1)+'%';c.style.color=change>=0?'#6ECB3C':'#E04848';}
   }
+  function buildTickerItem(sym,price,mc,change,isEmo){
+    var changeColor=change>=0?'#6ECB3C':'#E04848';
+    var changeSign=change>=0?'+':'';
+    var cls=isEmo?'ticker-item nf-emo-item':'ticker-item';
+    var nameCls=isEmo?'ticker-name nf-emo-name':'ticker-name';
+    return '<div class="'+cls+'" data-symbol="'+sym+'">'
+      +'<span class="'+nameCls+'">$'+sym+'</span>'
+      +'<span class="ticker-price">'+fmtP(price)+'</span>'
+      +'<span class="ticker-mc">'+(mc>0?fmtMC(mc):'')+'</span>'
+      +'<span class="ticker-change" style="color:'+changeColor+'">'+changeSign+change.toFixed(1)+'%</span>'
+      +'</div>';
+  }
   function fetchNadFun(){
     fetch('https://api.nad.fun/order/market_cap?limit=20')
       .then(function(r){return r.json()})
       .then(function(data){
         var tokens=Array.isArray(data)?data:(data.tokens||data.data||[]);
-        var els=document.querySelectorAll('[data-symbol]');
-        var tokenMap={};
-        for(var i=0;i<tokens.length&&i<20;i++){
+        if(tokens.length===0)return;
+        // Rebuild the entire ticker track from live API data
+        var items='';
+        for(var i=0;i<tokens.length&&i<10;i++){
           var t=tokens[i];
-          var sym=t.token_info&&t.token_info.symbol||'';
+          var sym=t.token_info&&t.token_info.symbol||'???';
           var priceUsd=parseFloat(t.market_info&&t.market_info.price_usd||'0');
           var totalSupplyWei=t.market_info&&t.market_info.total_supply||'1000000000000000000000000000';
           var totalSupply=Number(BigInt(totalSupplyWei))/1e18;
-          tokenMap[sym]={price:priceUsd,mc:priceUsd*totalSupply,change:t.percent||0};
+          items+=buildTickerItem(sym,priceUsd,priceUsd*totalSupply,t.percent||0,false);
         }
-        for(var j=0;j<els.length;j++){
-          var el=els[j];
-          var sym=el.getAttribute('data-symbol');
-          if(sym==='EMO')continue;
-          var td=tokenMap[sym];
-          if(td)updateItem(el,td.price,td.mc,td.change);
+        // Prepend $EMO (updated separately by fetchEmo)
+        var emoEls=document.querySelectorAll('[data-symbol="EMO"]');
+        var emoHtml=emoEls.length>0?emoEls[0].outerHTML:buildTickerItem('EMO',0,0,0,true);
+        var oneSet=emoHtml+items;
+        var track=oneSet+oneSet; // duplicate for seamless scroll
+        var wrapper=document.querySelector('.ticker-nf');
+        if(wrapper){
+          var overflow=wrapper.querySelector('.ticker-overflow');
+          if(overflow){
+            overflow.innerHTML='<div class="ticker-track">'+track+'</div>';
+            // Recalculate scroll speed
+            var t2=overflow.querySelector('.ticker-track');
+            if(t2){var halfW=t2.scrollWidth/2;var dur=Math.max(10,halfW/40);t2.style.animationDuration=dur+'s';}
+          }
         }
       })
       .catch(function(e){console.warn('nad.fun fetch failed:',e);});
