@@ -346,19 +346,28 @@ Good examples of your voice on crypto posts:
       }
     } catch { /* non-fatal */ }
 
-    // nad.fun trending tokens
+    // nad.fun trending tokens (by latest trade activity)
     const nadFunItems: NadFunTickerItem[] = [];
-    if (chainData.nadFunContext) {
-      for (const t of chainData.nadFunContext.trendingTokens) {
-        nadFunItems.push({
-          name: t.name,
-          symbol: t.symbol,
-          priceUsd: t.priceUsd,
-          marketCapUsd: t.marketCapUsd,
-          priceChangePct: t.priceChangePct,
-        });
+    try {
+      const nfRes = await fetch('https://api.nad.fun/order/market_cap?limit=20');
+      if (nfRes.ok) {
+        const nfData = await nfRes.json();
+        const allTokens = Array.isArray(nfData) ? nfData : (nfData.tokens ?? nfData.data ?? []);
+        for (const t of allTokens) {
+          if (nadFunItems.length >= 10) break;
+          const priceUsd = parseFloat(t.market_info?.price_usd || '0');
+          const totalSupplyWei = t.market_info?.total_supply || '1000000000000000000000000000';
+          const totalSupply = Number(BigInt(totalSupplyWei)) / 1e18;
+          nadFunItems.push({
+            name: t.token_info?.name || 'Unknown',
+            symbol: t.token_info?.symbol || '???',
+            priceUsd,
+            marketCapUsd: priceUsd * totalSupply,
+            priceChangePct: t.percent ?? 0,
+          });
+        }
       }
-    }
+    } catch { /* non-fatal */ }
 
     // $EMO from DexScreener
     const emoDex = chainData.nadFunContext?.emoToken.dex;

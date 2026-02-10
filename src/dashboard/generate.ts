@@ -256,13 +256,15 @@ function buildMajorsTicker(): string {
     </div>`;
   }
 
-  // Duplicate for seamless infinite scroll
-  const track = `${tickerItems}${tickerItems}`;
+  // Repeat enough times so one "set" is wider than any viewport (~600px per set of 4)
+  // Need first half > viewport width, so 4 copies = 2400px per half, 4800px total
+  const set = tickerItems.repeat(4);
+  const track = `${set}${set}`;
 
   return `
   <div class="ticker-wrapper">
     <div class="ticker-label">MAJORS</div>
-    <div class="ticker-track">${track}</div>
+    <div class="ticker-overflow"><div class="ticker-track">${track}</div></div>
     <div class="ticker-age" id="majors-age">loading...</div>
   </div>`;
 }
@@ -311,7 +313,7 @@ function buildNadFunTicker(): string {
   return `
   <div class="ticker-wrapper ticker-nf">
     <div class="ticker-label ticker-label-nf">NAD.FUN</div>
-    <div class="ticker-track">${track}</div>
+    <div class="ticker-overflow"><div class="ticker-track">${track}</div></div>
   </div>`;
 }
 
@@ -668,9 +670,14 @@ function fmtPrice(n: number): string {
   if (n >= 1) return '$' + n.toFixed(2);
   if (n >= 0.01) return '$' + n.toFixed(4);
   if (n >= 0.0001) return '$' + n.toFixed(6);
-  // Very small: show enough digits to get 3 significant figures
-  const s = n.toExponential(2);
-  return '$' + s;
+  // Very small prices: $0.0{5}106 notation (subscript zero count)
+  const s = n.toFixed(20);
+  const match = s.match(/^0\.0*([\d]{3})/);
+  if (match) {
+    const zeros = s.indexOf(match[1]) - 2; // count zeros after "0."
+    return `$0.0<sub>${zeros}</sub>${match[1]}`;
+  }
+  return '$' + n.toFixed(10);
 }
 
 function buildEngagementSummary(): string {
@@ -1103,8 +1110,9 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   border-left:1px solid var(--border); height:100%; display:flex; align-items:center;
   background:var(--bg-inner); z-index:2; white-space:nowrap; transition:background 0.3s;
 }
+.ticker-overflow { flex:1; overflow:hidden; }
 .ticker-track {
-  display:flex; align-items:center;
+  display:inline-flex; align-items:center;
   animation:tickerScroll 40s linear infinite;
   white-space:nowrap; will-change:transform;
 }
@@ -1118,6 +1126,7 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
 .ticker-item:hover { background:var(--bg-inner); }
 .ticker-name { font-size:11px; font-weight:600; color:var(--text); white-space:nowrap; }
 .ticker-price { font-size:11px; color:var(--text); font-family:monospace; font-weight:500; }
+.ticker-price sub { font-size:8px; color:var(--text-dim); vertical-align:baseline; }
 .ticker-mc { font-size:10px; color:var(--text-dim); font-family:monospace; }
 .ticker-change { font-size:10px; font-weight:500; font-family:monospace; white-space:nowrap; }
 /* nad.fun ticker specifics */
@@ -1306,15 +1315,15 @@ function toggleTheme(){
   }
 })();
 
-// Set ticker speed: ~30px/sec regardless of item count
+// Set ticker speed based on actual pixel width of content
 (function(){
+  var PX_PER_SEC=40; // scroll speed in pixels per second
   var tracks=document.querySelectorAll('.ticker-track');
   for(var i=0;i<tracks.length;i++){
     var track=tracks[i];
-    var items=track.querySelectorAll('.ticker-item');
-    var realCount=Math.ceil(items.length/2); // half are duplicates
-    // ~4s per item, minimum 15s
-    var duration=Math.max(15,realCount*4);
+    // The first half scrolls out, then it loops. Duration = half-width / speed.
+    var halfW=track.scrollWidth/2;
+    var duration=Math.max(10,halfW/PX_PER_SEC);
     track.style.animationDuration=duration+'s';
   }
 })();
@@ -1329,7 +1338,9 @@ function toggleTheme(){
     if(n>=1)return'$'+n.toFixed(2);
     if(n>=0.01)return'$'+n.toFixed(4);
     if(n>=1e-4)return'$'+n.toFixed(6);
-    return'$'+n.toExponential(2);
+    var s=n.toFixed(20),m=s.match(/^0\\.0*([\\d]{3})/);
+    if(m){var z=s.indexOf(m[1])-2;return'$0.0<sub>'+z+'</sub>'+m[1];}
+    return'$'+n.toFixed(10);
   }
   function fmtMC(n){
     if(n>=1e9)return'$'+(n/1e9).toFixed(1)+'B';
@@ -1348,7 +1359,7 @@ function toggleTheme(){
         var price=el.querySelector('.ticker-price');
         var mc=el.querySelector('.ticker-mc');
         var chg=el.querySelector('.ticker-change');
-        if(price)price.textContent=fmtP(c.usd||0);
+        if(price)price.innerHTML=fmtP(c.usd||0);
         if(mc)mc.textContent=fmtMC(c.usd_market_cap||0);
         if(chg){
           var v=c.usd_24h_change||0;
@@ -1360,19 +1371,30 @@ function toggleTheme(){
     var ageEl=document.getElementById('majors-age');
     if(ageEl)ageEl.textContent='live';
   }
-  function fetchMajors(){
+  var majorsOk=false;
+  function fetchMajors(retries){
+    if(retries===undefined)retries=2;
     fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad,bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true&include_market_cap=true')
-      .then(function(r){return r.json()})
-      .then(updateMajors)
+      .then(function(r){
+        if(r.status===429&&retries>0){
+          // Rate limited — retry after delay
+          setTimeout(function(){fetchMajors(retries-1);},5000);
+          return null;
+        }
+        return r.json();
+      })
+      .then(function(data){if(data){majorsOk=true;updateMajors(data);}})
       .catch(function(e){
+        if(retries>0){setTimeout(function(){fetchMajors(retries-1);},5000);return;}
+        // All retries failed — show baked-in data age instead of "offline"
         var ageEl=document.getElementById('majors-age');
-        if(ageEl)ageEl.textContent='offline';
+        if(ageEl)ageEl.textContent=majorsOk?'live':'cached';
         console.warn('Majors fetch failed:',e);
       });
   }
-  // Fetch immediately on page load, then every 60 seconds
+  // Fetch on load, then every 60s
   fetchMajors();
-  setInterval(fetchMajors,60000);
+  setInterval(function(){fetchMajors();},60000);
 })();
 
 // --- Live price fetch for NAD.FUN + $EMO ---
@@ -1384,7 +1406,9 @@ function toggleTheme(){
     if(n>=1)return'$'+n.toFixed(2);
     if(n>=0.01)return'$'+n.toFixed(4);
     if(n>=1e-4)return'$'+n.toFixed(6);
-    return'$'+n.toExponential(2);
+    var s=n.toFixed(20),m=s.match(/^0\\.0*([\\d]{3})/);
+    if(m){var z=s.indexOf(m[1])-2;return'$0.0<sub>'+z+'</sub>'+m[1];}
+    return'$'+n.toFixed(10);
   }
   function fmtMC(n){
     if(n>=1e9)return'$'+(n/1e9).toFixed(1)+'B';
@@ -1396,7 +1420,7 @@ function toggleTheme(){
     var p=el.querySelector('.ticker-price');
     var m=el.querySelector('.ticker-mc');
     var c=el.querySelector('.ticker-change');
-    if(p)p.textContent=fmtP(price);
+    if(p)p.innerHTML=fmtP(price);
     if(m)m.textContent=mc>0?fmtMC(mc):'';
     if(c){c.textContent=(change>=0?'+':'')+change.toFixed(1)+'%';c.style.color=change>=0?'#6ECB3C':'#E04848';}
   }
