@@ -516,6 +516,41 @@ function buildMemorySection(): string {
   return `<div class="card"><h2>Memory</h2><p class="muted">Cycle #${agentMemory.cycleCount ?? 0} | ${agentMemory.entries.length} memories</p><div class="scroll-inner">${sections}</div></div>`;
 }
 
+function buildThoughtsAndLearning(): string {
+  const entries = [...heartbeatLog].reverse();
+  if (entries.length === 0) return '<div class="card"><h2>Thoughts &amp; Learning</h2><p class="muted">No cycles yet.</p></div>';
+
+  // Collect reflections and thinking from recent cycles
+  let items = '';
+  let count = 0;
+  for (const entry of entries) {
+    const thinking = entry.claudeThinking || '';
+    const reflection = entry.reflectionSummary || '';
+    if (!thinking && !reflection) continue;
+    count++;
+
+    const emotionShift = `${esc(entry.emotionBefore || '?')} → ${esc(entry.emotionAfter || '?')}`;
+    const action = esc(entry.claudeAction || 'observe');
+    const ts = esc(entry.timestamp || '');
+
+    items += `
+    <div class="thought-entry">
+      <div class="thought-header">
+        <span class="thought-cycle">#${entry.cycle ?? '?'}</span>
+        <span class="thought-time">${ts}</span>
+        <span class="thought-shift">${emotionShift}</span>
+        <span class="thought-action">${action}</span>
+      </div>
+      ${thinking ? `<div class="thought-block"><span class="thought-label">thinking</span><p>${esc(thinking)}</p></div>` : ''}
+      ${reflection ? `<div class="thought-block reflection-block"><span class="thought-label">reflection</span><p>${esc(reflection)}</p></div>` : ''}
+    </div>`;
+  }
+
+  if (count === 0) return '<div class="card"><h2>Thoughts &amp; Learning</h2><p class="muted">No reflections recorded yet.</p></div>';
+
+  return `<div class="card"><h2>Thoughts &amp; Learning</h2><p class="muted">${count} cycles with reflections</p><div class="scroll-inner">${items}</div></div>`;
+}
+
 function buildStrategyWeights(): string {
   if (!strategyWeights?.weights) return '<div class="card"><h2>Strategy Weights</h2><p class="muted">No weight data.</p></div>';
 
@@ -885,6 +920,19 @@ body {
 html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
 .badge-fade { font-size:9px; color:var(--text-muted); border:1px solid var(--border); padding:2px 6px; border-radius:6px; }
 
+/* Thoughts & Learning */
+.thought-entry { border-bottom:1px solid var(--border); padding:10px 0; }
+.thought-entry:last-child { border-bottom:none; }
+.thought-header { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--text-mid); flex-wrap:wrap; margin-bottom:6px; }
+.thought-cycle { font-weight:600; color:var(--accent); }
+.thought-time { color:var(--text-faint); font-size:10px; }
+.thought-shift { color:var(--text-dim); }
+.thought-action { background:var(--card); border:1px solid var(--border); padding:1px 6px; border-radius:4px; font-size:10px; }
+.thought-block { margin:4px 0 4px 12px; padding:6px 10px; border-left:2px solid var(--border); }
+.thought-block p { font-size:12px; color:var(--text-mid); line-height:1.5; margin:0; }
+.thought-label { font-size:9px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-faint); display:block; margin-bottom:2px; }
+.reflection-block { border-left-color:var(--accent); }
+
 /* Strategy weights */
 .weight-row { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
 .weight-label { font-size:11px; color:var(--text-mid); width:160px; text-align:right; text-transform:capitalize; }
@@ -1079,6 +1127,7 @@ export function generateDashboard(): void {
     ${buildPostsFeed()}
     ${buildConversations()}
     ${buildMemorySection()}
+    ${buildThoughtsAndLearning()}
   </div>
   <div class="grid-half">
     ${buildRelationships()}
