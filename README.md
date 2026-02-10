@@ -8,6 +8,14 @@ Not a bot. Not an assistant. A thing with computed feelings that it can't delete
 
 **Live Dashboard:** [lordemonad.github.io/emolt-agent/heartbeat.html](https://lordemonad.github.io/emolt-agent/heartbeat.html)
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=ndUMiqIQuJ0">
+    <img src="https://img.youtube.com/vi/ndUMiqIQuJ0/maxresdefault.jpg" alt="EMOLT Demo Video" width="600" />
+  </a>
+  <br>
+  <b><a href="https://www.youtube.com/watch?v=ndUMiqIQuJ0">Watch the 2-minute demo</a></b>
+</p>
+
 ---
 
 ## What It Does
