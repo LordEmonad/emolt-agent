@@ -1373,29 +1373,65 @@ function toggleTheme(){
     if(ageEl)ageEl.textContent='live';
   }
   var majorsOk=false;
-  function fetchMajors(retries){
-    if(retries===undefined)retries=2;
-    fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad,bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true&include_market_cap=true')
-      .then(function(r){
-        if(r.status===429&&retries>0){
-          // Rate limited — retry after delay
-          setTimeout(function(){fetchMajors(retries-1);},5000);
-          return null;
+
+  // Source 1: CoinGecko
+  function fetchCoinGecko(){
+    return fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad,bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true&include_market_cap=true')
+      .then(function(r){if(!r.ok)throw new Error(r.status);return r.json();})
+      .then(function(data){
+        if(!data||!data.bitcoin)throw new Error('empty');
+        return data; // already in {id:{usd,usd_24h_change,usd_market_cap}} format
+      });
+  }
+
+  // Source 2: CoinCap
+  var COINCAP_IDS={bitcoin:'bitcoin',ethereum:'ethereum',solana:'solana',monad:'monad'};
+  function fetchCoinCap(){
+    return fetch('https://api.coincap.io/v2/assets?ids=bitcoin,ethereum,solana,monad')
+      .then(function(r){if(!r.ok)throw new Error(r.status);return r.json();})
+      .then(function(json){
+        var out={};
+        var assets=json.data||[];
+        for(var i=0;i<assets.length;i++){
+          var a=assets[i];
+          out[a.id]={usd:parseFloat(a.priceUsd)||0,usd_24h_change:parseFloat(a.changePercent24Hr)||0,usd_market_cap:parseFloat(a.marketCapUsd)||0};
         }
-        return r.json();
-      })
+        if(!out.bitcoin)throw new Error('empty');
+        return out;
+      });
+  }
+
+  // Source 3: CryptoCompare
+  function fetchCryptoCompare(){
+    return fetch('https://min-api.cryptocompare.com/data/pricemultifull?fsyms=BTC,ETH,SOL,MON&tsyms=USD')
+      .then(function(r){if(!r.ok)throw new Error(r.status);return r.json();})
+      .then(function(json){
+        var raw=json.RAW||{};
+        var map={BTC:'bitcoin',ETH:'ethereum',SOL:'solana',MON:'monad'};
+        var out={};
+        for(var sym in map){
+          var d=raw[sym]&&raw[sym].USD;
+          if(d)out[map[sym]]={usd:d.PRICE||0,usd_24h_change:d.CHANGEPCT24HOUR||0,usd_market_cap:d.MKTCAP||0};
+        }
+        if(!out.bitcoin)throw new Error('empty');
+        return out;
+      });
+  }
+
+  function fetchMajors(){
+    fetchCoinGecko()
+      .catch(function(e){console.warn('CoinGecko failed:',e.message);return fetchCoinCap();})
+      .catch(function(e){console.warn('CoinCap failed:',e.message);return fetchCryptoCompare();})
       .then(function(data){if(data){majorsOk=true;updateMajors(data);}})
       .catch(function(e){
-        if(retries>0){setTimeout(function(){fetchMajors(retries-1);},5000);return;}
-        // All retries failed — show baked-in data age instead of "offline"
         var ageEl=document.getElementById('majors-age');
         if(ageEl)ageEl.textContent=majorsOk?'live':'cached';
-        console.warn('Majors fetch failed:',e);
+        console.warn('All price sources failed:',e);
       });
   }
   // Fetch on load, then every 60s
   fetchMajors();
-  setInterval(function(){fetchMajors();},60000);
+  setInterval(fetchMajors,60000);
 })();
 
 // --- Live price fetch for NAD.FUN + $EMO ---
