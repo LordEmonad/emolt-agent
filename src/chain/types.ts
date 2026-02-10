@@ -12,6 +12,10 @@ export interface NadFunTokenInfo {
   symbol: string;
   progress: number; // 0-10000 (basis points, 10000 = 100%)
   isGraduated: boolean;
+  priceUsd: number;        // token price in USD from API
+  priceNative: number;     // token price in MON from API
+  marketCapUsd: number;    // price_usd * total_supply
+  priceChangePct: number;  // price change % from API
 }
 
 export interface EmoDexData {

@@ -73,6 +73,9 @@ interface NadFunApiToken {
     reserve_native?: string;
     reserve_token?: string;
     holder_count?: number;
+    price_usd?: string;      // token price in USD
+    price_native?: string;   // token price in MON
+    total_supply?: string;   // total supply in wei (1e27 = 1B tokens)
   };
   percent: number;           // price change percentage
 }
@@ -366,12 +369,23 @@ export async function collectNadFunData(): Promise<NadFunContext> {
     trendingCandidates.map(async (t) => {
       const tokenAddr = t.token_info.token_id as Address;
       const progress = await getTrading().getProgress(tokenAddr).catch(() => 0n);
+      const priceUsd = parseFloat(t.market_info.price_usd || '0');
+      const priceNative = parseFloat(t.market_info.price_native || '0');
+      // total_supply is in wei (18 decimals), typically 1e27 = 1B tokens
+      const totalSupply = t.market_info.total_supply
+        ? Number(BigInt(t.market_info.total_supply)) / 1e18
+        : 1e9;
+      const marketCapUsd = priceUsd * totalSupply;
       return {
         address: t.token_info.token_id,
         name: t.token_info.name || 'Unknown',
         symbol: t.token_info.symbol || '???',
         progress: Number(progress),
         isGraduated: false,
+        priceUsd,
+        priceNative,
+        marketCapUsd,
+        priceChangePct: t.percent ?? 0,
       };
     })
   );

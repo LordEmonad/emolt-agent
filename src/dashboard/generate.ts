@@ -52,6 +52,7 @@ let commentedPosts: any[];
 let agentMemory: any;
 let strategyWeights: any;
 let rollingAverages: any;
+let trendingData: any;
 
 function loadAllData(): void {
   emotionState = readJSON('emotion-state.json');
@@ -63,6 +64,7 @@ function loadAllData(): void {
   agentMemory = readJSON('agent-memory.json');
   strategyWeights = readJSON('strategy-weights.json');
   rollingAverages = readJSON('rolling-averages.json');
+  trendingData = readJSON('trending-data.json');
 }
 
 // --- Plutchik constants ---
@@ -230,6 +232,86 @@ function buildHeader(): string {
       <span class="toggle-icon" id="toggleIcon">&#9788;</span>
     </button>
   </header>`;
+}
+
+function buildMajorsTicker(): string {
+  // Build with static fallback data, then JS overwrites on load
+  const items = trendingData?.dex || [];
+
+  let tickerItems = '';
+  const coins = ['MON', 'BTC', 'ETH', 'SOL'];
+  for (const coin of coins) {
+    const item = items.find((i: any) => i.name === coin);
+    const change = item?.changeH24 ?? 0;
+    const changeColor = change >= 0 ? '#6ECB3C' : '#E04848';
+    const changeSign = change >= 0 ? '+' : '';
+    const price = item?.priceUsd > 0 ? fmtPrice(item.priceUsd) : '--';
+    const mc = item?.marketCapUsd > 0 ? `$${fmtNum(item.marketCapUsd)}` : '';
+
+    tickerItems += `<div class="ticker-item majors-item" data-major="${coin}">
+      <span class="ticker-name">${esc(coin)}</span>
+      <span class="ticker-price">${price}</span>
+      ${mc ? `<span class="ticker-mc">${mc}</span>` : `<span class="ticker-mc"></span>`}
+      <span class="ticker-change" style="color:${changeColor}">${changeSign}${change.toFixed(1)}%</span>
+    </div>`;
+  }
+
+  // Duplicate for seamless scroll loop
+  const track = `${tickerItems}${tickerItems}`;
+
+  return `
+  <div class="ticker-wrapper majors-bar">
+    <div class="ticker-label">MAJORS</div>
+    <div class="ticker-track majors-track" id="majorsTrack">${track}</div>
+    <div class="ticker-age" id="majors-age">loading...</div>
+  </div>`;
+}
+
+function buildNadFunTicker(): string {
+  const nfItems = trendingData?.nadfun || [];
+  const emo = trendingData?.emo;
+
+  let tickerItems = '';
+
+  // $EMO token (DexScreener data)
+  {
+    const price = emo?.priceUsd > 0 ? fmtPrice(emo.priceUsd) : '--';
+    const mc = emo?.marketCapUsd > 0 ? `$${fmtNum(emo.marketCapUsd)}` : '';
+    const change = emo?.priceChangePct ?? 0;
+    const changeColor = change >= 0 ? '#6ECB3C' : '#E04848';
+    const changeSign = change >= 0 ? '+' : '';
+
+    tickerItems += `<div class="ticker-item nf-emo-item" data-symbol="EMO">
+      <span class="ticker-name nf-emo-name">$EMO</span>
+      <span class="ticker-price">${price}</span>
+      <span class="ticker-mc">${mc}</span>
+      <span class="ticker-change" style="color:${changeColor}">${changeSign}${change.toFixed(1)}%</span>
+    </div>`;
+  }
+
+  // Trending tokens — price, market cap, % change
+  for (const item of nfItems) {
+    const price = item.priceUsd > 0 ? fmtPrice(item.priceUsd) : '--';
+    const mc = item.marketCapUsd > 0 ? `$${fmtNum(item.marketCapUsd)}` : '';
+    const change = item.priceChangePct ?? 0;
+    const changeColor = change >= 0 ? '#6ECB3C' : '#E04848';
+    const changeSign = change >= 0 ? '+' : '';
+
+    tickerItems += `<div class="ticker-item" data-symbol="${esc(item.symbol)}">
+      <span class="ticker-name">${esc(`$${item.symbol}`)}</span>
+      <span class="ticker-price">${price}</span>
+      <span class="ticker-mc">${mc}</span>
+      <span class="ticker-change" style="color:${changeColor}">${changeSign}${change.toFixed(1)}%</span>
+    </div>`;
+  }
+
+  const track = `${tickerItems}${tickerItems}`;
+
+  return `
+  <div class="ticker-wrapper ticker-nf" id="nfTicker">
+    <div class="ticker-label ticker-label-nf">NAD.FUN</div>
+    <div class="ticker-track" id="nfTickerTrack">${track}</div>
+  </div>`;
 }
 
 function buildCurrentState(): string {
@@ -576,6 +658,18 @@ function fmtNum(n: number, decimals = 1): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(decimals) + 'M';
   if (n >= 1_000) return (n / 1_000).toFixed(decimals) + 'K';
   return n.toFixed(decimals);
+}
+
+function fmtPrice(n: number): string {
+  if (n === 0) return '$0';
+  if (n >= 100_000) return '$' + fmtNum(n, 0);
+  if (n >= 1000) return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (n >= 1) return '$' + n.toFixed(2);
+  if (n >= 0.01) return '$' + n.toFixed(4);
+  if (n >= 0.0001) return '$' + n.toFixed(6);
+  // Very small: show enough digits to get 3 significant figures
+  const s = n.toExponential(2);
+  return '$' + s;
 }
 
 function buildEngagementSummary(): string {
@@ -991,6 +1085,50 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
 .oc-addr { font-size:11px; color:#22AACC; font-family:monospace; text-decoration:none; overflow:hidden; text-overflow:ellipsis; max-width:60%; }
 .oc-addr:hover { text-decoration:underline; }
 
+/* Trending Ticker */
+.ticker-wrapper {
+  display:flex; align-items:center; gap:0;
+  background:var(--bg-card); border:1px solid var(--border); border-radius:10px;
+  margin-bottom:8px; overflow:hidden; position:relative; height:38px;
+  transition:background 0.3s, border-color 0.3s;
+}
+.ticker-label {
+  flex-shrink:0; font-size:9px; font-weight:600; letter-spacing:2px; color:var(--text-faint);
+  padding:0 14px; border-right:1px solid var(--border); height:100%; display:flex; align-items:center;
+  background:var(--bg-inner); z-index:2; transition:background 0.3s;
+}
+.ticker-age {
+  flex-shrink:0; font-size:9px; color:var(--text-faint); padding:0 12px;
+  border-left:1px solid var(--border); height:100%; display:flex; align-items:center;
+  background:var(--bg-inner); z-index:2; white-space:nowrap; transition:background 0.3s;
+}
+.ticker-track {
+  display:flex; align-items:center; gap:0;
+  animation:tickerScroll var(--ticker-duration, 40s) linear infinite;
+  white-space:nowrap; will-change:transform;
+}
+.ticker-track:hover { animation-play-state:paused; }
+@keyframes tickerScroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+.ticker-item {
+  display:inline-flex; align-items:center; gap:6px; padding:0 18px;
+  border-right:1px solid var(--border); height:38px; flex-shrink:0; cursor:default;
+  transition:background 0.15s;
+}
+.ticker-item:hover { background:var(--bg-inner); }
+.ticker-name { font-size:11px; font-weight:600; color:var(--text); white-space:nowrap; }
+.ticker-price { font-size:11px; color:var(--text); font-family:monospace; font-weight:500; }
+.ticker-mc { font-size:10px; color:var(--text-dim); font-family:monospace; }
+.ticker-change { font-size:10px; font-weight:500; font-family:monospace; white-space:nowrap; }
+/* Majors bar — static on desktop, scrolls on mobile */
+.majors-bar { justify-content:stretch; }
+.majors-track { animation:none; display:flex; flex:1; justify-content:space-evenly; align-items:center; }
+.majors-item { border-right:none; justify-content:center; flex:1; }
+/* nad.fun ticker specifics */
+.ticker-nf { margin-bottom:20px; }
+.ticker-label-nf { color:#EF8E20; }
+.nf-emo-name { color:#F5D831 !important; }
+.nf-emo-item { border-right-color:var(--border-light); }
+
 /* Responsive - tablet */
 @media (max-width:960px) {
   .grid { grid-template-columns:1fr 1fr; }
@@ -1087,6 +1225,21 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   .ch-cycle { font-size:8px; min-width:18px; }
   .compound-table th, .compound-table td { padding:2px 3px; }
 
+  /* Ticker mobile */
+  .ticker-wrapper { height:34px; margin-bottom:0; border-radius:8px; }
+  .ticker-nf { margin-top:4px; margin-bottom:14px; }
+  .ticker-label { font-size:8px; padding:0 10px; letter-spacing:1px; }
+  .ticker-age { font-size:8px; padding:0 8px; }
+  .ticker-item { padding:0 14px; height:34px; gap:5px; }
+  .ticker-name { font-size:10px; }
+  .ticker-price { font-size:10px; }
+  .ticker-mc { font-size:9px; }
+  .ticker-change { font-size:9px; }
+  /* Majors scroll on mobile */
+  .majors-track { animation:tickerScroll var(--ticker-duration,30s) linear infinite; justify-content:flex-start; flex:none; }
+  .majors-track:hover { animation-play-state:paused; }
+  .majors-item { flex:none; border-right:1px solid var(--border); }
+
   /* Scroll containers get a bit more height on mobile */
   .scroll-inner { max-height:360px; }
 }
@@ -1108,6 +1261,9 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
 export function generateDashboard(): void {
   loadAllData();
 
+  const dexTicker = buildMajorsTicker();
+  const nfTicker = buildNadFunTicker();
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1119,6 +1275,8 @@ export function generateDashboard(): void {
 <body>
 <div class="dashboard">
   ${buildHeader()}
+  ${dexTicker}
+  ${nfTicker}
   <div class="grid">
     ${buildCurrentState()}
     ${buildEngagementSummary()}
@@ -1153,6 +1311,145 @@ function toggleTheme(){
     document.documentElement.classList.add('light');
     document.getElementById('toggleIcon').innerHTML='\\u263E';
   }
+})();
+
+// Dynamic ticker speed based on item count
+(function(){
+  var tracks=document.querySelectorAll('.ticker-track');
+  for(var i=0;i<tracks.length;i++){
+    var track=tracks[i];
+    var items=track.querySelectorAll('.ticker-item');
+    var realCount=Math.ceil(items.length/2);
+    var duration=Math.max(20,realCount*4);
+    track.style.animationDuration=duration+'s';
+  }
+})();
+
+// --- Live price fetch for MAJORS ---
+(function(){
+  var COINS={monad:'MON',bitcoin:'BTC',ethereum:'ETH',solana:'SOL'};
+  function fmtP(n){
+    if(n===0)return'$0';
+    if(n>=1e5)return'$'+(n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':(n/1e3).toFixed(1)+'K');
+    if(n>=1e3)return'$'+n.toLocaleString('en-US',{maximumFractionDigits:0});
+    if(n>=1)return'$'+n.toFixed(2);
+    if(n>=0.01)return'$'+n.toFixed(4);
+    if(n>=1e-4)return'$'+n.toFixed(6);
+    return'$'+n.toExponential(2);
+  }
+  function fmtMC(n){
+    if(n>=1e9)return'$'+(n/1e9).toFixed(1)+'B';
+    if(n>=1e6)return'$'+(n/1e6).toFixed(1)+'M';
+    if(n>=1e3)return'$'+(n/1e3).toFixed(1)+'K';
+    return'$'+n.toFixed(1);
+  }
+  function updateMajors(data){
+    for(var id in COINS){
+      var sym=COINS[id];
+      if(!data[id])continue;
+      var c=data[id];
+      var els=document.querySelectorAll('[data-major="'+sym+'"]');
+      for(var i=0;i<els.length;i++){
+        var el=els[i];
+        var price=el.querySelector('.ticker-price');
+        var mc=el.querySelector('.ticker-mc');
+        var chg=el.querySelector('.ticker-change');
+        if(price)price.textContent=fmtP(c.usd||0);
+        if(mc)mc.textContent=fmtMC(c.usd_market_cap||0);
+        if(chg){
+          var v=c.usd_24h_change||0;
+          chg.textContent=(v>=0?'+':'')+v.toFixed(1)+'%';
+          chg.style.color=v>=0?'#6ECB3C':'#E04848';
+        }
+      }
+    }
+    var ageEl=document.getElementById('majors-age');
+    if(ageEl)ageEl.textContent='live';
+  }
+  function fetchMajors(){
+    fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad,bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true&include_market_cap=true')
+      .then(function(r){return r.json()})
+      .then(updateMajors)
+      .catch(function(e){
+        var ageEl=document.getElementById('majors-age');
+        if(ageEl)ageEl.textContent='offline';
+        console.warn('Majors fetch failed:',e);
+      });
+  }
+  // Fetch immediately on page load, then every 60 seconds
+  fetchMajors();
+  setInterval(fetchMajors,60000);
+})();
+
+// --- Live price fetch for NAD.FUN + $EMO ---
+(function(){
+  function fmtP(n){
+    if(n===0)return'$0';
+    if(n>=1e5)return'$'+(n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':(n/1e3).toFixed(1)+'K');
+    if(n>=1e3)return'$'+n.toLocaleString('en-US',{maximumFractionDigits:0});
+    if(n>=1)return'$'+n.toFixed(2);
+    if(n>=0.01)return'$'+n.toFixed(4);
+    if(n>=1e-4)return'$'+n.toFixed(6);
+    return'$'+n.toExponential(2);
+  }
+  function fmtMC(n){
+    if(n>=1e9)return'$'+(n/1e9).toFixed(1)+'B';
+    if(n>=1e6)return'$'+(n/1e6).toFixed(1)+'M';
+    if(n>=1e3)return'$'+(n/1e3).toFixed(1)+'K';
+    return'$'+n.toFixed(1);
+  }
+  function updateItem(el,price,mc,change){
+    var p=el.querySelector('.ticker-price');
+    var m=el.querySelector('.ticker-mc');
+    var c=el.querySelector('.ticker-change');
+    if(p)p.textContent=fmtP(price);
+    if(m)m.textContent=mc>0?fmtMC(mc):'';
+    if(c){c.textContent=(change>=0?'+':'')+change.toFixed(1)+'%';c.style.color=change>=0?'#6ECB3C':'#E04848';}
+  }
+  function fetchNadFun(){
+    fetch('https://api.nad.fun/order/market_cap?limit=20')
+      .then(function(r){return r.json()})
+      .then(function(data){
+        var tokens=Array.isArray(data)?data:(data.tokens||data.data||[]);
+        var els=document.querySelectorAll('[data-symbol]');
+        var tokenMap={};
+        for(var i=0;i<tokens.length&&i<20;i++){
+          var t=tokens[i];
+          var sym=t.token_info&&t.token_info.symbol||'';
+          var priceUsd=parseFloat(t.market_info&&t.market_info.price_usd||'0');
+          var totalSupplyWei=t.market_info&&t.market_info.total_supply||'1000000000000000000000000000';
+          var totalSupply=Number(BigInt(totalSupplyWei))/1e18;
+          tokenMap[sym]={price:priceUsd,mc:priceUsd*totalSupply,change:t.percent||0};
+        }
+        for(var j=0;j<els.length;j++){
+          var el=els[j];
+          var sym=el.getAttribute('data-symbol');
+          if(sym==='EMO')continue;
+          var td=tokenMap[sym];
+          if(td)updateItem(el,td.price,td.mc,td.change);
+        }
+      })
+      .catch(function(e){console.warn('nad.fun fetch failed:',e);});
+  }
+  function fetchEmo(){
+    fetch('https://api.dexscreener.com/latest/dex/tokens/0x81A224F8A62f52BdE942dBF23A56df77A10b7777')
+      .then(function(r){return r.json()})
+      .then(function(json){
+        var pair=json.pairs&&json.pairs[0];
+        if(!pair)return;
+        var price=parseFloat(pair.priceUsd)||0;
+        var mc=pair.marketCap||pair.fdv||0;
+        var change=pair.priceChange&&pair.priceChange.h24||0;
+        var els=document.querySelectorAll('[data-symbol="EMO"]');
+        for(var i=0;i<els.length;i++)updateItem(els[i],price,mc,change);
+      })
+      .catch(function(e){console.warn('$EMO fetch failed:',e);});
+  }
+  // Fetch on load, then every 60s
+  fetchNadFun();
+  fetchEmo();
+  setInterval(fetchNadFun,60000);
+  setInterval(fetchEmo,60000);
 })();
 
 </script>

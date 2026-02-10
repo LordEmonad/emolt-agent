@@ -53,8 +53,10 @@ import {
   savePreviousPrice,
   calculateSelfPerformance,
   canPostNow,
-  appendHeartbeatLog
+  appendHeartbeatLog,
+  saveTrendingData
 } from './state/persistence.js';
+import type { DexTickerItem, NadFunTickerItem } from './state/persistence.js';
 
 const HEARTBEAT_INTERVAL = 30 * 60 * 1000; // 30 minutes in ms
 
@@ -324,6 +326,55 @@ Good examples of your voice on crypto posts:
     }
   } else {
     console.log('[Ecosystem] External data unavailable this cycle');
+  }
+
+  // 7.5. Save trending data for dashboard ticker
+  {
+    // Majors from CoinGecko simple/price
+    const majors: DexTickerItem[] = [];
+    try {
+      const ids = 'monad,bitcoin,ethereum,solana';
+      const cgRes = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`
+      );
+      if (cgRes.ok) {
+        const cgData = await cgRes.json();
+        for (const { id, name } of [{ id: 'monad', name: 'MON' }, { id: 'bitcoin', name: 'BTC' }, { id: 'ethereum', name: 'ETH' }, { id: 'solana', name: 'SOL' }]) {
+          const coin = cgData[id];
+          if (coin) majors.push({ name, priceUsd: coin.usd ?? 0, marketCapUsd: coin.usd_market_cap ?? 0, changeH24: coin.usd_24h_change ?? 0 });
+        }
+      }
+    } catch { /* non-fatal */ }
+
+    // nad.fun trending tokens
+    const nadFunItems: NadFunTickerItem[] = [];
+    if (chainData.nadFunContext) {
+      for (const t of chainData.nadFunContext.trendingTokens) {
+        nadFunItems.push({
+          name: t.name,
+          symbol: t.symbol,
+          priceUsd: t.priceUsd,
+          marketCapUsd: t.marketCapUsd,
+          priceChangePct: t.priceChangePct,
+        });
+      }
+    }
+
+    // $EMO from DexScreener
+    const emoDex = chainData.nadFunContext?.emoToken.dex;
+    const emoTicker = emoDex ? {
+      priceUsd: emoDex.priceUsd,
+      marketCapUsd: 0,
+      priceChangePct: emoDex.priceChangePercent,
+    } : null;
+
+    saveTrendingData({
+      dex: majors,
+      nadfun: nadFunItems,
+      emo: emoTicker,
+      updatedAt: Date.now(),
+    });
+    console.log(`[Trending] Saved ${majors.length} majors + ${nadFunItems.length} nad.fun items for dashboard ticker`);
   }
 
   // 8. Self-performance tracking
