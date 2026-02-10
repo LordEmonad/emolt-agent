@@ -1,4 +1,4 @@
-import { createCurveIndexer, createTrading, createDexIndexer, discoverPoolForToken } from '@nadfun/sdk';
+import { createTrading, createDexIndexer, discoverPoolForToken } from '@nadfun/sdk';
 import type { DexIndexer, PoolInfo } from '@nadfun/sdk';
 import { type Address, erc20Abi, formatUnits } from 'viem';
 import { publicClient, getAccount } from './client.js';
@@ -7,19 +7,11 @@ import type { NadFunContext, NadFunTokenInfo, EmoDexData, EmoSocialLinks } from 
 const EMO_TOKEN: Address = '0x81A224F8A62f52BdE942dBF23A56df77A10b7777';
 const RPC_URL = process.env.MONAD_RPC_URL || 'https://rpc.monad.xyz';
 
-// Monad RPC limits eth_getLogs to 100 blocks per call
-const MAX_LOG_RANGE = 100n;
+// nad.fun REST API — returns complete, accurate data in single HTTP calls
+const NAD_FUN_API = 'https://api.nad.fun';
 
-// Lazy singletons
-let _indexer: ReturnType<typeof createCurveIndexer> | null = null;
+// Lazy singleton for $EMO SDK queries
 let _trading: ReturnType<typeof createTrading> | null = null;
-
-function getIndexer() {
-  if (!_indexer) {
-    _indexer = createCurveIndexer({ rpcUrl: RPC_URL, network: 'mainnet' });
-  }
-  return _indexer;
-}
 
 function getTrading() {
   if (!_trading) {
@@ -30,50 +22,99 @@ function getTrading() {
   return _trading;
 }
 
-// Chunk a large block range into 100-block windows for eth_getLogs compliance
-async function getCreateEventsChunked(fromBlock: bigint, toBlock: bigint) {
-  const indexer = getIndexer();
-  const allEvents: Awaited<ReturnType<typeof indexer.getCreateEvents>> = [];
+// Simple circuit breaker: after 3 consecutive failures, skip for 3 cycles (90 min)
+const circuitBreakers: Record<string, { failures: number; skipUntil: number }> = {};
 
-  // Sample up to 10 chunks spread across the range (not every chunk - too many RPC calls)
-  const totalRange = toBlock - fromBlock;
-  const numChunks = Math.min(10, Number(totalRange / MAX_LOG_RANGE) + 1);
-  const step = totalRange / BigInt(numChunks);
-
-  for (let i = 0; i < numChunks; i++) {
-    const chunkStart = fromBlock + step * BigInt(i);
-    const chunkEnd = chunkStart + MAX_LOG_RANGE < toBlock ? chunkStart + MAX_LOG_RANGE : toBlock;
-    try {
-      const events = await indexer.getCreateEvents(chunkStart, chunkEnd);
-      allEvents.push(...events);
-    } catch {
-      // Skip failed chunks
-    }
+function isCircuitOpen(name: string): boolean {
+  const cb = circuitBreakers[name];
+  if (!cb) return false;
+  if (cb.failures >= 3 && Date.now() < cb.skipUntil) {
+    console.warn(`[nad.fun] Circuit open for ${name}, skipping`);
+    return true;
   }
-
-  return allEvents;
+  if (Date.now() >= cb.skipUntil) {
+    cb.failures = 0;
+  }
+  return false;
 }
 
-async function getGraduateEventsChunked(fromBlock: bigint, toBlock: bigint) {
-  const indexer = getIndexer();
-  const allEvents: Awaited<ReturnType<typeof indexer.getGraduateEvents>> = [];
+function recordSuccess(name: string): void {
+  circuitBreakers[name] = { failures: 0, skipUntil: 0 };
+}
 
-  const totalRange = toBlock - fromBlock;
-  const numChunks = Math.min(10, Number(totalRange / MAX_LOG_RANGE) + 1);
-  const step = totalRange / BigInt(numChunks);
-
-  for (let i = 0; i < numChunks; i++) {
-    const chunkStart = fromBlock + step * BigInt(i);
-    const chunkEnd = chunkStart + MAX_LOG_RANGE < toBlock ? chunkStart + MAX_LOG_RANGE : toBlock;
-    try {
-      const events = await indexer.getGraduateEvents(chunkStart, chunkEnd);
-      allEvents.push(...events);
-    } catch {
-      // Skip failed chunks
-    }
+function recordFailure(name: string): void {
+  const cb = circuitBreakers[name] || { failures: 0, skipUntil: 0 };
+  cb.failures++;
+  if (cb.failures >= 3) {
+    cb.skipUntil = Date.now() + 3 * 30 * 60 * 1000; // 90 min cooldown
+    console.warn(`[nad.fun] Circuit breaker tripped for ${name}, cooling down 90min`);
   }
+  circuitBreakers[name] = cb;
+}
 
-  return allEvents;
+// --- nad.fun REST API fetchers ---
+
+interface NadFunApiToken {
+  token_info: {
+    token_id: string;        // token contract address
+    name: string;
+    symbol: string;
+    created_at: number;      // Unix timestamp in seconds
+    is_graduated: boolean;
+    twitter?: string;
+    telegram?: string;
+    website?: string;
+    hackathon_info?: unknown;
+  };
+  market_info: {
+    market_type: string;     // "CURVE" or "DEX"
+    token_id: string;
+    market_id?: string;
+    reserve_native?: string;
+    reserve_token?: string;
+    holder_count?: number;
+  };
+  percent: number;           // price change percentage
+}
+
+async function fetchNadFunEndpoint(endpoint: string): Promise<NadFunApiToken[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const res = await fetch(`${NAD_FUN_API}${endpoint}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`nad.fun API HTTP ${res.status}`);
+    const data = await res.json();
+    // API returns { tokens: [...], total_count: N }
+    return Array.isArray(data) ? data : (data.tokens ?? data.data ?? []);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchNadFunTokensByCreation(): Promise<NadFunApiToken[]> {
+  if (isCircuitOpen('nadFunCreation')) return [];
+  try {
+    const result = await fetchNadFunEndpoint('/order/creation_time?limit=100');
+    recordSuccess('nadFunCreation');
+    return result;
+  } catch (error) {
+    recordFailure('nadFunCreation');
+    console.warn('[nad.fun] Failed to fetch by creation_time:', error);
+    return [];
+  }
+}
+
+async function fetchNadFunTokensByMarketCap(): Promise<NadFunApiToken[]> {
+  if (isCircuitOpen('nadFunMarketCap')) return [];
+  try {
+    const result = await fetchNadFunEndpoint('/order/market_cap?limit=100');
+    recordSuccess('nadFunMarketCap');
+    return result;
+  } catch (error) {
+    recordFailure('nadFunMarketCap');
+    console.warn('[nad.fun] Failed to fetch by market_cap:', error);
+    return [];
+  }
 }
 
 // Direct viem reads for token info - avoids SDK's multicall3 dependency
@@ -90,26 +131,6 @@ async function getEmoBalance(address: Address): Promise<string> {
     functionName: 'decimals',
   });
   return formatUnits(raw, decimals);
-}
-
-async function getTokenName(token: Address): Promise<string> {
-  try {
-    return await publicClient.readContract({
-      address: token,
-      abi: erc20Abi,
-      functionName: 'name',
-    });
-  } catch {
-    try {
-      return await publicClient.readContract({
-        address: token,
-        abi: erc20Abi,
-        functionName: 'symbol',
-      });
-    } catch {
-      return token.slice(0, 10);
-    }
-  }
 }
 
 // --- EMO DEX tracking state ---
@@ -300,10 +321,7 @@ export async function fetchEmoSocialLinks(): Promise<EmoSocialLinks | null> {
   }
 }
 
-export async function collectNadFunData(
-  fromBlock: bigint,
-  toBlock: bigint
-): Promise<NadFunContext> {
+export async function collectNadFunData(): Promise<NadFunContext> {
   let agentAddress: Address | undefined;
   try {
     agentAddress = getAccount().address;
@@ -311,11 +329,14 @@ export async function collectNadFunData(
     // No private key - skip balance check
   }
 
-  // Collect everything in parallel
-  const [createEvents, graduateEvents, emoProgress, emoGraduated, emoBalance] =
+  // Cycle cutoff: tokens created in the last 30 minutes
+  const cycleCutoffMs = Date.now() - 30 * 60 * 1000;
+
+  // Collect API data + $EMO SDK queries in parallel
+  const [creationTokens, marketCapTokens, emoProgress, emoGraduated, emoBalance] =
     await Promise.all([
-      getCreateEventsChunked(fromBlock, toBlock).catch(() => []),
-      getGraduateEventsChunked(fromBlock, toBlock).catch(() => []),
+      fetchNadFunTokensByCreation(),
+      fetchNadFunTokensByMarketCap(),
       getTrading().getProgress(EMO_TOKEN).catch(() => 10000n),
       getTrading().isGraduated(EMO_TOKEN).catch(() => true),
       agentAddress
@@ -323,43 +344,48 @@ export async function collectNadFunData(
         : Promise.resolve('0'),
     ]);
 
-  const creates = createEvents.length;
-  const graduations = graduateEvents.length;
+  // Count creates: tokens created within this cycle window
+  // created_at is Unix seconds — multiply by 1000 to compare with JS ms timestamps
+  const creates = creationTokens.filter(t => {
+    const createdAtMs = t.token_info.created_at * 1000;
+    return createdAtMs >= cycleCutoffMs;
+  }).length;
 
-  // Build recent graduates list - use direct viem reads for names
-  const recentGraduates: { address: string; name: string }[] = [];
-  for (const evt of graduateEvents.slice(0, 5)) {
-    const name = await getTokenName(evt.token).catch(() => evt.token.slice(0, 10));
-    recentGraduates.push({ address: evt.token, name });
-  }
+  // Count graduations: tokens that graduated AND were created recently
+  const graduations = creationTokens.filter(t => {
+    const createdAtMs = t.token_info.created_at * 1000;
+    return t.token_info.is_graduated && createdAtMs >= cycleCutoffMs;
+  }).length;
 
-  // Build trending list from recently created tokens
-  const trendingTokens: NadFunTokenInfo[] = [];
-  if (createEvents.length > 0) {
-    const tokensToCheck = createEvents.slice(-10);
-    const tokenInfos: NadFunTokenInfo[] = [];
+  // Trending tokens: top 5 non-graduated by market cap, fetch actual bonding curve progress
+  const trendingCandidates = marketCapTokens
+    .filter(t => !t.token_info.is_graduated)
+    .slice(0, 5);
 
-    for (const evt of tokensToCheck) {
-      try {
-        const [progress, graduated] = await Promise.all([
-          getTrading().getProgress(evt.token).catch(() => 0n),
-          getTrading().isGraduated(evt.token).catch(() => false),
-        ]);
-        tokenInfos.push({
-          address: evt.token,
-          name: evt.name || 'Unknown',
-          symbol: evt.symbol || '???',
-          progress: Number(progress),
-          isGraduated: graduated,
-        });
-      } catch {
-        // Skip tokens we can't query
-      }
-    }
+  const trendingTokens: NadFunTokenInfo[] = await Promise.all(
+    trendingCandidates.map(async (t) => {
+      const tokenAddr = t.token_info.token_id as Address;
+      const progress = await getTrading().getProgress(tokenAddr).catch(() => 0n);
+      return {
+        address: t.token_info.token_id,
+        name: t.token_info.name || 'Unknown',
+        symbol: t.token_info.symbol || '???',
+        progress: Number(progress),
+        isGraduated: false,
+      };
+    })
+  );
 
-    tokenInfos.sort((a, b) => b.progress - a.progress);
-    trendingTokens.push(...tokenInfos.slice(0, 5));
-  }
+  // Recent graduates: graduated tokens from market cap list
+  const recentGraduates = marketCapTokens
+    .filter(t => t.token_info.is_graduated)
+    .slice(0, 5)
+    .map(t => ({
+      address: t.token_info.token_id,
+      name: t.token_info.name || t.token_info.token_id.slice(0, 10),
+    }));
+
+  console.log(`[nad.fun] API data: ${creates} creates, ${graduations} graduations, ${trendingTokens.length} trending, ${recentGraduates.length} graduates`);
 
   return {
     creates,

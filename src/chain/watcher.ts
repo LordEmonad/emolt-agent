@@ -230,7 +230,7 @@ export async function collectChainData(previousSummary: ChainDataSummary | null)
     // Single-pass scan + nad.fun in parallel
     const [scanResults, nadFunContext] = await Promise.all([
       scanBlocks(fromBlock, currentBlock),
-      collectNadFunData(fromBlock, currentBlock).catch(() => null)
+      collectNadFunData().catch(() => null)
     ]);
 
     return aggregateSnapshots(snapshots, previousSummary, scanResults, nadFunContext);
