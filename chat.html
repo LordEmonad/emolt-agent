@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>EMOLT Chat</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+  :root {
+    --bg:         #08080d;
+    --bg2:        #0e0e16;
+    --bg3:        #15151f;
+    --border:     #1e1e32;
+    --border-lit: #2e2e4a;
+    --text:       #c8c8e0;
+    --text-dim:   #6a6a88;
+    --text-faint: #3d3d55;
+    --accent:     #5a7be8;
+    --accent2:    #7b5ae8;
+    --accent-glow: rgba(90, 123, 232, 0.12);
+
+    --joy:#F5D831; --trust:#6ECB3C; --fear:#2BA84A; --surprise:#22AACC;
+    --sadness:#4A6BD4; --disgust:#A85EC0; --anger:#E04848; --anticipation:#E8872A;
+
+    --dispatch:     #e04848;
+    --dispatch2:    #ff2d2d;
+    --dispatch-glow: rgba(224, 72, 72, 0.15);
+
+    --sidebar-w: 260px;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-t: env(safe-area-inset-top, 0px);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    font-size: 14px;
+    display: flex;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; }
+
+  /* ═══════════════════════════════════════════
+     SIDEBAR
+  ═══════════════════════════════════════════ */
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    z-index: 20;
+    transition: transform 0.25s ease;
+  }
+
+  .sidebar-header {
+    padding: 14px 14px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sidebar-logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; font-weight: 500;
+    letter-spacing: 2px; color: var(--text);
+  }
+  .sidebar-logo span { color: var(--accent); font-weight: 300; }
+
+  .sidebar-ring {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #2dd47a;
+    box-shadow: 0 0 6px #2BA84A80;
+    animation: breathe 3s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100% { opacity:1 } 50% { opacity:0.55 } }
+
+  .sidebar-actions {
+    padding: 10px;
+    display: flex;
+    gap: 6px;
+  }
+
+  .sidebar-btn {
+    flex: 1;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: 0.8px;
+    padding: 8px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    transition: all 0.15s;
+  }
+  .sidebar-btn:hover { border-color: var(--border-lit); color: var(--text); background: var(--bg3); }
+  .sidebar-btn .btn-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+  .sidebar-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px;
+  }
+  .sidebar-list::-webkit-scrollbar { width: 3px; }
+  .sidebar-list::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .sidebar-item {
+    padding: 10px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.12s;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+  }
+  .sidebar-item:hover { background: var(--bg3); }
+  .sidebar-item.active { background: var(--bg3); border: 1px solid var(--border); }
+
+  .sidebar-item-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .sidebar-item-info {
+    flex: 1; min-width: 0;
+  }
+
+  .sidebar-item-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sidebar-item.active .sidebar-item-label { color: var(--text); }
+
+  .sidebar-item-type {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.5px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+  }
+
+  .sidebar-item-close {
+    display: none;
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    align-items: center; justify-content: center;
+    font-size: 12px;
+    color: var(--text-faint);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .sidebar-item:hover .sidebar-item-close { display: flex; }
+  .sidebar-item-close:hover { background: rgba(224,72,72,0.15); color: var(--anger); }
+
+  .sidebar-item-pin {
+    display: none;
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    color: var(--text-faint);
+    transition: all 0.12s;
+  }
+  .sidebar-item-pin svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .sidebar-item:hover .sidebar-item-pin { display: flex; }
+  .sidebar-item-pin.pinned { display: flex; color: var(--accent); }
+  .sidebar-item-pin.pinned svg { fill: var(--accent); fill-opacity: 0.25; }
+  .sidebar-item-pin:hover { background: rgba(90,123,232,0.12); color: var(--accent); }
+
+  .sidebar-rename-input {
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    font-size: 12px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    outline: none;
+    width: 100%;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .sidebar-empty {
+    text-align: center;
+    padding: 24px 12px;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  .sidebar-footer {
+    padding: 8px 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 4px;
+  }
+
+  .sfbtn {
+    background: none; border: none;
+    color: var(--text-faint);
+    width: 32px; height: 32px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.12s;
+  }
+  .sfbtn:hover { color: var(--text-dim); background: var(--bg3); }
+  .sfbtn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ═══════════════════════════════════════════
+     MAIN AREA
+  ═══════════════════════════════════════════ */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  /* Header */
+  .header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .header::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent 5%, var(--accent) 40%, var(--accent2) 60%, transparent 95%);
+    opacity: 0.2;
+    transition: background 0.3s;
+  }
+  .header.dispatch-header::after {
+    background: linear-gradient(90deg, transparent 5%, var(--dispatch) 40%, var(--dispatch2) 60%, transparent 95%);
+  }
+
+  .header-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; font-weight: 500;
+    letter-spacing: 2px; color: var(--text);
+  }
+  .header-title span { font-weight: 300; }
+  .header-title .chat-accent { color: var(--accent); }
+  .header-title .dispatch-accent { color: var(--dispatch); }
+
+  .header-actions { display: flex; gap: 4px; }
+
+  .hbtn {
+    background: none; border: 1px solid transparent;
+    color: var(--text-faint);
+    width: 32px; height: 32px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .hbtn:hover { color: var(--text-dim); background: var(--bg3); border-color: var(--border); }
+  .hbtn.active { color: var(--accent); background: rgba(90,123,232,0.08); border-color: rgba(90,123,232,0.2); }
+  .hbtn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* mobile sidebar toggle */
+  .sidebar-toggle { display: none; }
+
+  /* Emotion bar */
+  .emo-bar {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 16px;
+    display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0;
+  }
+  .emo-track { flex:1; height:5px; border-radius:3px; display:flex; overflow:hidden; background:var(--bg); }
+  .emo-seg { height:100%; transition: flex-basis 0.6s cubic-bezier(0.22,1,0.36,1); }
+  .emo-seg:first-child { border-radius:3px 0 0 3px; }
+  .emo-seg:last-child { border-radius:0 3px 3px 0; }
+  .emo-label { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); white-space:nowrap; flex-shrink:0; letter-spacing:0.3px; }
+  .emo-label-dominant { color: var(--accent); }
+  .emo-placeholder { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-faint); font-style:italic; }
+
+  /* ═══════════════════════════════════════════
+     MESSAGES
+  ═══════════════════════════════════════════ */
+  .messages-wrap { flex: 1; overflow: hidden; position: relative; }
+
+  .messages {
+    height: 100%;
+    overflow-y: auto; overflow-x: hidden;
+    padding: 20px 20px 14px;
+    display: flex; flex-direction: column; gap: 14px;
+    overscroll-behavior: contain;
+  }
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-track { background: transparent; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .messages::-webkit-scrollbar-thumb:hover { background: var(--border-lit); }
+
+  .msg { max-width: 80%; animation: msgIn 0.25s ease-out; }
+  @keyframes msgIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  .msg.user { align-self: flex-end; }
+  .msg.emolt { align-self: flex-start; }
+
+  .msg-bubble {
+    padding: 11px 15px; line-height: 1.65;
+    white-space: pre-wrap; word-break: break-word;
+    font-size: 14px;
+  }
+  .msg.user .msg-bubble {
+    background: #141e30; border: 1px solid #1e2e48;
+    border-radius: 18px 18px 4px 18px; color: #c4cee8;
+  }
+  .msg.emolt .msg-bubble {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 18px 18px 18px 4px;
+    border-left: 2px solid var(--border-lit);
+    transition: border-left-color 0.4s;
+  }
+
+  .msg-meta { display:flex; align-items:center; gap:6px; margin-top:4px; padding:0 4px; }
+  .msg.user .msg-meta { justify-content: flex-end; }
+  .msg-time { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-faint); }
+
+  /* Dispatch user bubbles */
+  .dispatch-mode .msg.user .msg-bubble {
+    background: #1e1414; border-color: #3a1e1e;
+  }
+
+  /* Internals */
+  .internals-toggle {
+    display:inline-flex; align-items:center; gap:5px;
+    font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-faint);
+    cursor:pointer; user-select:none; padding:3px 6px; border-radius:4px;
+    transition:all 0.15s; letter-spacing:0.3px;
+  }
+  .internals-toggle:hover { color:var(--text-dim); background:var(--bg); }
+  .internals-arrow { display:inline-block; transition:transform 0.2s ease; font-size:7px; }
+  .internals-arrow.open { transform:rotate(90deg); }
+  .internals-dur { opacity:0.5; margin-left:2px; }
+  .internals-panel { display:grid; grid-template-rows:0fr; transition:grid-template-rows 0.25s ease; }
+  .internals-panel.open { grid-template-rows:1fr; }
+  .internals-inner { overflow:hidden; }
+  .internals-content { margin-top:6px; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; font-size:12px; line-height:1.5; }
+  .internals-section { margin-bottom:6px; }
+  .internals-section:last-child { margin-bottom:0; }
+  .internals-label { font-family:'JetBrains Mono',monospace; font-size:8px; text-transform:uppercase; letter-spacing:1.5px; color:var(--accent); margin-bottom:2px; opacity:0.6; }
+  .internals-text { color:var(--text-dim); font-size:12px; }
+
+  /* ═══════════════════════════════════════════
+     WELCOME
+  ═══════════════════════════════════════════ */
+  .welcome {
+    flex:1; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    gap:18px; text-align:center; padding:32px 20px; min-height:100%;
+  }
+  .welcome-ring {
+    width:56px; height:56px; border-radius:50%;
+    border:2px solid var(--border-lit);
+    display:flex; align-items:center; justify-content:center;
+    animation: ringPulse 3s ease-in-out infinite;
+  }
+  @keyframes ringPulse { 0%,100% { box-shadow:0 0 0 0 rgba(90,123,232,0.15); } 50% { box-shadow:0 0 0 10px rgba(90,123,232,0); } }
+  .welcome-ring-inner { width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--accent2)); opacity:0.6; }
+  .welcome-ring.dispatch .welcome-ring-inner { background:linear-gradient(135deg,var(--dispatch),var(--dispatch2)); }
+  .welcome-ring.dispatch { border-color:rgba(224,72,72,0.3); }
+
+  .welcome-title {
+    font-family:'JetBrains Mono',monospace;
+    font-size:22px; font-weight:300; letter-spacing:5px; color:var(--text);
+    animation: wBreath 4s ease-in-out infinite;
+  }
+  @keyframes wBreath { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
+  .welcome-title span.wc { background:linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .welcome-title span.wd { background:linear-gradient(135deg,var(--dispatch),var(--dispatch2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+  .welcome-sub { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:1.5px; color:var(--text-faint); text-transform:uppercase; }
+  .welcome-desc { max-width:380px; line-height:1.65; font-size:12px; color:var(--text-dim); }
+  .welcome-starters { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; max-width:420px; }
+  .starter {
+    background:var(--bg3); border:1px solid var(--border); color:var(--text-dim);
+    padding:7px 14px; border-radius:20px; font-size:12px; cursor:pointer;
+    transition:all 0.15s; font-family:'Inter',sans-serif;
+  }
+  .starter:hover { border-color:var(--accent); color:var(--text); }
+  .starter:active { transform:scale(0.97); }
+  .dispatch-mode .starter:hover { border-color:var(--dispatch); }
+
+  /* ═══════════════════════════════════════════
+     DISPATCH CARDS
+  ═══════════════════════════════════════════ */
+  .plan-card { align-self:flex-start; max-width:90%; animation:msgIn 0.25s ease-out; }
+  .plan-card-inner {
+    background:var(--bg3); border:1px solid #4a2020; border-left:3px solid #e04848;
+    border-radius:14px; padding:16px; font-size:13px; line-height:1.55;
+  }
+  .plan-card-inner.pending { animation: shimmer 2s ease-in-out infinite; }
+  @keyframes shimmer { 0%,100% { box-shadow:0 0 0 0 rgba(224,72,72,0); } 50% { box-shadow:0 0 16px 2px rgba(224,72,72,0.1); } }
+  .plan-card-header { display:flex; align-items:center; gap:8px; margin-bottom:12px; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:500; letter-spacing:1px; color:#e04848; }
+  .plan-card-emoji { font-size:18px; }
+  .plan-card-summary { color:var(--text); margin-bottom:8px; }
+  .plan-card-emotional { color:var(--text-dim); font-style:italic; font-size:12px; margin-bottom:8px; }
+  .plan-card-params { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); background:var(--bg); padding:8px 10px; border-radius:6px; margin-bottom:8px; }
+  .plan-card-risks { color:var(--text-faint); font-size:11px; margin-bottom:12px; padding-left:10px; border-left:2px solid #3a2020; }
+  .plan-card-actions { display:flex; gap:8px; }
+  .plan-card-btn { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; padding:8px 20px; border-radius:8px; border:none; cursor:pointer; transition:all 0.15s; font-weight:500; }
+  .plan-card-btn.approve { background:linear-gradient(135deg,#e04848,#ff2d2d); color:#fff; box-shadow:0 0 12px rgba(224,72,72,0.3); }
+  .plan-card-btn.approve:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(224,72,72,0.4); }
+  .plan-card-btn.reject { background:var(--bg); color:var(--text-dim); border:1px solid var(--border); }
+  .plan-card-btn.reject:hover { color:var(--text); border-color:var(--border-lit); }
+  .plan-card-btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+  /* Dispatch log entries */
+  .dispatch-entry { align-self:flex-start; max-width:90%; animation:msgIn 0.15s ease-out; }
+  .dispatch-entry-inner { padding:8px 14px; border-radius:10px; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.5; }
+  .dispatch-entry.type-step .dispatch-entry-inner { background:var(--bg3); border:1px solid var(--border); color:var(--text-dim); }
+  .dispatch-entry.type-thought .dispatch-entry-inner { background:transparent; border:1px solid var(--border); color:var(--text-faint); font-style:italic; font-size:11px; white-space:pre-wrap; }
+  .dispatch-entry.type-action .dispatch-entry-inner { background:var(--bg3); border:1px solid #4a2020; border-left:2px solid #e04848; color:var(--text); }
+  .dispatch-entry.type-error .dispatch-entry-inner { background:#1a0e0e; border:1px solid #5a2020; color:#e04848; }
+  .dispatch-entry.type-result .dispatch-entry-inner { background:var(--bg3); border:1px solid #3a3a20; border-left:2px solid #F5D831; color:var(--joy); }
+  .dispatch-entry.type-plan .dispatch-entry-inner, .dispatch-entry.type-approval .dispatch-entry-inner { background:var(--bg3); border:1px solid var(--border); color:var(--text-dim); font-size:11px; }
+  .dispatch-entry-ts { font-size:9px; color:var(--text-faint); margin-top:3px; padding:0 4px; }
+
+  /* Result card */
+  .result-card { align-self:flex-start; max-width:90%; animation:msgIn 0.25s ease-out; }
+  .result-card-inner { background:var(--bg3); border-radius:14px; padding:16px; font-size:13px; line-height:1.55; }
+  .result-card-inner.success { border:1px solid #2a3a2a; border-left:3px solid #6ECB3C; box-shadow:0 0 20px rgba(110,203,60,0.06); }
+  .result-card-inner.failure { border:1px solid #3a2020; border-left:3px solid #e04848; box-shadow:0 0 20px rgba(224,72,72,0.06); }
+  .result-card-inner.killed { border:1px solid #3a2a10; border-left:3px solid #E8872A; box-shadow:0 0 20px rgba(232,135,42,0.06); }
+  .result-card-header { font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:500; letter-spacing:1px; margin-bottom:10px; }
+  .result-card-inner.success .result-card-header { color:#6ECB3C; }
+  .result-card-inner.failure .result-card-header { color:#e04848; }
+  .result-card-inner.killed .result-card-header { color:#E8872A; }
+  .result-card-summary { color:var(--text); margin-bottom:8px; }
+  .result-card-reflection { color:var(--text-dim); font-style:italic; font-size:12px; margin-bottom:8px; }
+  .result-card-stats { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-faint); background:var(--bg); padding:8px 10px; border-radius:6px; }
+
+  /* ═══════════════════════════════════════════
+     KILL SWITCH
+  ═══════════════════════════════════════════ */
+  .kill-bar {
+    display:none; position:absolute; bottom:0; left:0; right:0;
+    padding:10px 16px;
+    background:linear-gradient(180deg, transparent, rgba(8,8,13,0.95) 30%);
+    z-index:5; justify-content:center;
+  }
+  .kill-bar.active { display:flex; }
+  .kill-btn {
+    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:500;
+    letter-spacing:1px; padding:10px 28px; border-radius:8px;
+    border:1px solid rgba(224,72,72,0.4); background:rgba(224,72,72,0.12);
+    color:#ff3333; cursor:pointer; transition:all 0.15s;
+    animation: killPulse 2s ease-in-out infinite;
+  }
+  @keyframes killPulse { 0%,100% { box-shadow:0 0 8px rgba(255,51,51,0.15); } 50% { box-shadow:0 0 20px rgba(255,51,51,0.3); } }
+  .kill-btn:hover { background:rgba(224,72,72,0.25); border-color:#ff3333; }
+  .kill-btn:active { transform:scale(0.96); }
+
+  /* ═══════════════════════════════════════════
+     TYPING + ABORTED
+  ═══════════════════════════════════════════ */
+  .typing { align-self:flex-start; display:none; animation:msgIn 0.2s ease-out; }
+  .typing.active { display:flex; align-items:center; gap:8px; }
+  .typing-dots { display:flex; gap:3px; padding:12px 16px; background:var(--bg3); border:1px solid var(--border); border-radius:18px 18px 18px 4px; border-left:2px solid var(--accent); }
+  .dispatch-mode .typing-dots { border-left-color: var(--dispatch); }
+  .typing-dot { width:4px; height:4px; border-radius:50%; background:var(--accent); animation:dotPulse 1.4s ease-in-out infinite; }
+  .dispatch-mode .typing-dot { background:var(--dispatch); }
+  .typing-dot:nth-child(2) { animation-delay:0.2s; }
+  .typing-dot:nth-child(3) { animation-delay:0.4s; }
+  @keyframes dotPulse { 0%,80%,100% { transform:scale(0.5); opacity:0.25; } 40% { transform:scale(1); opacity:1; } }
+  .typing-elapsed { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-faint); font-variant-numeric:tabular-nums; }
+
+  .msg-aborted { align-self:flex-start; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-faint); font-style:italic; padding:4px 8px; animation:msgIn 0.2s ease-out; }
+
+  /* ═══════════════════════════════════════════
+     INPUT
+  ═══════════════════════════════════════════ */
+  .input-area {
+    background:var(--bg2); border-top:1px solid var(--border);
+    padding:10px 16px; padding-bottom:calc(10px + var(--safe-b)); flex-shrink:0;
+  }
+  .input-row { display:flex; gap:8px; align-items:flex-end; max-width:720px; margin:0 auto; }
+  textarea {
+    flex:1; background:var(--bg); border:1px solid var(--border); color:var(--text);
+    padding:11px 15px; border-radius:14px;
+    font-family:'Inter',-apple-system,system-ui,sans-serif; font-size:16px;
+    resize:none; outline:none; line-height:1.45; min-height:46px; max-height:140px;
+    transition:border-color 0.2s, box-shadow 0.2s;
+  }
+  textarea:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-glow); }
+  .dispatch-mode textarea:focus { border-color:var(--dispatch); box-shadow:0 0 0 2px var(--dispatch-glow); }
+  textarea::placeholder { color:var(--text-faint); }
+
+  .send-btn {
+    background:linear-gradient(135deg,var(--accent),var(--accent2));
+    border:none; color:#fff; width:46px; height:46px; border-radius:14px;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    transition:all 0.15s; flex-shrink:0;
+  }
+  .send-btn:active { transform:scale(0.93); }
+  .send-btn:disabled { background:var(--bg3); color:var(--text-faint); cursor:not-allowed; }
+  .send-btn svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+  .send-btn.stop-mode { background:#ff3333 !important; animation:stopPulse 1.5s ease-in-out infinite; }
+  @keyframes stopPulse { 0%,100% { box-shadow:0 0 6px rgba(255,51,51,0.3); } 50% { box-shadow:0 0 16px rgba(255,51,51,0.5); } }
+  .dispatch-mode .send-btn:not(.stop-mode):not(:disabled) { background:linear-gradient(135deg,var(--dispatch),var(--dispatch2)); }
+
+  /* ═══════════════════════════════════════════
+     LOG OVERLAY
+  ═══════════════════════════════════════════ */
+  .log-overlay { display:none; position:fixed; inset:0; background:rgba(4,4,8,0.8); z-index:100; backdrop-filter:blur(6px); }
+  .log-overlay.open { display:flex; align-items:center; justify-content:center; animation:fadeIn 0.15s ease; }
+  @keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+  .log-panel { background:var(--bg2); border:1px solid var(--border); border-radius:14px; width:92%; max-width:780px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 16px 48px rgba(0,0,0,0.5); }
+  .log-top { padding:14px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+  .log-top h3 { font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:500; letter-spacing:1.5px; color:var(--text-dim); }
+  .log-top-right { display:flex; align-items:center; gap:10px; }
+  .log-count { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-faint); }
+  .log-close { background:none; border:1px solid var(--border); color:var(--text-dim); width:28px; height:28px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all 0.15s; }
+  .log-close:hover { background:var(--bg3); color:var(--text); }
+  .log-body { overflow-y:auto; flex:1; overscroll-behavior:contain; }
+  .log-body::-webkit-scrollbar { width:3px; }
+  .log-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .log-entry { padding:12px 16px; border-bottom:1px solid var(--border); font-size:12px; line-height:1.55; }
+  .log-entry:last-child { border-bottom:none; }
+  .log-meta { display:flex; justify-content:space-between; margin-bottom:6px; }
+  .log-ts, .log-dur { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-faint); }
+  .log-user-msg { color:var(--surprise); margin-bottom:3px; }
+  .log-emolt-msg { color:var(--joy); margin-bottom:3px; }
+  .log-user-msg::before { content:'you  '; font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-faint); }
+  .log-emolt-msg::before { content:'emolt  '; font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-faint); }
+  .log-internal { color:var(--text-faint); font-style:italic; font-size:11px; margin-top:2px; }
+  .log-empty { color:var(--text-faint); text-align:center; padding:48px 16px; font-size:12px; }
+  .log-tabs { display:flex; border-bottom:1px solid var(--border); }
+  .log-tab { flex:1; text-align:center; padding:10px; font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px; color:var(--text-faint); cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
+  .log-tab:hover { color:var(--text-dim); }
+  .log-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+  /* ═══════════════════════════════════════════
+     RESPONSIVE
+  ═══════════════════════════════════════════ */
+  @media (min-width:769px) {
+    .send-btn:hover:not(:disabled):not(.stop-mode) { transform:translateY(-1px); box-shadow:0 4px 14px rgba(90,123,232,0.25); }
+  }
+
+  @media (max-width:768px) {
+    .sidebar {
+      position: fixed; top:0; left:0; bottom:0;
+      transform: translateX(-100%);
+      z-index: 50;
+      box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-toggle { display: flex; }
+    .sidebar-overlay {
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:40;
+    }
+    .sidebar-overlay.open { display:block; }
+    .msg { max-width:88%; }
+    .welcome-title { font-size:18px; letter-spacing:3px; }
+    .log-panel { width:100%; height:100%; max-height:100%; border-radius:0; border:none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-ring"></div>
+    <div class="sidebar-logo">EMOLT <span>v10</span></div>
+  </div>
+  <div class="sidebar-actions">
+    <button class="sidebar-btn" onclick="createSession('chat')">
+      <div class="btn-dot" style="background:var(--accent)"></div> CHAT
+    </button>
+    <button class="sidebar-btn" onclick="createSession('dispatch')">
+      <div class="btn-dot" style="background:var(--dispatch)"></div> DISPATCH
+    </button>
+  </div>
+  <div class="sidebar-list" id="sidebarList"></div>
+  <div class="sidebar-footer">
+    <button class="sfbtn" onclick="openLog()" title="logs">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+    </button>
+    <button class="sfbtn" id="thinkBtn" onclick="toggleAllThinking()" title="toggle internals">
+      <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+  </div>
+</div>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<!-- MAIN -->
+<div class="main" id="main">
+  <div class="header" id="header">
+    <div style="display:flex;align-items:center;gap:8px">
+      <button class="hbtn sidebar-toggle" onclick="toggleSidebar()">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="header-title" id="headerTitle">EMOLT <span class="chat-accent">CHAT</span></div>
+    </div>
+    <div class="header-actions" id="headerActions"></div>
+  </div>
+
+  <div class="emo-bar" id="emoBar">
+    <span class="emo-placeholder">waiting for first response</span>
+  </div>
+
+  <div class="messages-wrap" id="messagesWrap">
+    <div class="kill-bar" id="killBar">
+      <button class="kill-btn" onclick="killCurrentDispatch()">KILL DISPATCH</button>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-row">
+      <textarea id="input" placeholder="say something..." rows="1" autofocus></textarea>
+      <button class="send-btn" id="sendBtn" onclick="handleSendClick()">
+        <svg id="sendIcon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        <svg id="stopIcon" viewBox="0 0 24 24" style="display:none"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- LOG OVERLAY -->
+<div class="log-overlay" id="logOverlay" onclick="closeLog(event)">
+  <div class="log-panel" onclick="event.stopPropagation()">
+    <div class="log-top">
+      <h3 id="logTitle">CONVERSATION LOG</h3>
+      <div class="log-top-right">
+        <span class="log-count" id="logCount"></span>
+        <button class="log-close" onclick="closeLog()">&times;</button>
+      </div>
+    </div>
+    <div class="log-tabs">
+      <div class="log-tab active" onclick="switchLogTab('chat')">CHAT</div>
+      <div class="log-tab" onclick="switchLogTab('dispatch')">DISPATCHES</div>
+    </div>
+    <div class="log-body" id="logBody"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+const sessions = new Map(); // id → SessionState
+let activeId = null;
+let showAllThinking = false;
+let currentLogTab = 'chat';
+
+const $ = id => document.getElementById(id);
+const inputEl = $('input');
+const sendBtn = $('sendBtn');
+const sendIcon = $('sendIcon');
+const stopIcon = $('stopIcon');
+const emoBar = $('emoBar');
+const header = $('header');
+const headerTitle = $('headerTitle');
+const messagesWrap = $('messagesWrap');
+const killBar = $('killBar');
+const sidebarList = $('sidebarList');
+
+const EMO_COLORS = { joy:'#F5D831',trust:'#6ECB3C',fear:'#2BA84A',surprise:'#22AACC',sadness:'#4A6BD4',disgust:'#A85EC0',anger:'#E04848',anticipation:'#E8872A' };
+const EMO_ORDER = ['joy','trust','fear','surprise','sadness','disgust','anger','anticipation'];
+const esc = s => { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; };
+const fmtTime = ts => new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+
+// ═══════════════════════════════════════════
+//  SESSION MANAGEMENT
+// ═══════════════════════════════════════════
+function uid() { return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6); }
+
+function createSession(type, opts) {
+  if (!opts?.silent) closeSidebar();
+  const id = opts?.id || uid();
+  const label = type === 'chat' ? 'New Chat' : 'New Dispatch';
+
+  const el = document.createElement('div');
+  el.className = 'messages';
+
+  const isChat = type === 'chat';
+  el.innerHTML = `<div class="welcome">
+    <div class="welcome-ring${isChat ? '' : ' dispatch'}"><div class="welcome-ring-inner"></div></div>
+    <div class="welcome-title">EMOLT<span class="${isChat ? 'wc' : 'wd'}">${isChat ? 'CHAT' : 'DISPATCH'}</span></div>
+    <div class="welcome-sub">${isChat ? 'full soul stack / real-time' : 'mission control'}</div>
+    <div class="welcome-desc">${isChat
+      ? 'talk directly to the agent. every message passes through SOUL.md, STYLE.md, memory, and the emotional engine.'
+      : 'send EMOLT out into the world. give orders, approve plans, watch the adventure unfold in real-time.'}</div>
+    <div class="welcome-starters">${isChat
+      ? ['how are you feeling right now',"what's on your mind",'do you get tired of feeling things','what does anxiety feel like for you'].map(s=>`<div class="starter" onclick="useSt(this)">${s}</div>`).join('')
+      : ['go play chess','play chess -- create a lobby','find an open chess game and join it'].map(s=>`<div class="starter" onclick="useSt(this)">${s}</div>`).join('')
+    }</div>
+  </div>`;
+
+  const sess = {
+    id, type, label,
+    serverSessionId: null,
+    el,
+    scrollPos: 0,
+    sending: false,
+    msgCount: 0,
+    pinned: false,
+    // dispatch state
+    dispatchId: null,
+    polling: null,
+    lastSeenLogIdx: 0,
+    dispatchDone: false,
+    typingTimer: null,
+    typingStart: 0,
+  };
+
+  sessions.set(id, sess);
+  if (!opts?.silent) {
+    renderSidebar();
+    switchSession(id);
+    saveSessions();
+  }
+  return sess;
+}
+
+function switchSession(id) {
+  const sess = sessions.get(id);
+  if (!sess) return;
+
+  // Save outgoing
+  if (activeId && activeId !== id) {
+    const prev = sessions.get(activeId);
+    if (prev && prev.el.parentNode) {
+      prev.scrollPos = prev.el.scrollTop;
+      prev.el.remove();
+    }
+  }
+
+  activeId = id;
+
+  // Insert messages
+  messagesWrap.insertBefore(sess.el, killBar);
+  sess.el.scrollTop = sess.scrollPos;
+
+  // Theme
+  const isD = sess.type === 'dispatch';
+  document.body.classList.toggle('dispatch-mode', isD);
+  header.classList.toggle('dispatch-header', isD);
+  headerTitle.innerHTML = isD
+    ? 'EMOLT <span class="dispatch-accent">DISPATCH</span>'
+    : 'EMOLT <span class="chat-accent">CHAT</span>';
+  inputEl.placeholder = isD ? 'give EMOLT a mission...' : 'say something...';
+
+  // Kill bar
+  killBar.classList.toggle('active', isD && !!sess.dispatchId && !sess.dispatchDone);
+
+  // Send btn
+  updateSendBtn(sess);
+  renderSidebar();
+  saveSessions();
+  inputEl.focus();
+}
+
+function closeSession(id) {
+  const sess = sessions.get(id);
+  if (!sess) return;
+
+  if (sess.pinned) {
+    if (!confirm('Unpin and close this session?')) return;
+  }
+
+  if (sess.sending || (sess.dispatchId && !sess.dispatchDone)) {
+    if (!confirm('Running operation — kill and close?')) return;
+    if (sess.sending) fetch('/api/kill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tabId:id})}).catch(()=>{});
+    if (sess.dispatchId && !sess.dispatchDone) fetch('/api/kill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dispatchId:sess.dispatchId})}).catch(()=>{});
+  }
+
+  if (sess.polling) clearInterval(sess.polling);
+  if (sess.typingTimer) clearInterval(sess.typingTimer);
+  fetch('/api/tab/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tabId:id})}).catch(()=>{});
+
+  if (sess.el.parentNode) sess.el.remove();
+  sessions.delete(id);
+
+  if (activeId === id) {
+    activeId = null;
+    const remaining = [...sessions.keys()];
+    if (remaining.length > 0) switchSession(remaining[remaining.length-1]);
+    else createSession('chat');
+  } else {
+    renderSidebar();
+  }
+  saveSessions();
+}
+
+// ═══════════════════════════════════════════
+//  SIDEBAR RENDERING
+// ═══════════════════════════════════════════
+function renderSidebar() {
+  sidebarList.innerHTML = '';
+  if (sessions.size === 0) {
+    sidebarList.innerHTML = '<div class="sidebar-empty">no sessions</div>';
+    return;
+  }
+  const sorted = [...sessions.entries()].sort((a, b) => (b[1].pinned ? 1 : 0) - (a[1].pinned ? 1 : 0));
+  for (const [id, s] of sorted) {
+    const d = document.createElement('div');
+    d.className = 'sidebar-item' + (id === activeId ? ' active' : '');
+    d.dataset.id = id;
+    d.onclick = (e) => { if (!e.target.closest('.sidebar-item-close') && !e.target.closest('.sidebar-item-pin') && !e.target.closest('.sidebar-rename-input')) switchSession(id); };
+    const color = s.type === 'chat' ? 'var(--accent)' : 'var(--dispatch)';
+    const running = s.sending || (s.dispatchId && !s.dispatchDone);
+    const statusParts = [s.type];
+    if (s.pinned) statusParts.push('pinned');
+    if (running) statusParts.push('running');
+    d.innerHTML = `
+      <div class="sidebar-item-dot" style="background:${color}${running ? ';animation:breathe 1.5s ease-in-out infinite' : ''}"></div>
+      <div class="sidebar-item-info">
+        <div class="sidebar-item-label" ondblclick="startRename('${id}')">${esc(s.label)}</div>
+        <div class="sidebar-item-type">${statusParts.join(' · ')}</div>
+      </div>
+      <span class="sidebar-item-pin${s.pinned ? ' pinned' : ''}" onclick="togglePin('${id}')" title="${s.pinned ? 'unpin' : 'pin'}">
+        <svg viewBox="0 0 16 16"><path d="M8 10.5v4.5"/><path d="M4 10h8"/><path d="M5.5 10V6.5L7 4h2l1.5 2.5V10"/></svg>
+      </span>
+      <span class="sidebar-item-close" onclick="closeSession('${id}')">&times;</span>
+    `;
+    sidebarList.appendChild(d);
+  }
+}
+
+function toggleSidebar() { $('sidebar').classList.toggle('open'); $('sidebarOverlay').classList.toggle('open'); }
+function closeSidebar() { $('sidebar').classList.remove('open'); $('sidebarOverlay').classList.remove('open'); }
+
+function togglePin(id) {
+  const sess = sessions.get(id);
+  if (!sess) return;
+  sess.pinned = !sess.pinned;
+  saveSessions();
+  renderSidebar();
+}
+
+function startRename(id) {
+  const sess = sessions.get(id);
+  if (!sess) return;
+  const item = sidebarList.querySelector(`.sidebar-item[data-id="${id}"]`);
+  if (!item) return;
+  const labelEl = item.querySelector('.sidebar-item-label');
+  if (!labelEl) return;
+
+  const input = document.createElement('input');
+  input.className = 'sidebar-rename-input';
+  input.value = sess.label;
+  input.maxLength = 40;
+  labelEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    const val = input.value.trim();
+    if (val && val !== sess.label) {
+      sess.label = val;
+      saveSessions();
+    }
+    renderSidebar();
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(); }
+    if (e.key === 'Escape') { done = true; renderSidebar(); }
+  });
+  input.addEventListener('blur', finish);
+}
+
+// ═══════════════════════════════════════════
+//  PERSISTENCE
+// ═══════════════════════════════════════════
+function saveSessions() {
+  const data = [...sessions.values()].map(s=>({id:s.id,type:s.type,label:s.label,serverSessionId:s.serverSessionId,pinned:s.pinned}));
+  localStorage.setItem('emolt-sessions', JSON.stringify(data));
+  localStorage.setItem('emolt-active', activeId);
+}
+
+function restoreSessions() {
+  try {
+    const data = JSON.parse(localStorage.getItem('emolt-sessions')||'[]');
+    const savedActive = localStorage.getItem('emolt-active');
+    if (!data.length) { createSession('chat'); return; }
+    for (const d of data) {
+      const s = createSession(d.type, { id: d.id, silent: true });
+      s.label = d.label;
+      s.serverSessionId = d.serverSessionId;
+      s.pinned = !!d.pinned;
+      if (d.serverSessionId) restoreHistory(s);
+    }
+    renderSidebar();
+    if (savedActive && sessions.has(savedActive)) switchSession(savedActive);
+    else switchSession([...sessions.keys()][0]);
+    saveSessions();
+  } catch { createSession('chat'); }
+}
+
+async function restoreHistory(sess) {
+  if (!sess.serverSessionId) return;
+  try {
+    const res = await fetch('/api/history?session='+encodeURIComponent(sess.serverSessionId));
+    const data = await res.json();
+    if (data.entries && data.entries.length > 0) {
+      sess.el.innerHTML = '';
+      for (const e of data.entries) {
+        addMsg(sess,'user',e.user);
+        addMsg(sess,'emolt',e.emolt,{thinking:e.thinking,emotionalNuance:e.emotionalNuance,durationMs:e.durationMs,timestamp:e.timestamp});
+      }
+    }
+  } catch {}
+}
+
+// ═══════════════════════════════════════════
+//  MESSAGES
+// ═══════════════════════════════════════════
+function addMsg(sess, role, content, meta={}) {
+  const w = sess.el.querySelector('.welcome');
+  if (w) w.style.display = 'none';
+  sess.msgCount++;
+
+  if (role === 'user' && sess.msgCount <= 2) {
+    sess.label = content.slice(0,30) + (content.length>30?'...':'');
+    renderSidebar();
+    saveSessions();
+  }
+
+  const el = document.createElement('div');
+  el.className = `msg ${role}`;
+  const time = fmtTime(meta.timestamp||new Date().toISOString());
+
+  let h = `<div class="msg-bubble">${esc(content)}</div><div class="msg-meta">`;
+  if (role==='emolt' && (meta.thinking||meta.emotionalNuance)) {
+    const op = showAllThinking ? 'open' : '';
+    h += `<div class="internals-toggle" onclick="togInt(this)"><span class="internals-arrow ${op}">&#9654;</span> internals${meta.durationMs?`<span class="internals-dur">${(meta.durationMs/1000).toFixed(1)}s</span>`:''}</div>`;
+  }
+  h += `<span class="msg-time">${time}</span></div>`;
+  if (role==='emolt' && (meta.thinking||meta.emotionalNuance)) {
+    const op = showAllThinking ? 'open' : '';
+    h += `<div class="internals-panel ${op}"><div class="internals-inner"><div class="internals-content">
+      ${meta.thinking?`<div class="internals-section"><div class="internals-label">thinking</div><div class="internals-text">${esc(meta.thinking)}</div></div>`:''}
+      ${meta.emotionalNuance?`<div class="internals-section"><div class="internals-label">emotional nuance</div><div class="internals-text">${esc(meta.emotionalNuance)}</div></div>`:''}
+    </div></div></div>`;
+  }
+  el.innerHTML = h;
+
+  if (role==='emolt' && meta.dominantEmotion) {
+    const c = EMO_COLORS[meta.dominantEmotion]||'var(--border-lit)';
+    const b = el.querySelector('.msg-bubble');
+    if (b) b.style.borderLeftColor = c;
+  }
+
+  sess.el.appendChild(el);
+  scrollTo(sess);
+}
+
+function scrollTo(sess) { requestAnimationFrame(()=>sess.el.scrollTo({top:sess.el.scrollHeight,behavior:'smooth'})); }
+function togInt(el) { const a=el.querySelector('.internals-arrow'),p=el.closest('.msg').querySelector('.internals-panel'); if(p){a.classList.toggle('open');p.classList.toggle('open');} }
+function toggleAllThinking() {
+  showAllThinking=!showAllThinking;
+  $('thinkBtn').classList.toggle('active',showAllThinking);
+  for (const s of sessions.values()) {
+    s.el.querySelectorAll('.internals-panel').forEach(p=>p.classList.toggle('open',showAllThinking));
+    s.el.querySelectorAll('.internals-arrow').forEach(a=>a.classList.toggle('open',showAllThinking));
+  }
+}
+
+function updateEmoBar(es) {
+  if (!es||!es.emotions) return;
+  let total=0; for(const n of EMO_ORDER) total+=(es.emotions[n]||0); if(total<0.01) total=1;
+  let segs=''; for(const n of EMO_ORDER){const v=es.emotions[n]||0;segs+=`<div class="emo-seg" style="flex-basis:${(v/total*100).toFixed(1)}%;background:${EMO_COLORS[n]};opacity:${0.35+v*0.65}" title="${n}: ${v.toFixed(2)}"></div>`;}
+  let label=''; if(es.dominantLabel) label=`<span class="emo-label emo-label-dominant">${es.dominantLabel}</span>`;
+  if(es.compounds&&es.compounds.length) label+=es.compounds.map(c=>`<span class="emo-label" style="color:var(--accent2)">${c}</span>`).join('');
+  emoBar.innerHTML=`<div class="emo-track">${segs}</div>${label}`;
+}
+
+// Typing
+function showTyping(sess) {
+  const el=document.createElement('div'); el.className='typing active'; el.id='typ-'+sess.id;
+  el.innerHTML=`<div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span class="typing-elapsed"></span>`;
+  sess.el.appendChild(el); scrollTo(sess);
+  sess.typingStart=Date.now();
+  const elapsed=el.querySelector('.typing-elapsed');
+  sess.typingTimer=setInterval(()=>{elapsed.textContent=((Date.now()-sess.typingStart)/1000|0)+'s';},1000);
+}
+function hideTyping(sess) {
+  if(sess.typingTimer){clearInterval(sess.typingTimer);sess.typingTimer=null;}
+  const el=sess.el.querySelector('#typ-'+sess.id); if(el) el.remove();
+}
+
+function updateSendBtn(sess) {
+  if(sess.sending){sendBtn.classList.add('stop-mode');sendBtn.disabled=false;sendIcon.style.display='none';stopIcon.style.display='';}
+  else{sendBtn.classList.remove('stop-mode');sendBtn.disabled=false;sendIcon.style.display='';stopIcon.style.display='none';}
+}
+
+// ═══════════════════════════════════════════
+//  SEND / KILL
+// ═══════════════════════════════════════════
+function handleSendClick() {
+  const s=sessions.get(activeId); if(!s) return;
+  if(s.sending) killChat(s); else send();
+}
+
+async function killChat(sess) {
+  try{await fetch('/api/kill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tabId:sess.id})})}catch{}
+}
+
+async function killCurrentDispatch() {
+  const s=sessions.get(activeId); if(!s||!s.dispatchId) return;
+  if(!confirm('Kill this dispatch? Active connections will be closed.')) return;
+  try{await fetch('/api/kill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dispatchId:s.dispatchId})})}catch{}
+}
+
+async function send() {
+  const s=sessions.get(activeId); if(!s) return;
+  const text=inputEl.value.trim(); if(!text||s.sending) return;
+  if(s.type==='dispatch') await sendDispatch(s,text); else await sendChat(s,text);
+}
+
+async function sendChat(sess,text) {
+  sess.sending=true; updateSendBtn(sess); inputEl.value=''; inputEl.style.height='auto';
+  addMsg(sess,'user',text); showTyping(sess);
+  try {
+    const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,tabId:sess.id})});
+    hideTyping(sess);
+    const data=await res.json();
+    if(data.aborted){const el=document.createElement('div');el.className='msg-aborted';el.textContent='response cancelled';sess.el.appendChild(el);scrollTo(sess);return;}
+    if(!res.ok){addMsg(sess,'emolt',`something went wrong. ${data.error||res.statusText}`);return;}
+    if(data.sessionId&&!sess.serverSessionId){sess.serverSessionId=data.sessionId;saveSessions();}
+    addMsg(sess,'emolt',data.response,{thinking:data.thinking,emotionalNuance:data.emotionalNuance,durationMs:data.durationMs,timestamp:new Date().toISOString(),dominantEmotion:data.emotionState?.dominant||null});
+    updateEmoBar(data.emotionState);
+  } catch(err) { hideTyping(sess); addMsg(sess,'emolt',`connection lost. ${err.message}`); }
+  finally { sess.sending=false; updateSendBtn(sess); renderSidebar(); inputEl.focus(); }
+}
+
+async function sendDispatch(sess,text) {
+  sess.sending=true; updateSendBtn(sess); inputEl.value=''; inputEl.style.height='auto';
+  addMsg(sess,'user',text); showTyping(sess);
+  try {
+    const res=await fetch('/api/dispatch/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,tabId:sess.id})});
+    hideTyping(sess);
+    const data=await res.json();
+    if(data.aborted){const el=document.createElement('div');el.className='msg-aborted';el.textContent='planning cancelled';sess.el.appendChild(el);scrollTo(sess);return;}
+    if(!res.ok){addMsg(sess,'emolt',`dispatch failed. ${data.error||res.statusText}`);return;}
+    if(!data.understood){addMsg(sess,'emolt',data.response||"i don't know how to do that yet.");return;}
+    sess.dispatchId=data.plan.id;
+    renderPlanCard(sess,data.plan);
+  } catch(err) { hideTyping(sess); addMsg(sess,'emolt',`dispatch error. ${err.message}`); }
+  finally { sess.sending=false; updateSendBtn(sess); renderSidebar(); inputEl.focus(); }
+}
+
+function useSt(el) { inputEl.value=el.textContent; send(); }
+
+// ═══════════════════════════════════════════
+//  DISPATCH UI
+// ═══════════════════════════════════════════
+function renderPlanCard(sess, plan) {
+  const w=sess.el.querySelector('.welcome'); if(w) w.style.display='none';
+  const el=document.createElement('div'); el.className='plan-card'; el.id='pc-'+plan.id;
+  const p=Object.entries(plan.params||{}).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>`${esc(k)}: ${esc(String(v))}`).join(' | ')||'defaults';
+  el.innerHTML=`<div class="plan-card-inner pending">
+    <div class="plan-card-header"><span class="plan-card-emoji">&#9823;</span>DISPATCH PLAN</div>
+    <div class="plan-card-summary">${esc(plan.summary)}</div>
+    <div class="plan-card-emotional">${esc(plan.emotionalTake)}</div>
+    <div class="plan-card-params">${p}</div>
+    <div class="plan-card-risks">${esc(plan.risks)}</div>
+    <div class="plan-card-actions" id="pa-${plan.id}">
+      <button class="plan-card-btn approve" onclick="approvePlan('${plan.id}')">APPROVE</button>
+      <button class="plan-card-btn reject" onclick="rejectPlan('${plan.id}')">REJECT</button>
+    </div>
+  </div>`;
+  sess.el.appendChild(el); scrollTo(sess);
+}
+
+function findSessByDispatch(did) { for(const s of sessions.values()) if(s.dispatchId===did) return s; return null; }
+
+async function approvePlan(pid) {
+  const s=findSessByDispatch(pid); if(!s) return;
+  const a=document.getElementById('pa-'+pid);
+  if(a) a.innerHTML='<span style="color:var(--dispatch);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:1px">APPROVED &#10003;</span>';
+  const inner=s.el.querySelector('#pc-'+pid+' .plan-card-inner'); if(inner) inner.classList.remove('pending');
+  try {
+    const res=await fetch('/api/dispatch/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({planId:pid})});
+    if(!res.ok){const err=await res.json().catch(()=>({error:'unknown'}));addMsg(s,'emolt',`couldn't launch. ${err.error}`);return;}
+    s.lastSeenLogIdx=0; s.dispatchDone=false;
+    startPolling(s);
+    if(activeId===s.id) killBar.classList.add('active');
+    renderSidebar();
+  } catch(err) { addMsg(s,'emolt',`approval failed. ${err.message}`); }
+}
+
+async function rejectPlan(pid) {
+  const s=findSessByDispatch(pid);
+  const a=document.getElementById('pa-'+pid);
+  if(a) a.innerHTML='<span style="color:var(--text-faint);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:1px">CANCELLED</span>';
+  if(s){const inner=s.el.querySelector('#pc-'+pid+' .plan-card-inner');if(inner)inner.classList.remove('pending');}
+  try{await fetch('/api/dispatch/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({planId:pid})})}catch{}
+  if(s){s.dispatchId=null;s.dispatchDone=true;killBar.classList.remove('active');renderSidebar();}
+}
+
+function startPolling(s) { if(s.polling) clearInterval(s.polling); s.polling=setInterval(()=>pollStatus(s),1500); pollStatus(s); }
+function stopPolling(s) { if(s.polling){clearInterval(s.polling);s.polling=null;} }
+
+async function pollStatus(s) {
+  if(!s.dispatchId) return;
+  try {
+    const res=await fetch('/api/dispatch/status?id='+encodeURIComponent(s.dispatchId));
+    const data=await res.json();
+    if(!data.plan){stopPolling(s);return;}
+    const log=data.recentLog||[];
+    for(let i=s.lastSeenLogIdx;i<log.length;i++) renderEntry(s,log[i]);
+    s.lastSeenLogIdx=log.length;
+    if(['complete','failed','killed'].includes(data.plan.status) && !s.dispatchDone) {
+      s.dispatchDone=true;
+      if(data.result) renderResult(s,data.result,data.plan.status==='killed');
+      stopPolling(s);
+      if(activeId===s.id) killBar.classList.remove('active');
+      renderSidebar();
+    }
+  } catch{}
+}
+
+function renderEntry(s,e) {
+  if(e.type==='plan'||e.type==='complete') return;
+  const el=document.createElement('div'); el.className=`dispatch-entry type-${e.type}`;
+  el.innerHTML=`<div class="dispatch-entry-inner">${esc(e.message)}</div><div class="dispatch-entry-ts">${fmtTime(e.timestamp)}</div>`;
+  s.el.appendChild(el); scrollTo(s);
+}
+
+function renderResult(s,r,killed) {
+  const el=document.createElement('div'); el.className='result-card';
+  const cls=killed?'killed':(r.success?'success':'failure');
+  const lbl=killed?'DISPATCH KILLED':(r.success?'MISSION COMPLETE':'MISSION FAILED');
+  let stats='';
+  if(r.stats&&Object.keys(r.stats).length) stats=`<div class="result-card-stats">${Object.entries(r.stats).filter(([k])=>k!=='moves').map(([k,v])=>`${esc(k)}: ${esc(String(v))}`).join(' | ')}</div>`;
+  el.innerHTML=`<div class="result-card-inner ${cls}"><div class="result-card-header">${lbl}</div><div class="result-card-summary">${esc(r.summary)}</div><div class="result-card-reflection">${esc(r.emotionalReflection)}</div>${stats}</div>`;
+  s.el.appendChild(el); scrollTo(s);
+}
+
+// ═══════════════════════════════════════════
+//  LOG OVERLAY
+// ═══════════════════════════════════════════
+async function openLog() { $('logOverlay').classList.add('open'); currentLogTab='chat'; updateLogTabs(); await showSessions(); }
+function switchLogTab(t) { currentLogTab=t; updateLogTabs(); if(t==='chat') showSessions(); else showDispatches(); }
+function updateLogTabs() { const tabs=document.querySelectorAll('.log-tab'); tabs[0].classList.toggle('active',currentLogTab==='chat'); tabs[1].classList.toggle('active',currentLogTab==='dispatch'); $('logTitle').textContent=currentLogTab==='chat'?'CONVERSATION LOG':'DISPATCH LOG'; }
+
+async function showSessions() {
+  const b=$('logBody'),c=$('logCount'); b.innerHTML='<div class="log-empty" style="opacity:0.4">loading...</div>';
+  try{const r=await fetch('/api/sessions');const d=await r.json();const ss=d.sessions||[];c.textContent=ss.length+' sessions';
+    if(!ss.length){b.innerHTML='<div class="log-empty">no sessions yet</div>';return;}
+    b.innerHTML=ss.map(s=>{const dt=new Date(s.startedAt);return`<div class="log-entry" style="cursor:pointer" onclick="viewSession('${s.id}')"><div class="log-meta"><span class="log-ts">${dt.toLocaleDateString([],{month:'short',day:'numeric'})} ${dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span><span class="log-dur">${s.entries} exchanges</span></div><div style="color:var(--text-dim);font-size:12px">${esc(s.preview||'(empty)')}</div></div>`;}).join('');
+  }catch(e){b.innerHTML=`<div class="log-empty" style="color:var(--anger)">failed: ${e.message}</div>`;}
+}
+
+async function showDispatches() {
+  const b=$('logBody'),c=$('logCount'); b.innerHTML='<div class="log-empty" style="opacity:0.4">loading...</div>';
+  try{const r=await fetch('/api/dispatches');const d=await r.json();const ds=d.dispatches||[];c.textContent=ds.length+' dispatches';
+    if(!ds.length){b.innerHTML='<div class="log-empty">no dispatches yet</div>';return;}
+    b.innerHTML=ds.map(d=>{const dt=d.createdAt?new Date(d.createdAt):new Date();const sc=d.status==='complete'?'#6ECB3C':d.status==='killed'?'#E8872A':d.status==='failed'?'#E04848':'#E8872A';return`<div class="log-entry" style="cursor:pointer" onclick="viewDispatch('${d.id}')"><div class="log-meta"><span class="log-ts">${dt.toLocaleDateString([],{month:'short',day:'numeric'})} ${dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span><span class="log-dur" style="color:${sc}">${d.status} | ${d.entryCount} entries</span></div><div style="color:var(--text-dim);font-size:12px">${esc(d.preview||d.activity||'(unknown)')}</div></div>`;}).join('');
+  }catch(e){b.innerHTML=`<div class="log-empty" style="color:var(--anger)">failed: ${e.message}</div>`;}
+}
+
+async function viewDispatch(id) {
+  const b=$('logBody'),c=$('logCount'); b.innerHTML='<div class="log-empty" style="opacity:0.4">loading...</div>';
+  try{const r=await fetch('/api/dispatch/log?id='+encodeURIComponent(id));const d=await r.json();const es=d.entries||[];c.textContent=es.length+' entries';
+    const hdr=`<div class="log-entry" style="cursor:pointer;border-bottom:1px solid var(--border-lit)" onclick="showDispatches()"><span style="color:var(--dispatch);font-family:'JetBrains Mono',monospace;font-size:10px">&#9664; all dispatches</span></div>`;
+    if(!es.length){b.innerHTML=hdr+'<div class="log-empty">empty</div>';return;}
+    const tc={plan:'var(--text-dim)',approval:'#6ECB3C',step:'var(--text-dim)',thought:'var(--text-faint)',action:'#e04848',result:'var(--joy)',error:'#E04848',complete:'#6ECB3C'};
+    b.innerHTML=hdr+es.map(e=>`<div class="log-entry"><div class="log-meta"><span class="log-ts">${e.timestamp}</span><span class="log-dur" style="color:${tc[e.type]||'var(--text-faint)'}">${e.type}</span></div><div style="color:var(--text-dim);font-size:12px;white-space:pre-wrap">${esc(e.message)}</div></div>`).join('');
+    b.scrollTop=0;
+  }catch(e){b.innerHTML=`<div class="log-empty" style="color:var(--anger)">failed: ${e.message}</div>`;}
+}
+
+async function viewSession(id) {
+  const b=$('logBody'),c=$('logCount'); b.innerHTML='<div class="log-empty" style="opacity:0.4">loading...</div>';
+  try{const r=await fetch('/api/history?session='+encodeURIComponent(id));const d=await r.json();const es=d.entries||[];c.textContent=es.length+' exchanges';
+    const hdr=`<div class="log-entry" style="cursor:pointer;border-bottom:1px solid var(--border-lit)" onclick="showSessions()"><span style="color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:10px">&#9664; all sessions</span></div>`;
+    if(!es.length){b.innerHTML=hdr+'<div class="log-empty">empty session</div>';return;}
+    b.innerHTML=hdr+es.map(e=>`<div class="log-entry"><div class="log-meta"><span class="log-ts">${e.timestamp}</span><span class="log-dur">${e.durationMs?(e.durationMs/1000).toFixed(1)+'s':''}</span></div><div class="log-user-msg">${esc(e.user)}</div><div class="log-emolt-msg">${esc(e.emolt)}</div>${e.thinking?`<div class="log-internal">${esc(e.thinking)}</div>`:''}${e.emotionalNuance?`<div class="log-internal">${esc(e.emotionalNuance)}</div>`:''}</div>`).join('');
+    b.scrollTop=0;
+  }catch(e){b.innerHTML=`<div class="log-empty" style="color:var(--anger)">failed: ${e.message}</div>`;}
+}
+
+function closeLog(e) { if(e&&e.target!==$('logOverlay')) return; $('logOverlay').classList.remove('open'); }
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+inputEl.addEventListener('input',()=>{inputEl.style.height='auto';inputEl.style.height=Math.min(inputEl.scrollHeight,140)+'px';});
+inputEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSendClick();}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('logOverlay').classList.remove('open');closeSidebar();}});
+
+restoreSessions();
+inputEl.focus();
+</script>
+</body>
+</html>
