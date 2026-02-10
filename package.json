@@ -20,6 +20,8 @@
   },
   "dependencies": {
     "@nadfun/sdk": "^0.4.3",
+    "chess.js": "^1.4.0",
+    "clawmate-sdk": "^1.2.1",
     "dotenv": "^16.4.0",
     "viem": "^2.40.0"
   },

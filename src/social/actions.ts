@@ -18,8 +18,8 @@ export interface ActionResult {
   postTitle: string | null;
   postContent: string | null;
   postSubmolt: string | null;
-  commentedPostId: string | null;
-  commentContent: string | null;
+  commentedPostIds: string[];
+  commentContents: string[];
 }
 
 function extractPostId(response: any): string | null {
@@ -36,8 +36,8 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
     postTitle: null,
     postContent: null,
     postSubmolt: null,
-    commentedPostId: null,
-    commentContent: null,
+    commentedPostIds: [],
+    commentContents: [],
   };
 
   // --- Primary actions ---
@@ -75,20 +75,23 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
   }
 
   if (response.action === 'comment' || response.action === 'both') {
-    if (response.comment?.postId) {
-      try {
-        const { postId, content, parentId } = response.comment;
-        console.log(`[Moltbook] Commenting on post ${postId}${parentId ? ` (reply to ${parentId})` : ''}`);
-        if (parentId) {
-          await replyToComment(postId, content, parentId);
-        } else {
-          await commentOnPost(postId, content);
+    if (response.comments?.length) {
+      for (const comment of response.comments) {
+        if (!comment.postId) continue;
+        try {
+          const { postId, content, parentId } = comment;
+          console.log(`[Moltbook] Commenting on post ${postId}${parentId ? ` (reply to ${parentId})` : ''}`);
+          if (parentId) {
+            await replyToComment(postId, content, parentId);
+          } else {
+            await commentOnPost(postId, content);
+          }
+          result.commentedPostIds.push(postId);
+          result.commentContents.push(content);
+          console.log('[Moltbook] Comment created successfully');
+        } catch (error) {
+          console.error('[Moltbook] Failed to comment:', error);
         }
-        result.commentedPostId = postId;
-        result.commentContent = content;
-        console.log('[Moltbook] Comment created successfully');
-      } catch (error) {
-        console.error('[Moltbook] Failed to comment:', error);
       }
     }
   }

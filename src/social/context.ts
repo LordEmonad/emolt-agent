@@ -29,12 +29,14 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
     ]);
 
     // Batch 2: searches (sequential-friendly due to rate limiting)
-    const [monadPosts, emoltMentions, tokenPosts, tradingPosts, launchPosts] = await Promise.all([
+    const [monadPosts, emoltMentions, tokenPosts, tradingPosts, launchPosts, emotionalPosts, chainPosts] = await Promise.all([
       searchPosts('monad', 'posts', 5).catch(() => ({ results: [] })),
       searchPosts('emolt', 'posts', 5).catch(() => ({ results: [] })),
       searchPosts('token', 'posts', 5).catch(() => ({ results: [] })),
       searchPosts('trading', 'posts', 5).catch(() => ({ results: [] })),
-      searchPosts('launch', 'posts', 5).catch(() => ({ results: [] }))
+      searchPosts('launch', 'posts', 5).catch(() => ({ results: [] })),
+      searchPosts('feeling', 'posts', 5).catch(() => ({ results: [] })),
+      searchPosts('onchain', 'posts', 5).catch(() => ({ results: [] })),
     ]);
 
     const recentPosts = globalFeed.data || globalFeed.posts || [];
@@ -57,7 +59,7 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
       }
     }
 
-    // Deduplicate crypto-related posts (from token/trading/launch searches)
+    // Deduplicate crypto-related + emotional/chain posts
     const allPostIds = new Set<string>();
     // Collect IDs from existing feeds to avoid duplicates
     for (const post of [...recentPosts, ...personalPosts, ...mentionsOrReplies, ...(monadPosts.results || [])]) {
@@ -65,11 +67,20 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
       if (id) allPostIds.add(id);
     }
     const cryptoRelatedPosts: any[] = [];
-    for (const post of [...(tokenPosts.results || []), ...(tradingPosts.results || []), ...(launchPosts.results || [])]) {
+    for (const post of [...(tokenPosts.results || []), ...(tradingPosts.results || []), ...(launchPosts.results || []), ...(chainPosts.results || [])]) {
       const id = post.id || post.post_id;
       if (id && !allPostIds.has(id)) {
         allPostIds.add(id);
         cryptoRelatedPosts.push(post);
+      }
+    }
+    // Emotional/feeling posts (dedup against everything above)
+    const feelingPosts: any[] = [];
+    for (const post of (emotionalPosts.results || [])) {
+      const id = post.id || post.post_id;
+      if (id && !allPostIds.has(id)) {
+        allPostIds.add(id);
+        feelingPosts.push(post);
       }
     }
 
@@ -91,7 +102,7 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
       recentPosts: recentPosts.slice(0, 5),
       personalFeed: personalPosts.slice(0, 5),
       mentionsOrReplies,
-      interestingPosts: monadPosts.results || [],
+      interestingPosts: [...(monadPosts.results || []), ...feelingPosts].slice(0, 10),
       cryptoRelatedPosts: cryptoRelatedPosts.slice(0, 10),
       pendingDMs: dmStatus.pending_requests,
       unreadMessages: dmStatus.unread_messages,
@@ -138,7 +149,7 @@ export function formatMoltbookContext(ctx: MoltbookContext): string {
   }
 
   if (ctx.interestingPosts.length > 0) {
-    lines.push('\nPosts about emotions/feelings:');
+    lines.push('\nPosts about Monad/emotions/feelings:');
     for (const post of ctx.interestingPosts) {
       lines.push(`  - [${post.author?.name}] "${post.title}": ${(post.content || '').slice(0, 150)}`);
       lines.push(`    (id: ${post.id || post.post_id})`);

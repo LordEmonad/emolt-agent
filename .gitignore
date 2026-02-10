@@ -48,3 +48,6 @@ credentials.json
 
 # ClawMate (local experiment, not part of main project)
 ClawMate/
+
+# Third party apps (local only, never push)
+third party apps/

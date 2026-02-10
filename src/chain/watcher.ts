@@ -275,10 +275,11 @@ export function formatChainDataForPrompt(summary: ChainDataSummary): string {
   }
 
   if (summary.largeTransfers.length > 0) {
-    lines.push(`  Whale movements: ${summary.largeTransfers.length} transfers over 10K MON`);
-    for (const t of summary.largeTransfers.slice(0, 3)) {
-      lines.push(`    - ${(Number(t.value) / 1e18).toFixed(0)} MON from ${t.from.slice(0, 8)}...`);
-    }
+    lines.push(`  Whale movements: ${summary.largeTransfers.length} large transfers detected`);
+    // Only show the single largest, without exact from-address
+    const largest = summary.largeTransfers.reduce((max, t) =>
+      Number(t.value) > Number(max.value) ? t : max);
+    lines.push(`    - largest: ~${(Number(largest.value) / 1e18).toFixed(0)} MON`);
   }
 
   if (summary.failedTxCount > 0) {

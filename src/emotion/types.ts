@@ -81,6 +81,9 @@ export interface EmotionState {
   // What triggered the last change
   trigger: string;
 
+  // Private inner monologue describing current mood (dashboard-only, never posted)
+  moodNarrative?: string;
+
   // Mood (slow-moving average, represents long-term temperament)
   mood: Record<PrimaryEmotion, number>;
 }

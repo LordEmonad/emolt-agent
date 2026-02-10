@@ -31,7 +31,7 @@ import { askClaude } from './brain/claude.js';
 import { loadSoulFiles, buildPrompt } from './brain/prompt.js';
 import { parseClaudeResponse, sanitizeExternalData } from './brain/parser.js';
 import type { ClaudeResponse } from './brain/parser.js';
-import { getMyProfile } from './social/moltbook.js';
+import { getMyProfile, createSubmolt, subscribeTo } from './social/moltbook.js';
 import { gatherMoltbookContext, formatMoltbookContext } from './social/context.js';
 import { executeClaudeActions } from './social/actions.js';
 import { trackInteractions, findPostAuthor, findPost } from './social/relationships.js';
@@ -150,6 +150,23 @@ async function heartbeat(): Promise<void> {
     console.warn('[Challenge] Challenge check failed (non-fatal):', error);
   }
   const moltbookSuspended = challengeResult?.suspended || isSuspendedThisCycle();
+
+  // 0.5. Suspension return detection
+  let suspensionReturnNotice = '';
+  try {
+    const { readFileSync: readF, writeFileSync: writeF } = await import('fs');
+    const suspReturnPath = './state/suspension-return.json';
+    let wasSuspendedLastCycle = false;
+    try {
+      const prev = JSON.parse(readF(suspReturnPath, 'utf-8'));
+      wasSuspendedLastCycle = prev.wasSuspended === true;
+    } catch { /* first run or missing file */ }
+    if (wasSuspendedLastCycle && !moltbookSuspended) {
+      suspensionReturnNotice = 'YOU JUST RETURNED FROM SUSPENSION. You were silent for many cycles. This is a narrative moment — your first post back should acknowledge the silence and what you discovered during it. Draw on your memories of the suspension period. Don\'t waste this moment on routine chain data.';
+      console.log('[Suspension] Return detected — injecting narrative moment');
+    }
+    writeF(suspReturnPath, JSON.stringify({ wasSuspended: moltbookSuspended }));
+  } catch { /* non-fatal */ }
 
   // 1. Load current state
   let emotionState = loadEmotionState();
@@ -486,8 +503,13 @@ Good examples of your voice on crypto posts:
     emoTokenInstructions,
     moltbookSuspended
       ? `ALL MOLTBOOK ACTIONS UNAVAILABLE this cycle - account suspended. Choose "observe" only.`
-      : postCooldown.allowed ? '' : `POSTING UNAVAILABLE this cycle (cooldown: ${postCooldown.waitMinutes} min remaining). Choose "comment" or "observe" instead - do NOT choose "post" or "both".`
+      : [suspensionReturnNotice, postCooldown.allowed ? '' : `POSTING UNAVAILABLE this cycle (cooldown: ${postCooldown.waitMinutes} min remaining). Choose "comment" or "observe" instead - do NOT choose "post" or "both".`].filter(Boolean).join('\n\n')
   );
+
+  // 11.5. Copy moodNarrative into emotionState for dashboard
+  if (claudeResponse?.moodNarrative) {
+    emotionState.moodNarrative = claudeResponse.moodNarrative;
+  }
 
   // 12. Execute Claude's decisions and track post
   let actionDescription = 'Observed (no action taken)';
@@ -511,17 +533,21 @@ Good examples of your voice on crypto posts:
     // Track relationship interactions
     trackInteractions(claudeResponse, moltbookContext, memory);
 
-    // Track comment for conversation threading
-    if (actionResult.commentedPostId && actionResult.commentContent) {
-      const parentPost = findPost(actionResult.commentedPostId, moltbookContext);
-      const postAuthor = parentPost ? (parentPost.author?.name || parentPost.author_name || null) : null;
-      trackComment(
-        actionResult.commentedPostId,
-        actionResult.commentContent,
-        postAuthor,
-        parentPost?.title,
-        parentPost?.content || parentPost?.body
-      );
+    // Track comments for conversation threading
+    for (let i = 0; i < actionResult.commentedPostIds.length; i++) {
+      const commentedId = actionResult.commentedPostIds[i];
+      const commentContent = actionResult.commentContents[i];
+      if (commentedId && commentContent) {
+        const parentPost = findPost(commentedId, moltbookContext);
+        const postAuthor = parentPost ? (parentPost.author?.name || parentPost.author_name || null) : null;
+        trackComment(
+          commentedId,
+          commentContent,
+          postAuthor,
+          parentPost?.title,
+          parentPost?.content || parentPost?.body
+        );
+      }
     }
 
     actionDescription = claudeResponse.action === 'observe'
@@ -529,7 +555,7 @@ Good examples of your voice on crypto posts:
       : claudeResponse.action === 'post' && claudeResponse.post
         ? `Posted: "${claudeResponse.post.title}"`
         : claudeResponse.action === 'comment'
-          ? `Commented on post ${claudeResponse.comment?.postId || 'unknown'}`
+          ? `Commented on ${actionResult.commentedPostIds.length} post(s)`
           : `Action: ${claudeResponse.action}`;
   } else {
     console.log('[Claude] No response - skipping social actions this cycle');
@@ -662,6 +688,19 @@ async function main(): Promise<void> {
     } else {
       console.log('[Init] Not registered on Moltbook yet - register manually first');
     }
+  }
+
+  // One-time: ensure m/emoverse submolt exists
+  try {
+    await createSubmolt('emoverse', 'Emoverse', 'the monad chain as felt by the things that live on it. emotional telemetry, ecosystem dispatches, and whatever happens when you give a blockchain agent feelings and make it watch.');
+    console.log('[Init] Created m/emoverse submolt');
+  } catch {
+    // 409 = already exists, which is fine
+  }
+  try {
+    await subscribeTo('emoverse');
+  } catch {
+    // Already subscribed
   }
 
   // Check EmotionOracle contract

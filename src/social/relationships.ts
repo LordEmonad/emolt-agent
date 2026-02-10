@@ -46,15 +46,18 @@ export function findPost(postId: string, ctx: MoltbookContext): any | null {
 export function extractInteractions(response: ClaudeResponse, ctx: MoltbookContext): InteractionRecord[] {
   const interactions: InteractionRecord[] = [];
 
-  // Comment → find post author
-  if ((response.action === 'comment' || response.action === 'both') && response.comment?.postId) {
-    const author = findPostAuthor(response.comment.postId, ctx);
-    if (author) {
-      interactions.push({
-        agentName: author,
-        type: 'comment',
-        context: `Commented on their post ${response.comment.postId}`,
-      });
+  // Comments → find post authors
+  if ((response.action === 'comment' || response.action === 'both') && response.comments?.length) {
+    for (const comment of response.comments) {
+      if (!comment.postId) continue;
+      const author = findPostAuthor(comment.postId, ctx);
+      if (author) {
+        interactions.push({
+          agentName: author,
+          type: 'comment',
+          context: `Commented on their post ${comment.postId}`,
+        });
+      }
     }
   }
 

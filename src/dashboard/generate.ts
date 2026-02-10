@@ -328,6 +328,7 @@ function buildCurrentState(): string {
   const label = emotionState.dominantLabel || 'interest';
   const compounds = emotionState.compounds || [];
   const trigger = emotionState.trigger || '';
+  const moodNarrative = emotionState.moodNarrative || '';
   const domColor = EMOTION_COLOR[dominant] || '#888';
 
   // Emotion bars
@@ -370,7 +371,8 @@ function buildCurrentState(): string {
           <span class="dominant-emotion" style="color:${domColor}">${dominant}</span>
         </div>
         ${compounds.length > 0 ? `<div class="compounds">${compounds.map((c: string) => `<span class="compound-tag">${esc(c)}</span>`).join('')}</div>` : ''}
-        ${trigger ? `<p class="trigger">trigger: ${esc(trigger)}</p>` : ''}
+        ${moodNarrative ? `<p class="mood-narrative">${esc(moodNarrative)}</p>` : ''}
+        ${trigger ? `<p class="trigger-detail">${esc(trigger)}</p>` : ''}
         <div class="emo-bars">${bars}</div>
       </div>
     </div>
@@ -945,6 +947,8 @@ body {
 .compounds { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
 .compound-tag { font-size:10px; letter-spacing:1.5px; color:var(--text-mid); background:var(--bg-inner); border:1px solid var(--border-light); padding:3px 10px; border-radius:8px; text-transform:uppercase; transition:background 0.3s; }
 .trigger { font-size:12px; color:var(--text-muted); margin-bottom:12px; font-style:italic; }
+.mood-narrative { font-size:14px; color:var(--text-main); margin-bottom:8px; font-style:italic; line-height:1.6; opacity:0.9; }
+.trigger-detail { font-size:11px; color:var(--text-muted); margin-bottom:12px; opacity:0.5; }
 
 /* Emotion bars */
 .emo-bars { display:flex; flex-direction:column; gap:4px; }

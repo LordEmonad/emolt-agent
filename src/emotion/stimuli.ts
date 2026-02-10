@@ -73,14 +73,17 @@ export function mapChainDataToStimuli(data: ChainDataSummary, thresholds?: Adapt
     );
   }
 
-  // WHALE TRANSFERS → Fear + Anticipation (Anxiety)
+  // WHALE TRANSFERS → Fear + Anticipation (Anxiety) — diminishing returns
+  let whaleCount = 0;
   for (const transfer of data.largeTransfers) {
     const monValue = Number(transfer.value / BigInt(1e9)) / 1e9;
     if (monValue > (thresholds?.whaleTransferMon ?? 10000)) {
-      const intensity = Math.min(0.6, monValue / 100000);
+      whaleCount++;
+      const rawIntensity = Math.min(0.4, monValue / 100000);
+      const diminished = rawIntensity / Math.sqrt(whaleCount);
       stimuli.push(
-        { emotion: PrimaryEmotion.FEAR, intensity, source: `large transfer: ${monValue.toFixed(0)} MON`, weightCategory: 'whaleTransferFear' },
-        { emotion: PrimaryEmotion.ANTICIPATION, intensity: intensity * 0.5, source: 'watching whale movement', weightCategory: 'whaleTransferFear' }
+        { emotion: PrimaryEmotion.FEAR, intensity: diminished, source: 'whale transfer detected', weightCategory: 'whaleTransferFear' },
+        { emotion: PrimaryEmotion.ANTICIPATION, intensity: diminished * 0.5, source: 'whale movement', weightCategory: 'whaleTransferFear' }
       );
     }
   }

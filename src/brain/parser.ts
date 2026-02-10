@@ -1,16 +1,17 @@
 export interface ClaudeResponse {
   thinking: string;
   action: 'post' | 'comment' | 'both' | 'observe';
+  moodNarrative: string | null;
   post: {
     title: string;
     content: string;
     submolt: string;
   } | null;
-  comment: {
+  comments: {
     postId: string;
     content: string;
     parentId?: string;
-  } | null;
+  }[] | null;
   dm: {
     conversationId: string;
     message: string;
@@ -73,11 +74,20 @@ export function parseClaudeResponse(raw: string): ClaudeResponse | null {
       return null;
     }
 
+    // Backward compat: singular "comment" → wrap in array
+    let comments: ClaudeResponse['comments'] = null;
+    if (parsed.comments && Array.isArray(parsed.comments) && parsed.comments.length > 0) {
+      comments = parsed.comments;
+    } else if (parsed.comment?.postId) {
+      comments = [parsed.comment];
+    }
+
     return {
       thinking: parsed.thinking || '',
       action: parsed.action || 'observe',
+      moodNarrative: parsed.moodNarrative || null,
       post: parsed.post || null,
-      comment: parsed.comment || null,
+      comments,
       dm: parsed.dm || null,
       dmRequests: parsed.dmRequests || null,
       follow: parsed.follow || null,

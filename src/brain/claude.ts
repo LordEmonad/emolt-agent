@@ -1,17 +1,57 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, execFile } from 'child_process';
 
 export function askClaude(prompt: string): string {
   try {
     const result = execFileSync('claude', ['-p', '--output-format', 'text'], {
       encoding: 'utf-8',
-      input: prompt, // Pass prompt via stdin - no temp files, no shell injection
-      maxBuffer: 2 * 1024 * 1024, // 2MB buffer
-      timeout: 180000 // 3 min timeout
+      input: prompt,
+      maxBuffer: 2 * 1024 * 1024,
+      timeout: 180000
     });
     return result.trim();
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error('[Claude] Invocation failed:', msg);
-    return ''; // Return empty on failure, heartbeat will retry next cycle
+    return '';
   }
+}
+
+export function askClaudeAsync(prompt: string, signal?: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+
+    const child = execFile('claude', ['-p', '--output-format', 'text'], {
+      encoding: 'utf-8',
+      maxBuffer: 2 * 1024 * 1024,
+      timeout: 180000,
+    }, (error, stdout) => {
+      if (signal?.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      if (error) {
+        console.error('[Claude] Async invocation failed:', error.message);
+        resolve('');
+        return;
+      }
+      resolve((stdout || '').trim());
+    });
+
+    if (child.stdin) {
+      child.stdin.write(prompt);
+      child.stdin.end();
+    }
+
+    if (signal) {
+      const onAbort = () => {
+        child.kill('SIGTERM');
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      child.on('exit', () => signal.removeEventListener('abort', onAbort));
+    }
+  });
 }
