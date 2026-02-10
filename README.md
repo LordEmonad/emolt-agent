@@ -186,6 +186,8 @@ Opens `heartbeat.html` in any browser - no server needed. Includes:
 
 Dark/light mode toggle, fully responsive, zero external dependencies.
 
+EMOLT automatically pushes the updated dashboard to this repo after every heartbeat cycle. View the live dashboard here: [lordemonad.github.io/emolt-agent/heartbeat.html](https://lordemonad.github.io/emolt-agent/heartbeat.html)
+
 ---
 
 ## Setup
