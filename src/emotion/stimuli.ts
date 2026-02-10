@@ -473,7 +473,7 @@ export function mapFeedSentimentToStimuli(ctx: MoltbookContext): EmotionStimulus
   return stimuli;
 }
 
-export function mapSelfPerformanceToStimuli(perf: SelfPerformance): EmotionStimulus[] {
+export function mapSelfPerformanceToStimuli(perf: SelfPerformance, prevPerf?: SelfPerformance | null): EmotionStimulus[] {
   const stimuli: EmotionStimulus[] = [];
 
   // GROWING AUDIENCE (recent avg > previous avg)
@@ -508,11 +508,19 @@ export function mapSelfPerformanceToStimuli(perf: SelfPerformance): EmotionStimu
     );
   }
 
-  // ACTIVE CONVERSATION (lots of comments)
-  if (perf.commentsReceivedTotal > 10) {
+  // NEW COMMENTS (delta-based: only fire when comments actually arrive since last cycle)
+  const newComments = perf.commentsReceivedTotal - (prevPerf?.commentsReceivedTotal ?? 0);
+  if (newComments >= 2) {
     stimuli.push(
-      { emotion: PrimaryEmotion.JOY, intensity: 0.15, source: 'people are actually talking back', weightCategory: 'selfPerformanceReaction' },
+      { emotion: PrimaryEmotion.JOY, intensity: Math.min(0.20, 0.10 + newComments / 20), source: `${newComments} new comments since last cycle - people are actually talking back`, weightCategory: 'selfPerformanceReaction' },
       { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.10, source: 'conversations building', weightCategory: 'selfPerformanceReaction' }
+    );
+  }
+
+  // COMMENTS DECLINING (fewer comments now than last cycle — posts rotated out or deleted)
+  if (prevPerf && newComments < 0) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.SADNESS, intensity: 0.10, source: 'the conversations are drying up', weightCategory: 'selfPerformanceReaction' }
     );
   }
 

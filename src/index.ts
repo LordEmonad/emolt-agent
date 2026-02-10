@@ -54,7 +54,9 @@ import {
   calculateSelfPerformance,
   canPostNow,
   appendHeartbeatLog,
-  saveTrendingData
+  saveTrendingData,
+  loadPreviousSelfPerformance,
+  savePreviousSelfPerformance
 } from './state/persistence.js';
 import type { DexTickerItem, NadFunTickerItem } from './state/persistence.js';
 
@@ -386,9 +388,11 @@ Good examples of your voice on crypto posts:
     console.log(`[Trending] Saved ${majors.length} majors + ${nadFunItems.length} nad.fun items for dashboard ticker`);
   }
 
-  // 8. Self-performance tracking
+  // 8. Self-performance tracking (delta-based)
+  const prevSelfPerf = loadPreviousSelfPerformance();
   const selfPerf = calculateSelfPerformance();
-  const selfPerfStimuli = mapSelfPerformanceToStimuli(selfPerf);
+  const selfPerfStimuli = mapSelfPerformanceToStimuli(selfPerf, prevSelfPerf);
+  savePreviousSelfPerformance(selfPerf);
   console.log(`[Self] ${selfPerf.totalPostsLast24h} posts in 24h, avg ${selfPerf.avgUpvotesRecent.toFixed(1)} upvotes`);
 
   // 9. Emotional memory patterns
