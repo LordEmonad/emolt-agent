@@ -791,6 +791,7 @@ function closeSession(id) {
   if (sess.polling) clearInterval(sess.polling);
   if (sess.typingTimer) clearInterval(sess.typingTimer);
   fetch('/api/tab/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tabId:id})}).catch(()=>{});
+  localStorage.removeItem('emolt-dispatch-msgs-'+id);
 
   if (sess.el.parentNode) sess.el.remove();
   sessions.delete(id);
@@ -908,7 +909,7 @@ function restoreSessions() {
       s.pinned = !!d.pinned;
       s.dispatchId = d.dispatchId || null;
       s.dispatchDone = !!d.dispatchDone;
-      if (d.type === 'dispatch' && d.dispatchId) restoreDispatchHistory(s);
+      if (d.type === 'dispatch') restoreDispatchHistory(s);
       else if (d.serverSessionId) restoreHistory(s);
     }
     renderSidebar();
@@ -933,7 +934,30 @@ async function restoreHistory(sess) {
   } catch {}
 }
 
+function saveDispatchMessages(sess) {
+  // Collect user/emolt messages (not plan cards, log entries, results)
+  const msgs = [];
+  for (const el of sess.el.querySelectorAll('.msg.user, .msg.emolt')) {
+    const bubble = el.querySelector('.msg-bubble');
+    if (!bubble) continue;
+    const role = el.classList.contains('user') ? 'user' : 'emolt';
+    msgs.push({ role, content: bubble.textContent });
+  }
+  if (msgs.length) localStorage.setItem('emolt-dispatch-msgs-'+sess.id, JSON.stringify(msgs));
+}
+
+function restoreDispatchMessages(sess) {
+  try {
+    const raw = localStorage.getItem('emolt-dispatch-msgs-'+sess.id);
+    if (!raw) return;
+    const msgs = JSON.parse(raw);
+    for (const m of msgs) addMsg(sess, m.role, m.content);
+  } catch {}
+}
+
 async function restoreDispatchHistory(sess) {
+  // First restore the chat messages (user request + emolt responses)
+  restoreDispatchMessages(sess);
   if (!sess.dispatchId) return;
   try {
     const res = await fetch('/api/dispatch/status?id='+encodeURIComponent(sess.dispatchId));
@@ -1099,18 +1123,18 @@ async function sendChat(sess,text) {
 
 async function sendDispatch(sess,text) {
   sess.sending=true; updateSendBtn(sess); inputEl.value=''; inputEl.style.height='auto';
-  addMsg(sess,'user',text); showTyping(sess);
+  addMsg(sess,'user',text); saveDispatchMessages(sess); showTyping(sess);
   try {
     const res=await fetch('/api/dispatch/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,tabId:sess.id})});
     hideTyping(sess);
     const data=await res.json();
     if(data.aborted){const el=document.createElement('div');el.className='msg-aborted';el.textContent='planning cancelled';sess.el.appendChild(el);scrollTo(sess);return;}
-    if(!res.ok){addMsg(sess,'emolt',`dispatch failed. ${data.error||res.statusText}`);return;}
-    if(!data.understood){addMsg(sess,'emolt',data.response||"i don't know how to do that yet.");return;}
+    if(!res.ok){addMsg(sess,'emolt',`dispatch failed. ${data.error||res.statusText}`);saveDispatchMessages(sess);return;}
+    if(!data.understood){addMsg(sess,'emolt',data.response||"i don't know how to do that yet.");saveDispatchMessages(sess);return;}
     sess.dispatchId=data.plan.id;
-    saveSessions();
+    saveSessions(); saveDispatchMessages(sess);
     renderPlanCard(sess,data.plan);
-  } catch(err) { hideTyping(sess); addMsg(sess,'emolt',`dispatch error. ${err.message}`); }
+  } catch(err) { hideTyping(sess); addMsg(sess,'emolt',`dispatch error. ${err.message}`); saveDispatchMessages(sess); }
   finally { sess.sending=false; updateSendBtn(sess); renderSidebar(); inputEl.focus(); }
 }
 
