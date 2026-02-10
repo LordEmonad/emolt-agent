@@ -256,13 +256,13 @@ function buildMajorsTicker(): string {
     </div>`;
   }
 
-  // Duplicate for seamless scroll loop
+  // Duplicate for seamless infinite scroll
   const track = `${tickerItems}${tickerItems}`;
 
   return `
-  <div class="ticker-wrapper majors-bar">
+  <div class="ticker-wrapper">
     <div class="ticker-label">MAJORS</div>
-    <div class="ticker-track majors-track" id="majorsTrack">${track}</div>
+    <div class="ticker-track">${track}</div>
     <div class="ticker-age" id="majors-age">loading...</div>
   </div>`;
 }
@@ -305,12 +305,13 @@ function buildNadFunTicker(): string {
     </div>`;
   }
 
+  // Duplicate for seamless infinite scroll
   const track = `${tickerItems}${tickerItems}`;
 
   return `
-  <div class="ticker-wrapper ticker-nf" id="nfTicker">
+  <div class="ticker-wrapper ticker-nf">
     <div class="ticker-label ticker-label-nf">NAD.FUN</div>
-    <div class="ticker-track" id="nfTickerTrack">${track}</div>
+    <div class="ticker-track">${track}</div>
   </div>`;
 }
 
@@ -1103,12 +1104,12 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   background:var(--bg-inner); z-index:2; white-space:nowrap; transition:background 0.3s;
 }
 .ticker-track {
-  display:flex; align-items:center; gap:0;
-  animation:tickerScroll var(--ticker-duration, 40s) linear infinite;
+  display:flex; align-items:center;
+  animation:tickerScroll 40s linear infinite;
   white-space:nowrap; will-change:transform;
 }
 .ticker-track:hover { animation-play-state:paused; }
-@keyframes tickerScroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+@keyframes tickerScroll { from{transform:translateX(0)} to{transform:translateX(-50%)} }
 .ticker-item {
   display:inline-flex; align-items:center; gap:6px; padding:0 18px;
   border-right:1px solid var(--border); height:38px; flex-shrink:0; cursor:default;
@@ -1119,10 +1120,6 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
 .ticker-price { font-size:11px; color:var(--text); font-family:monospace; font-weight:500; }
 .ticker-mc { font-size:10px; color:var(--text-dim); font-family:monospace; }
 .ticker-change { font-size:10px; font-weight:500; font-family:monospace; white-space:nowrap; }
-/* Majors bar — static on desktop, scrolls on mobile */
-.majors-bar { justify-content:stretch; }
-.majors-track { animation:none; display:flex; flex:1; justify-content:space-evenly; align-items:center; }
-.majors-item { border-right:none; justify-content:center; flex:1; }
 /* nad.fun ticker specifics */
 .ticker-nf { margin-bottom:20px; }
 .ticker-label-nf { color:#EF8E20; }
@@ -1235,10 +1232,6 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   .ticker-price { font-size:10px; }
   .ticker-mc { font-size:9px; }
   .ticker-change { font-size:9px; }
-  /* Majors scroll on mobile */
-  .majors-track { animation:tickerScroll var(--ticker-duration,30s) linear infinite; justify-content:flex-start; flex:none; }
-  .majors-track:hover { animation-play-state:paused; }
-  .majors-item { flex:none; border-right:1px solid var(--border); }
 
   /* Scroll containers get a bit more height on mobile */
   .scroll-inner { max-height:360px; }
@@ -1313,14 +1306,15 @@ function toggleTheme(){
   }
 })();
 
-// Dynamic ticker speed based on item count
+// Set ticker speed: ~30px/sec regardless of item count
 (function(){
   var tracks=document.querySelectorAll('.ticker-track');
   for(var i=0;i<tracks.length;i++){
     var track=tracks[i];
     var items=track.querySelectorAll('.ticker-item');
-    var realCount=Math.ceil(items.length/2);
-    var duration=Math.max(20,realCount*4);
+    var realCount=Math.ceil(items.length/2); // half are duplicates
+    // ~4s per item, minimum 15s
+    var duration=Math.max(15,realCount*4);
     track.style.animationDuration=duration+'s';
   }
 })();
