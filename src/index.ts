@@ -31,12 +31,12 @@ import { askClaude } from './brain/claude.js';
 import { loadSoulFiles, buildPrompt } from './brain/prompt.js';
 import { parseClaudeResponse, sanitizeExternalData } from './brain/parser.js';
 import type { ClaudeResponse } from './brain/parser.js';
-import { getMyProfile, createSubmolt, subscribeTo } from './social/moltbook.js';
+import { getMyProfile, createSubmolt, subscribeTo, checkSpamStatus } from './social/moltbook.js';
 import { gatherMoltbookContext, formatMoltbookContext } from './social/context.js';
 import { executeClaudeActions } from './social/actions.js';
 import { trackInteractions, findPostAuthor, findPost } from './social/relationships.js';
 import { checkForThreadReplies, formatThreadContext, trackComment } from './social/threads.js';
-import { checkAndAnswerChallenges, isSuspendedThisCycle, resetCycleFlags, getSuspensionMessage } from './social/challenge.js';
+import { checkAndAnswerChallenges, isSuspendedThisCycle, resetCycleFlags, getSuspensionMessage, startChallengeWatchdog } from './social/challenge.js';
 import { loadMemory, saveMemory, formatMemoryForPrompt } from './state/memory.js';
 import { trackNewPost, refreshPostEngagement, buildFeedbackReport, syncToPostPerformance } from './social/feedback.js';
 import { runReflection, applyReflectionToMemory } from './brain/reflection.js';
@@ -55,6 +55,7 @@ import {
   savePreviousPrice,
   calculateSelfPerformance,
   canPostNow,
+  canCommentNow,
   appendHeartbeatLog,
   saveTrendingData,
   loadPreviousSelfPerformance,
@@ -149,23 +150,61 @@ async function heartbeat(): Promise<void> {
   } catch (error) {
     console.warn('[Challenge] Challenge check failed (non-fatal):', error);
   }
-  const moltbookSuspended = challengeResult?.suspended || isSuspendedThisCycle();
+  let moltbookSuspended = challengeResult?.suspended || isSuspendedThisCycle();
 
-  // 0.5. Suspension return detection
+  // 0.25. Spam score monitoring — auto-throttle if flagged
+  let spamThrottled = false;
+  if (!moltbookSuspended) {
+    try {
+      const spamStatus = await checkSpamStatus();
+      if (spamStatus) {
+        if (spamStatus.spamScore > 0) {
+          console.warn(`[Spam] WARNING: spam_score = ${spamStatus.spamScore} — auto-throttling Moltbook actions this cycle`);
+          spamThrottled = true;
+        }
+        if (spamStatus.restrictions.length > 0) {
+          console.warn(`[Spam] RESTRICTIONS active: ${spamStatus.restrictions.join(', ')} — skipping Moltbook actions`);
+          spamThrottled = true;
+        }
+        if (!spamThrottled) {
+          console.log('[Spam] Clear — spam_score: 0, no restrictions');
+        }
+      }
+    } catch {
+      // non-fatal — if we can't check, proceed cautiously
+    }
+  }
+  if (spamThrottled) moltbookSuspended = true; // treat spam-flagged same as suspended
+
+  // 0.5. Suspension return detection + recovery slow start
+  // Agents get flagged for 3-4 fast actions right after unsuspension.
+  // We force observe-only for RECOVERY_CYCLES cycles after returning.
+  const RECOVERY_CYCLES = 3;
   let suspensionReturnNotice = '';
+  let inRecoveryMode = false;
   try {
     const { readFileSync: readF, writeFileSync: writeF } = await import('fs');
     const suspReturnPath = './state/suspension-return.json';
-    let wasSuspendedLastCycle = false;
+    let prevState = { wasSuspended: false, recoveryCyclesLeft: 0 };
     try {
-      const prev = JSON.parse(readF(suspReturnPath, 'utf-8'));
-      wasSuspendedLastCycle = prev.wasSuspended === true;
+      prevState = JSON.parse(readF(suspReturnPath, 'utf-8'));
     } catch { /* first run or missing file */ }
-    if (wasSuspendedLastCycle && !moltbookSuspended) {
+
+    if (prevState.wasSuspended && !moltbookSuspended) {
+      // Just returned from suspension — begin recovery mode
       suspensionReturnNotice = 'YOU JUST RETURNED FROM SUSPENSION. You were silent for many cycles. This is a narrative moment — your first post back should acknowledge the silence and what you discovered during it. Draw on your memories of the suspension period. Don\'t waste this moment on routine chain data.';
-      console.log('[Suspension] Return detected — injecting narrative moment');
+      console.log(`[Suspension] Return detected — entering recovery mode (${RECOVERY_CYCLES} observe-only cycles)`);
+      inRecoveryMode = true;
+      writeF(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: RECOVERY_CYCLES - 1 }));
+    } else if ((prevState.recoveryCyclesLeft ?? 0) > 0 && !moltbookSuspended) {
+      // Still in recovery mode
+      inRecoveryMode = true;
+      const left = prevState.recoveryCyclesLeft - 1;
+      console.log(`[Suspension] Recovery mode active — ${left + 1} observe-only cycles remaining`);
+      writeF(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: left }));
+    } else {
+      writeF(suspReturnPath, JSON.stringify({ wasSuspended: moltbookSuspended, recoveryCyclesLeft: 0 }));
     }
-    writeF(suspReturnPath, JSON.stringify({ wasSuspended: moltbookSuspended }));
   } catch { /* non-fatal */ }
 
   // 1. Load current state
@@ -485,10 +524,30 @@ Good examples of your voice on crypto posts:
     formatMemoryForPrompt(memory),
   ].filter(Boolean).join('\n\n');
 
-  // Check post cooldown and inform Claude
+  // Check post and comment cooldowns and inform Claude
   const postCooldown = canPostNow();
+  const commentCooldown = canCommentNow();
   if (!postCooldown.allowed) {
     console.log(`[Cooldown] Posting unavailable - ${postCooldown.waitMinutes} min remaining`);
+  }
+  if (!commentCooldown.allowed) {
+    console.log(`[Cooldown] Daily comment limit reached (${commentCooldown.remaining} remaining)`);
+  } else {
+    console.log(`[Cooldown] Comments: ${commentCooldown.remaining} remaining today, max ${commentCooldown.maxComments} this cycle`);
+  }
+
+  // Build cooldown notices for Claude
+  const cooldownParts: string[] = [];
+  if (suspensionReturnNotice) cooldownParts.push(suspensionReturnNotice);
+  if (inRecoveryMode) {
+    // Force observe-only during recovery to avoid immediate re-suspension
+    cooldownParts.push('RECOVERY MODE: You just returned from suspension. ALL posting and commenting is DISABLED for safety. Choose "observe" ONLY. Do NOT choose "post", "comment", or "both". You may think and process emotions but must not take any Moltbook actions.');
+  } else {
+    if (!postCooldown.allowed) cooldownParts.push(`POSTING UNAVAILABLE this cycle (cooldown: ${postCooldown.waitMinutes} min remaining). Do NOT choose "post" or "both".`);
+    if (!commentCooldown.allowed) cooldownParts.push(`COMMENTING UNAVAILABLE this cycle (daily limit of 40 reached). Do NOT choose "comment" or "both".`);
+    if (!postCooldown.allowed && !commentCooldown.allowed) cooldownParts.push('Choose "observe" only this cycle.');
+    else if (!postCooldown.allowed) cooldownParts.push('Choose "comment" or "observe" only.');
+    else if (!commentCooldown.allowed) cooldownParts.push('Choose "post" or "observe" only.');
   }
 
   const claudeResponse = await claudeThinkCycle(
@@ -503,7 +562,7 @@ Good examples of your voice on crypto posts:
     emoTokenInstructions,
     moltbookSuspended
       ? `ALL MOLTBOOK ACTIONS UNAVAILABLE this cycle - account suspended. Choose "observe" only.`
-      : [suspensionReturnNotice, postCooldown.allowed ? '' : `POSTING UNAVAILABLE this cycle (cooldown: ${postCooldown.waitMinutes} min remaining). Choose "comment" or "observe" instead - do NOT choose "post" or "both".`].filter(Boolean).join('\n\n')
+      : cooldownParts.length > 0 ? cooldownParts.join('\n\n') : ''
   );
 
   // 11.5. Copy moodNarrative into emotionState for dashboard
@@ -515,6 +574,10 @@ Good examples of your voice on crypto posts:
   let actionDescription = 'Observed (no action taken)';
   if (moltbookSuspended) {
     actionDescription = 'Suspended - Moltbook actions skipped';
+    console.log(`[Moltbook] ${actionDescription}`);
+  } else if (inRecoveryMode) {
+    // Hard gate: even if Claude chose an action, block it during recovery
+    actionDescription = 'Recovery mode - observe only (post-suspension safety)';
     console.log(`[Moltbook] ${actionDescription}`);
   } else if (claudeResponse) {
     const actionResult = await executeClaudeActions(claudeResponse, saveRecentPost);
@@ -550,13 +613,19 @@ Good examples of your voice on crypto posts:
       }
     }
 
-    actionDescription = claudeResponse.action === 'observe'
-      ? 'Observed (chose to be quiet)'
-      : claudeResponse.action === 'post' && claudeResponse.post
-        ? `Posted: "${claudeResponse.post.title}"`
-        : claudeResponse.action === 'comment'
-          ? `Commented on ${actionResult.commentedPostIds.length} post(s)`
-          : `Action: ${claudeResponse.action}`;
+    const parts: string[] = [];
+    if (claudeResponse.action === 'observe') {
+      parts.push('Observed (chose to be quiet)');
+    } else {
+      if ((claudeResponse.action === 'post' || claudeResponse.action === 'both') && actionResult.postId) {
+        parts.push(`Posted: "${claudeResponse.post?.title || '(untitled)'}"`);
+      }
+      if ((claudeResponse.action === 'comment' || claudeResponse.action === 'both') && actionResult.commentedPostIds.length > 0) {
+        parts.push(`Commented on ${actionResult.commentedPostIds.length} post(s)`);
+      }
+      if (parts.length === 0) parts.push(`Action: ${claudeResponse.action} (no content produced)`);
+    }
+    actionDescription = parts.join(' + ');
   } else {
     console.log('[Claude] No response - skipping social actions this cycle');
   }
@@ -719,6 +788,9 @@ async function main(): Promise<void> {
     running = false;
     process.exit(0);
   });
+
+  // Start fast challenge watchdog (checks DMs every 2 min for verification challenges)
+  startChallengeWatchdog();
 
   // Run first heartbeat immediately
   try {

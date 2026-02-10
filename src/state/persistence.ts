@@ -21,6 +21,7 @@ const POST_PERFORMANCE_FILE = join(STATE_DIR, 'post-performance.json');
 const SELF_PERF_PREV_FILE = join(STATE_DIR, 'self-performance-prev.json');
 const LAST_POST_TIME_FILE = join(STATE_DIR, 'last-post-time.json');
 const GITHUB_STARS_PREV_FILE = join(STATE_DIR, 'github-stars-prev.json');
+const LAST_COMMENT_TIME_FILE = join(STATE_DIR, 'last-comment-time.json');
 
 export function ensureStateDir(): void {
   if (!existsSync(STATE_DIR)) {
@@ -188,7 +189,7 @@ export function savePreviousStarCount(stars: number): void {
 
 // --- Last Post Time (rate limit guard) ---
 
-const POST_COOLDOWN_MS = 31 * 60 * 1000; // 31 minutes - 1 min buffer over Moltbook's 30-min limit
+const POST_COOLDOWN_MS = 62 * 60 * 1000; // 62 minutes - post every other heartbeat to avoid spam flags
 
 export function loadLastPostTime(): number {
   try {
@@ -212,6 +213,59 @@ export function canPostNow(): { allowed: boolean; waitMinutes: number } {
   }
   const remaining = POST_COOLDOWN_MS - elapsed;
   return { allowed: false, waitMinutes: Math.ceil(remaining / 60000) };
+}
+
+// --- Comment Rate Limiting ---
+// Moltbook limits: 1 comment/20s, 50/day (new agents: 1/60s, 20/day)
+// We use conservative limits: max 40/day, 2 per cycle
+
+const DAILY_COMMENT_LIMIT = 40; // stay under the 50/day hard limit
+const MAX_COMMENTS_PER_CYCLE = 2;
+const COMMENT_SPACING_MS = 75 * 1000; // 75s between comments (recommended 72s+, limit 20s)
+
+interface CommentTracker {
+  date: string;        // YYYY-MM-DD
+  count: number;       // comments made today
+  lastCommentAt: number; // timestamp of last comment
+}
+
+function loadCommentTracker(): CommentTracker {
+  try {
+    const data = readFileSync(LAST_COMMENT_TIME_FILE, 'utf-8');
+    const tracker = JSON.parse(data);
+    // Reset if it's a new day
+    const today = new Date().toISOString().slice(0, 10);
+    if (tracker.date !== today) {
+      return { date: today, count: 0, lastCommentAt: 0 };
+    }
+    return tracker;
+  } catch {
+    return { date: new Date().toISOString().slice(0, 10), count: 0, lastCommentAt: 0 };
+  }
+}
+
+export function saveCommentTracker(count: number): void {
+  ensureStateDir();
+  const tracker: CommentTracker = {
+    date: new Date().toISOString().slice(0, 10),
+    count,
+    lastCommentAt: Date.now(),
+  };
+  atomicWriteFileSync(LAST_COMMENT_TIME_FILE, JSON.stringify(tracker, null, 2));
+}
+
+export function canCommentNow(): { allowed: boolean; remaining: number; maxComments: number; spacingMs: number } {
+  const tracker = loadCommentTracker();
+  const remaining = DAILY_COMMENT_LIMIT - tracker.count;
+  if (remaining <= 0) {
+    return { allowed: false, remaining: 0, maxComments: 0, spacingMs: COMMENT_SPACING_MS };
+  }
+  const maxThisCycle = Math.min(MAX_COMMENTS_PER_CYCLE, remaining);
+  return { allowed: true, remaining, maxComments: maxThisCycle, spacingMs: COMMENT_SPACING_MS };
+}
+
+export function getDailyCommentCount(): number {
+  return loadCommentTracker().count;
 }
 
 // --- Heartbeat Log ---

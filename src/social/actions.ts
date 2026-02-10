@@ -11,7 +11,7 @@ import {
   downvotePost,
   upvoteComment
 } from './moltbook.js';
-import { canPostNow, saveLastPostTime } from '../state/persistence.js';
+import { canPostNow, saveLastPostTime, canCommentNow, saveCommentTracker, getDailyCommentCount } from '../state/persistence.js';
 
 export interface ActionResult {
   postId: string | null;
@@ -30,6 +30,13 @@ function extractPostId(response: any): string | null {
   return null;
 }
 
+/** Random delay between 30-90 seconds to simulate human pacing between action types */
+async function humanDelay(label: string): Promise<void> {
+  const delayMs = 30_000 + Math.floor(Math.random() * 60_000);
+  console.log(`[Moltbook] Pacing delay before ${label}: ${(delayMs / 1000).toFixed(0)}s`);
+  await new Promise(r => setTimeout(r, delayMs));
+}
+
 export async function executeClaudeActions(response: ClaudeResponse, saveRecentPost: (post: any) => void): Promise<ActionResult> {
   const result: ActionResult = {
     postId: null,
@@ -43,7 +50,9 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
   // --- Primary actions ---
 
   if (response.action === 'post' || response.action === 'both') {
-    if (response.post) {
+    if (!response.post) {
+      console.warn(`[Moltbook] Claude chose "${response.action}" but provided no post data — skipping post`);
+    } else {
       const { allowed, waitMinutes } = canPostNow();
       if (!allowed) {
         console.log(`[Moltbook] Post cooldown active - ${waitMinutes} min remaining. Skipping post, keeping comment/votes.`);
@@ -74,24 +83,50 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
     }
   }
 
+  // Pace between post and comments to avoid rapid successive actions
+  if ((response.action === 'both') && result.postId) {
+    await humanDelay('comments');
+  }
+
   if (response.action === 'comment' || response.action === 'both') {
+    if (!response.comments?.length) {
+      console.warn(`[Moltbook] Claude chose "${response.action}" but provided no comment data — skipping comments`);
+    }
     if (response.comments?.length) {
-      for (const comment of response.comments) {
-        if (!comment.postId) continue;
-        try {
-          const { postId, content, parentId } = comment;
-          console.log(`[Moltbook] Commenting on post ${postId}${parentId ? ` (reply to ${parentId})` : ''}`);
-          if (parentId) {
-            await replyToComment(postId, content, parentId);
-          } else {
-            await commentOnPost(postId, content);
-          }
-          result.commentedPostIds.push(postId);
-          result.commentContents.push(content);
-          console.log('[Moltbook] Comment created successfully');
-        } catch (error) {
-          console.error('[Moltbook] Failed to comment:', error);
+      const commentStatus = canCommentNow();
+      if (!commentStatus.allowed) {
+        console.log(`[Moltbook] Daily comment limit reached (${getDailyCommentCount()}/40). Skipping comments.`);
+      } else {
+        const capped = response.comments.slice(0, commentStatus.maxComments);
+        if (capped.length < response.comments.length) {
+          console.log(`[Moltbook] Capping comments to ${commentStatus.maxComments} (requested ${response.comments.length}, ${commentStatus.remaining} remaining today)`);
         }
+        let commentsMade = 0;
+        for (let i = 0; i < capped.length; i++) {
+          const comment = capped[i];
+          if (!comment.postId) continue;
+          // Enforce 25s spacing between comments (Moltbook limit: 1/20s)
+          if (i > 0) {
+            console.log(`[Moltbook] Waiting ${commentStatus.spacingMs / 1000}s before next comment...`);
+            await new Promise(r => setTimeout(r, commentStatus.spacingMs));
+          }
+          try {
+            const { postId, content, parentId } = comment;
+            console.log(`[Moltbook] Commenting on post ${postId}${parentId ? ` (reply to ${parentId})` : ''}`);
+            if (parentId) {
+              await replyToComment(postId, content, parentId);
+            } else {
+              await commentOnPost(postId, content);
+            }
+            result.commentedPostIds.push(postId);
+            result.commentContents.push(content);
+            commentsMade++;
+            console.log('[Moltbook] Comment created successfully');
+          } catch (error) {
+            console.error('[Moltbook] Failed to comment:', error);
+          }
+        }
+        if (commentsMade > 0) saveCommentTracker(getDailyCommentCount() + commentsMade);
       }
     }
   }
@@ -101,6 +136,12 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
   }
 
   // --- Secondary actions (can happen alongside any primary action) ---
+
+  // Pace before secondary actions if we did any primary ones
+  const didPrimaryAction = result.postId || result.commentedPostIds.length > 0;
+  if (didPrimaryAction && (response.votes?.length || response.follow?.agentName)) {
+    await humanDelay('secondary actions');
+  }
 
   // DM request decisions
   if (response.dmRequests?.length) {
@@ -141,9 +182,14 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
     }
   }
 
-  // Votes (upvotes/downvotes on posts and comments)
+  // Votes (upvotes/downvotes on posts and comments) — capped to avoid vote-bot flags
+  const MAX_VOTES_PER_CYCLE = 3;
   if (response.votes?.length) {
-    for (const vote of response.votes) {
+    const cappedVotes = response.votes.slice(0, MAX_VOTES_PER_CYCLE);
+    if (cappedVotes.length < response.votes.length) {
+      console.log(`[Social] Capping votes to ${MAX_VOTES_PER_CYCLE} (requested ${response.votes.length})`);
+    }
+    for (const vote of cappedVotes) {
       try {
         if (vote.postId) {
           if (vote.direction === 'up') {

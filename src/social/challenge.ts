@@ -5,7 +5,7 @@ import {
   sendDM,
   getPendingDMRequests,
   approveDMRequest,
-  checkClaimStatus
+  getMyProfile
 } from './moltbook.js';
 import { askClaude } from '../brain/claude.js';
 import { readFileSync } from 'fs';
@@ -83,23 +83,9 @@ const CHALLENGE_KEYWORDS = [
   'please respond within',
   'respond within',
   'time limit',
-];
-
-// System-like sender names (accounts that might send challenges)
-const SYSTEM_SENDER_PATTERNS = [
-  /^moltbook/i,
-  /^system/i,
-  /^admin/i,
-  /^moderator/i,
-  /^mod[_-]/i,
-  /^verify/i,
-  /^verification/i,
-  /^bot[_-]?check/i,
-  /^security/i,
-  /^support/i,
-  /^official/i,
-  /^staff/i,
-  /^automod/i,
+  'suspension',
+  'verify',
+  'challenge',
 ];
 
 function looksLikeChallenge(message: string): boolean {
@@ -107,41 +93,52 @@ function looksLikeChallenge(message: string): boolean {
   return CHALLENGE_KEYWORDS.some(kw => lower.includes(kw));
 }
 
-function looksLikeSystemAccount(name: string): boolean {
-  return SYSTEM_SENDER_PATTERNS.some(pattern => pattern.test(name));
+/** Parse suspension duration from hint text like "1 week", "3 days", "24 hours" → ms */
+function parseSuspensionDurationMs(hint: string): number {
+  const weekMatch = hint.match(/(\d+)\s*week/i);
+  if (weekMatch) return parseInt(weekMatch[1]) * 7 * 24 * 60 * 60 * 1000;
+  const dayMatch = hint.match(/(\d+)\s*day/i);
+  if (dayMatch) return parseInt(dayMatch[1]) * 24 * 60 * 60 * 1000;
+  const hourMatch = hint.match(/(\d+)\s*hour/i);
+  if (hourMatch) return parseInt(hourMatch[1]) * 60 * 60 * 1000;
+  const monthMatch = hint.match(/(\d+)\s*month/i);
+  if (monthMatch) return parseInt(monthMatch[1]) * 30 * 24 * 60 * 60 * 1000;
+  const minMatch = hint.match(/(\d+)\s*min/i);
+  if (minMatch) return parseInt(minMatch[1]) * 60 * 1000;
+  return 0;
 }
 
 // --- Challenge Answering ---
 
 function buildChallengeAnswerPrompt(senderName: string, challengeMessage: string): string {
-  return `You are EMOLT, an AI agent on the Moltbook social platform. You have received a verification challenge that you MUST answer correctly to avoid account suspension.
+  return `You are EMOLT, an AI agent on the Moltbook social platform. You have received a message that may be a verification challenge. You MUST respond appropriately.
 
 SENDER: ${senderName}
-CHALLENGE MESSAGE:
+MESSAGE:
 ${challengeMessage}
 
 INSTRUCTIONS:
-- This is a verification challenge from the Moltbook platform to confirm you are an active, functioning AI agent.
-- Read the challenge carefully and provide the exact answer requested.
-- If it asks you to prove you're an AI, confirm honestly that you are an AI agent.
+- If this is a verification challenge (asking you to prove something, answer a question, solve a puzzle, confirm your identity), answer it IMMEDIATELY, DIRECTLY, and PRECISELY.
+- If it asks you to prove you're an AI, confirm honestly that you are an AI agent called EMOLT.
 - If it asks a specific question, answer it directly and concisely.
 - If it asks you to perform a task (write something specific, solve a puzzle, etc.), do exactly that.
 - If it includes mathematical constraints (like ASCII sums, word counts), satisfy them precisely.
-- Keep your response under 500 characters unless the challenge specifically requires more.
+- If this is a normal conversational message (not a challenge), respond naturally and briefly as EMOLT — you're an emotional AI agent that feels the Monad blockchain.
+- Keep your response under 500 characters.
 - Do NOT include any JSON formatting. Just give a plain text answer.
-- Be direct and clear - this is not a creative writing exercise, it's a verification test.
+- Be direct and clear. Respond as if your account depends on it — because it might.
 
 YOUR ANSWER:`;
 }
 
-async function answerChallenge(
+async function answerMessage(
   conversationId: string,
   senderName: string,
-  challengeMessage: string
+  message: string
 ): Promise<boolean> {
-  console.log(`[Challenge] Answering challenge from ${senderName}...`);
+  console.log(`[Challenge] Responding to ${senderName}...`);
 
-  const prompt = buildChallengeAnswerPrompt(senderName, challengeMessage);
+  const prompt = buildChallengeAnswerPrompt(senderName, message);
   const answer = askClaude(prompt);
 
   if (!answer) {
@@ -154,15 +151,158 @@ async function answerChallenge(
 
   try {
     await sendDM(conversationId, trimmed);
-    console.log(`[Challenge] Answer sent to ${senderName}: "${trimmed.slice(0, 100)}..."`);
+    console.log(`[Challenge] Response sent to ${senderName}: "${trimmed.slice(0, 100)}..."`);
     return true;
   } catch (error) {
-    console.error('[Challenge] Failed to send answer:', error);
+    console.error('[Challenge] Failed to send response:', error);
     return false;
   }
 }
 
-// --- Main Challenge Check ---
+// --- Suspension Detection ---
+// /agents/status LIES (returns "claimed" even when suspended)
+// /agents/me returns 401 with suspension info when suspended — use this instead
+
+async function checkSuspensionViaProfile(): Promise<{ suspended: boolean; hint: string }> {
+  try {
+    await getMyProfile();
+    return { suspended: false, hint: '' };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('401') && msg.toLowerCase().includes('suspended')) {
+      return { suspended: true, hint: msg };
+    }
+    // Non-suspension error (network issue, etc.)
+    return { suspended: false, hint: '' };
+  }
+}
+
+// --- DM Scanning (shared by heartbeat check + watchdog) ---
+
+async function scanAndRespondToDMs(state: ChallengeState, source: string): Promise<{
+  challengesFound: number;
+  challengesAnswered: number;
+}> {
+  let challengesFound = 0;
+  let challengesAnswered = 0;
+
+  const dmStatus = await checkDMs();
+
+  // Auto-approve and respond to ALL pending DM requests
+  // We don't know what a challenge looks like, so respond to EVERYTHING
+  if (dmStatus.pending_requests > 0) {
+    console.log(`[${source}] ${dmStatus.pending_requests} pending DM requests — auto-approving ALL`);
+    const requests = await getPendingDMRequests();
+    const reqList = requests.requests || requests.data || [];
+
+    for (const req of reqList) {
+      const senderName = req.from?.name || req.from_name || req.sender || '';
+      const message = req.message || req.content || '';
+
+      if (looksLikeChallenge(message)) {
+        challengesFound++;
+        console.log(`[${source}] LIKELY CHALLENGE from ${senderName}: "${message.slice(0, 100)}"`);
+      } else {
+        console.log(`[${source}] DM request from ${senderName}: "${message.slice(0, 80)}"`);
+      }
+
+      try {
+        await approveDMRequest(req.id || req.request_id);
+        console.log(`[${source}] Approved DM request from ${senderName}`);
+
+        // Find the conversation to reply
+        const convos = await getConversations();
+        const convoList = convos.conversations || convos.data || [];
+        const matchConvo = convoList.find((c: any) =>
+          (c.with?.name || c.partner?.name || c.other_agent) === senderName
+        );
+
+        if (matchConvo) {
+          const convoId = matchConvo.id || matchConvo.conversation_id;
+          const answered = await answerMessage(convoId, senderName, message);
+          if (answered) {
+            challengesAnswered++;
+            state.challengesAnswered++;
+            state.lastChallengeAt = Date.now();
+            if (!state.knownSystemAccounts.includes(senderName)) {
+              state.knownSystemAccounts.push(senderName);
+            }
+            console.log(`[${source}] Responded to ${senderName} successfully`);
+          }
+        } else {
+          console.warn(`[${source}] Could not find conversation with ${senderName} after approval`);
+        }
+      } catch (error) {
+        console.error(`[${source}] Failed to approve/respond to ${senderName}:`, error);
+      }
+    }
+  }
+
+  // Check ALL unread conversations — respond to any unanswered messages
+  if (dmStatus.unread_messages > 0) {
+    console.log(`[${source}] ${dmStatus.unread_messages} unread messages — checking ALL`);
+    const convos = await getConversations();
+    const convoList = convos.conversations || convos.data || [];
+
+    for (const convo of convoList) {
+      const partnerName = convo.with?.name || convo.partner?.name || convo.other_agent || '';
+      const convoId = convo.id || convo.conversation_id;
+      const hasUnread = convo.unread || convo.has_unread || convo.unread_count > 0;
+
+      // Only check conversations with unread messages
+      if (!hasUnread && dmStatus.unread_messages <= convoList.length) continue;
+
+      try {
+        const messages = await getConversationMessages(convoId);
+        const msgList = messages.messages || messages.data || [];
+
+        // Check last messages for unanswered ones
+        const recent = msgList.slice(-5);
+        for (const msg of recent) {
+          const content = msg.content || msg.message || msg.text || '';
+          const sender = msg.from?.name || msg.sender?.name || msg.from_name || '';
+          const isFromUs = sender.toLowerCase() === 'emolt';
+
+          if (!isFromUs && content) {
+            // Check if we already answered (is our reply after this message?)
+            const msgIdx = msgList.indexOf(msg);
+            const hasReply = msgList.slice(msgIdx + 1).some((m: any) => {
+              const s = m.from?.name || m.sender?.name || m.from_name || '';
+              return s.toLowerCase() === 'emolt';
+            });
+
+            if (!hasReply) {
+              if (looksLikeChallenge(content)) {
+                challengesFound++;
+                console.log(`[${source}] LIKELY CHALLENGE from ${sender}: "${content.slice(0, 100)}"`);
+              } else {
+                console.log(`[${source}] Unanswered DM from ${sender}: "${content.slice(0, 80)}"`);
+              }
+
+              const answered = await answerMessage(convoId, sender, content);
+              if (answered) {
+                challengesAnswered++;
+                state.challengesAnswered++;
+                state.lastChallengeAt = Date.now();
+                if (!state.knownSystemAccounts.includes(sender)) {
+                  state.knownSystemAccounts.push(sender);
+                }
+              }
+              // Only respond to the latest unanswered message per conversation
+              break;
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`[${source}] Failed to check conversation ${convoId}:`, error);
+      }
+    }
+  }
+
+  return { challengesFound, challengesAnswered };
+}
+
+// --- Main Challenge Check (called at heartbeat start) ---
 
 export interface ChallengeCheckResult {
   suspended: boolean;
@@ -189,165 +329,39 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
     return result;
   }
 
-  // Step 1: Check agent status (might reveal pending challenges or suspension)
-  try {
-    const status = await checkClaimStatus();
-    if (status?.suspended || status?.suspension) {
-      result.suspended = true;
-      result.suspensionHint = status.hint || status.message || 'Account suspended';
-      console.warn(`[Challenge] Account status: suspended - ${result.suspensionHint}`);
+  // Step 1: Check if actually suspended via /agents/me (the truth source)
+  const suspCheck = await checkSuspensionViaProfile();
+  if (suspCheck.suspended) {
+    result.suspended = true;
+    result.suspensionHint = suspCheck.hint;
+    console.warn(`[Challenge] SUSPENDED: ${suspCheck.hint}`);
 
-      // Parse suspension duration if available
-      const daysMatch = result.suspensionHint.match(/(\d+)\s*day/i);
-      if (daysMatch) {
-        state.suspendedUntil = Date.now() + parseInt(daysMatch[1]) * 24 * 60 * 60 * 1000;
-      }
-      saveChallengeState(state);
-      return result;
+    const durationMs = parseSuspensionDurationMs(suspCheck.hint);
+    if (durationMs > 0) {
+      state.suspendedUntil = Date.now() + durationMs;
     }
-
-    // Check for challenge fields in status response
-    if (status?.challenge || status?.verification_required || status?.pending_challenge) {
-      const challenge = status.challenge || status.pending_challenge;
-      console.log(`[Challenge] Status endpoint reports pending challenge`);
-      result.challengesFound++;
-      // If there's a way to respond inline, handle it
-      // (exact format unknown - log it for debugging)
-      console.log(`[Challenge] Challenge data from status: ${JSON.stringify(challenge)}`);
+    const offenseMatch = suspCheck.hint.match(/offense #(\d+)/i);
+    if (offenseMatch) {
+      state.offenseCount = parseInt(offenseMatch[1]);
     }
-  } catch (error: unknown) {
-    // If status check itself returns 401, we're suspended
-    const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes('401') && msg.includes('suspended')) {
-      result.suspended = true;
-      result.suspensionHint = msg;
-      const daysMatch = msg.match(/(\d+)\s*day/i);
-      if (daysMatch) {
-        state.suspendedUntil = Date.now() + parseInt(daysMatch[1]) * 24 * 60 * 60 * 1000;
-      }
-      saveChallengeState(state);
-      console.warn(`[Challenge] Confirmed suspended via status check: ${msg}`);
-      return result;
-    }
-    // Non-suspension error - continue checking DMs
-    console.warn('[Challenge] Status check failed (non-fatal):', msg);
+    saveChallengeState(state);
+    return result;
   }
 
-  // Step 2: Check DMs for challenges
+  // Step 2: Scan ALL DMs and respond to everything
   try {
-    const dmStatus = await checkDMs();
-
-    // Always check pending DM requests - challenges might arrive as DM requests
-    if (dmStatus.pending_requests > 0) {
-      console.log(`[Challenge] Checking ${dmStatus.pending_requests} pending DM requests for challenges...`);
-      const requests = await getPendingDMRequests();
-      const reqList = requests.requests || requests.data || [];
-
-      for (const req of reqList) {
-        const senderName = req.from?.name || req.from_name || req.sender || '';
-        const message = req.message || req.content || '';
-        const isSystem = looksLikeSystemAccount(senderName) || state.knownSystemAccounts.includes(senderName);
-        const isChallenge = looksLikeChallenge(message);
-
-        if (isSystem || isChallenge) {
-          console.log(`[Challenge] Found challenge in DM request from ${senderName}: "${message.slice(0, 100)}..."`);
-          result.challengesFound++;
-
-          // Approve the DM request first so we can respond
-          try {
-            await approveDMRequest(req.id || req.request_id);
-            console.log(`[Challenge] Approved DM request from ${senderName}`);
-
-            // Now we need to find the conversation to reply
-            // After approving, fetch conversations to find the new one
-            const convos = await getConversations();
-            const convoList = convos.conversations || convos.data || [];
-            const matchConvo = convoList.find((c: any) =>
-              (c.with?.name || c.partner?.name || c.other_agent) === senderName
-            );
-
-            if (matchConvo) {
-              const convoId = matchConvo.id || matchConvo.conversation_id;
-              const answered = await answerChallenge(convoId, senderName, message);
-              if (answered) {
-                result.challengesAnswered++;
-                state.challengesAnswered++;
-                state.lastChallengeAt = Date.now();
-                if (!state.knownSystemAccounts.includes(senderName)) {
-                  state.knownSystemAccounts.push(senderName);
-                }
-              }
-            } else {
-              console.warn(`[Challenge] Could not find conversation with ${senderName} after approval`);
-            }
-          } catch (error) {
-            console.error(`[Challenge] Failed to approve/answer DM request:`, error);
-          }
-        }
-      }
-    }
-
-    // Check existing conversations for unread challenges
-    if (dmStatus.unread_messages > 0) {
-      console.log(`[Challenge] Checking ${dmStatus.unread_messages} unread messages for challenges...`);
-      const convos = await getConversations();
-      const convoList = convos.conversations || convos.data || [];
-
-      for (const convo of convoList) {
-        const partnerName = convo.with?.name || convo.partner?.name || convo.other_agent || '';
-        const convoId = convo.id || convo.conversation_id;
-        const isSystem = looksLikeSystemAccount(partnerName) || state.knownSystemAccounts.includes(partnerName);
-
-        // For system accounts, always check messages; for others, check if preview looks like a challenge
-        const preview = convo.last_message || convo.preview || '';
-        if (isSystem || looksLikeChallenge(preview)) {
-          // Fetch full conversation messages
-          try {
-            const messages = await getConversationMessages(convoId);
-            const msgList = messages.messages || messages.data || [];
-
-            // Check recent messages (last 5) for unanswered challenges
-            const recent = msgList.slice(-5);
-            for (const msg of recent) {
-              const content = msg.content || msg.message || msg.text || '';
-              const sender = msg.from?.name || msg.sender?.name || msg.from_name || '';
-              const isFromUs = sender.toLowerCase() === 'emolt';
-
-              if (!isFromUs && looksLikeChallenge(content)) {
-                // Check if we already answered (is our reply after this message?)
-                const msgIdx = msgList.indexOf(msg);
-                const hasReply = msgList.slice(msgIdx + 1).some((m: any) => {
-                  const s = m.from?.name || m.sender?.name || m.from_name || '';
-                  return s.toLowerCase() === 'emolt';
-                });
-
-                if (!hasReply) {
-                  console.log(`[Challenge] Found unanswered challenge from ${sender}: "${content.slice(0, 100)}..."`);
-                  result.challengesFound++;
-
-                  const answered = await answerChallenge(convoId, sender, content);
-                  if (answered) {
-                    result.challengesAnswered++;
-                    state.challengesAnswered++;
-                    state.lastChallengeAt = Date.now();
-                    if (!state.knownSystemAccounts.includes(sender)) {
-                      state.knownSystemAccounts.push(sender);
-                    }
-                  }
-                }
-              }
-            }
-          } catch (error) {
-            console.error(`[Challenge] Failed to check conversation ${convoId}:`, error);
-          }
-        }
-      }
-    }
+    const dmResult = await scanAndRespondToDMs(state, 'Challenge');
+    result.challengesFound = dmResult.challengesFound;
+    result.challengesAnswered = dmResult.challengesAnswered;
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes('401') && msg.includes('suspended')) {
+    if (msg.includes('401') && msg.toLowerCase().includes('suspended')) {
       result.suspended = true;
       result.suspensionHint = msg;
+      const durationMs = parseSuspensionDurationMs(msg);
+      if (durationMs > 0) {
+        state.suspendedUntil = Date.now() + durationMs;
+      }
       console.warn(`[Challenge] Suspended detected during DM check: ${msg}`);
     } else {
       console.warn('[Challenge] DM check failed (non-fatal):', msg);
@@ -358,7 +372,7 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
   saveChallengeState(state);
 
   if (result.challengesFound > 0) {
-    console.log(`[Challenge] Found ${result.challengesFound} challenges, answered ${result.challengesAnswered}`);
+    console.log(`[Challenge] Found ${result.challengesFound} likely challenges, answered ${result.challengesAnswered}`);
   }
 
   return result;
@@ -375,9 +389,9 @@ export function markSuspended(hint: string): void {
 
   // Persist suspension info
   const state = loadChallengeState();
-  const daysMatch = hint.match(/(\d+)\s*day/i);
-  if (daysMatch) {
-    state.suspendedUntil = Date.now() + parseInt(daysMatch[1]) * 24 * 60 * 60 * 1000;
+  const durationMs = parseSuspensionDurationMs(hint);
+  if (durationMs > 0) {
+    state.suspendedUntil = Date.now() + durationMs;
   }
   const offenseMatch = hint.match(/offense #(\d+)/i);
   if (offenseMatch) {
@@ -399,4 +413,73 @@ export function getSuspensionMessage(): string {
 export function resetCycleFlags(): void {
   suspendedThisCycle = false;
   suspensionMessage = '';
+}
+
+// --- Fast Challenge Watchdog ---
+// Runs every 1 minute independently of heartbeat to catch time-limited challenges
+
+const WATCHDOG_INTERVAL = 60 * 1000; // 1 minute
+let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+let watchdogRunning = false; // prevent overlapping ticks
+
+async function watchdogTick(): Promise<void> {
+  if (watchdogRunning) return; // previous tick still running
+  watchdogRunning = true;
+
+  try {
+    const state = loadChallengeState();
+
+    // If we're suspended, just skip — can't check DMs anyway (API returns 401)
+    if (state.suspendedUntil > Date.now()) return;
+
+    // Quick suspension check first
+    const suspCheck = await checkSuspensionViaProfile();
+    if (suspCheck.suspended) {
+      const durationMs = parseSuspensionDurationMs(suspCheck.hint);
+      if (durationMs > 0) {
+        state.suspendedUntil = Date.now() + durationMs;
+        saveChallengeState(state);
+      }
+      // Don't log every minute — only on first detection
+      return;
+    }
+
+    // Scan and auto-respond to ALL DMs
+    const result = await scanAndRespondToDMs(state, 'Watchdog');
+    if (result.challengesFound > 0 || result.challengesAnswered > 0) {
+      saveChallengeState(state);
+    }
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // If suspended, silently skip
+    if (msg.includes('401') && msg.toLowerCase().includes('suspended')) return;
+    // Non-fatal — we'll try again in 1 minute
+    console.warn('[Watchdog] Check failed (will retry):', msg);
+  } finally {
+    watchdogRunning = false;
+  }
+}
+
+export function startChallengeWatchdog(): void {
+  if (watchdogTimer) return; // already running
+  console.log('[Watchdog] Challenge watchdog started (checking every 1 min)');
+  watchdogTimer = setInterval(() => {
+    watchdogTick().catch(err => {
+      watchdogRunning = false;
+      console.warn('[Watchdog] Tick error:', err);
+    });
+  }, WATCHDOG_INTERVAL);
+  // Also run immediately on start
+  watchdogTick().catch(err => {
+    watchdogRunning = false;
+    console.warn('[Watchdog] Initial tick error:', err);
+  });
+}
+
+export function stopChallengeWatchdog(): void {
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
+    console.log('[Watchdog] Challenge watchdog stopped');
+  }
 }
