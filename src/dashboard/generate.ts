@@ -13,6 +13,7 @@ const OUT = './heartbeat.html';
 
 // --- External links ---
 const MOLTBOOK_URL = 'https://www.moltbook.com';
+const GITHUB_URL = 'https://github.com/LordEmonad/emolt-agent';
 
 
 function loadEnvVar(key: string): string {
@@ -211,6 +212,7 @@ function buildHeader(): string {
   if (oracleAddr) links.push(`<a class="header-link" href="https://monadvision.com/address/${oracleAddr}" target="_blank">oracle</a>`);
   links.push(`<a class="header-link" href="https://monadvision.com/nft/0x4F646aa4c5aAF03f2F4b86D321f59D9D0dAeF17D/0" target="_blank">emoodring</a>`);
   links.push(`<a class="header-link" href="https://nad.fun/tokens/0x81A224F8A62f52BdE942dBF23A56df77A10b7777" target="_blank">$emo</a>`);
+  links.push(`<a class="header-link" href="${GITHUB_URL}" target="_blank">github</a>`);
 
   return `
   <header class="dash-header">
