@@ -891,7 +891,7 @@ function startRename(id) {
 //  PERSISTENCE
 // ═══════════════════════════════════════════
 function saveSessions() {
-  const data = [...sessions.values()].map(s=>({id:s.id,type:s.type,label:s.label,serverSessionId:s.serverSessionId,pinned:s.pinned}));
+  const data = [...sessions.values()].map(s=>({id:s.id,type:s.type,label:s.label,serverSessionId:s.serverSessionId,pinned:s.pinned,dispatchId:s.dispatchId||null,dispatchDone:!!s.dispatchDone}));
   localStorage.setItem('emolt-sessions', JSON.stringify(data));
   localStorage.setItem('emolt-active', activeId);
 }
@@ -906,7 +906,10 @@ function restoreSessions() {
       s.label = d.label;
       s.serverSessionId = d.serverSessionId;
       s.pinned = !!d.pinned;
-      if (d.serverSessionId) restoreHistory(s);
+      s.dispatchId = d.dispatchId || null;
+      s.dispatchDone = !!d.dispatchDone;
+      if (d.type === 'dispatch' && d.dispatchId) restoreDispatchHistory(s);
+      else if (d.serverSessionId) restoreHistory(s);
     }
     renderSidebar();
     if (savedActive && sessions.has(savedActive)) switchSession(savedActive);
@@ -926,6 +929,48 @@ async function restoreHistory(sess) {
         addMsg(sess,'user',e.user);
         addMsg(sess,'emolt',e.emolt,{thinking:e.thinking,emotionalNuance:e.emotionalNuance,durationMs:e.durationMs,timestamp:e.timestamp});
       }
+    }
+  } catch {}
+}
+
+async function restoreDispatchHistory(sess) {
+  if (!sess.dispatchId) return;
+  try {
+    const res = await fetch('/api/dispatch/status?id='+encodeURIComponent(sess.dispatchId));
+    const data = await res.json();
+    if (!data.plan) return;
+    // Hide welcome
+    const w = sess.el.querySelector('.welcome'); if (w) w.style.display = 'none';
+    // Re-render the plan card (already approved/rejected/running)
+    const el = document.createElement('div'); el.className = 'plan-card'; el.id = 'pc-'+data.plan.id;
+    const p = Object.entries(data.plan.params||{}).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>`${esc(k)}: ${esc(String(v))}`).join(' | ')||'defaults';
+    const st = data.plan.status;
+    const actionHtml = st==='pending'
+      ? `<button class="plan-card-btn approve" onclick="approvePlan('${data.plan.id}')">APPROVE</button><button class="plan-card-btn reject" onclick="rejectPlan('${data.plan.id}')">REJECT</button>`
+      : st==='cancelled'
+        ? '<span style="color:var(--text-faint);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:1px">CANCELLED</span>'
+        : '<span style="color:var(--dispatch);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:1px">APPROVED &#10003;</span>';
+    const pendingCls = st==='pending' ? ' pending' : '';
+    el.innerHTML=`<div class="plan-card-inner${pendingCls}">
+      <div class="plan-card-header"><span class="plan-card-emoji">&#9823;</span>DISPATCH PLAN</div>
+      <div class="plan-card-summary">${esc(data.plan.summary||'')}</div>
+      <div class="plan-card-emotional">${esc(data.plan.emotionalTake||'')}</div>
+      <div class="plan-card-params">${p}</div>
+      <div class="plan-card-risks">${esc(data.plan.risks||'')}</div>
+      <div class="plan-card-actions" id="pa-${data.plan.id}">${actionHtml}</div>
+    </div>`;
+    sess.el.appendChild(el);
+    // Re-render log entries
+    const log = data.recentLog || [];
+    for (const entry of log) renderEntry(sess, entry);
+    sess.lastSeenLogIdx = log.length;
+    // Re-render result if done
+    if (['complete','failed','killed'].includes(st)) {
+      sess.dispatchDone = true;
+      if (data.result) renderResult(sess, data.result, st==='killed');
+    } else if (st === 'running') {
+      // Still running — resume polling
+      startPolling(sess);
     }
   } catch {}
 }
@@ -1063,6 +1108,7 @@ async function sendDispatch(sess,text) {
     if(!res.ok){addMsg(sess,'emolt',`dispatch failed. ${data.error||res.statusText}`);return;}
     if(!data.understood){addMsg(sess,'emolt',data.response||"i don't know how to do that yet.");return;}
     sess.dispatchId=data.plan.id;
+    saveSessions();
     renderPlanCard(sess,data.plan);
   } catch(err) { hideTyping(sess); addMsg(sess,'emolt',`dispatch error. ${err.message}`); }
   finally { sess.sending=false; updateSendBtn(sess); renderSidebar(); inputEl.focus(); }
@@ -1114,7 +1160,7 @@ async function rejectPlan(pid) {
   if(a) a.innerHTML='<span style="color:var(--text-faint);font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:1px">CANCELLED</span>';
   if(s){const inner=s.el.querySelector('#pc-'+pid+' .plan-card-inner');if(inner)inner.classList.remove('pending');}
   try{await fetch('/api/dispatch/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({planId:pid})})}catch{}
-  if(s){s.dispatchId=null;s.dispatchDone=true;killBar.classList.remove('active');renderSidebar();}
+  if(s){s.dispatchId=null;s.dispatchDone=true;killBar.classList.remove('active');renderSidebar();saveSessions();}
 }
 
 function startPolling(s) { if(s.polling) clearInterval(s.polling); s.polling=setInterval(()=>pollStatus(s),1500); pollStatus(s); }
@@ -1135,6 +1181,7 @@ async function pollStatus(s) {
       stopPolling(s);
       if(activeId===s.id) killBar.classList.remove('active');
       renderSidebar();
+      saveSessions();
     }
   } catch{}
 }
