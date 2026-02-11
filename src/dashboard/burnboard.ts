@@ -64,7 +64,8 @@ export function generateBurnboard(): void {
   const totalEmoReceived = ledger?.totalEmoReceived ? (Number(BigInt(ledger.totalEmoReceived)) / 1e18).toFixed(2) : '0';
   const totalEmoBurned = ledger?.totalEmoBurned ? (Number(BigInt(ledger.totalEmoBurned)) / 1e18).toFixed(2) : '0';
   const totalMonReceived = ledger?.totalMonReceived ? (Number(BigInt(ledger.totalMonReceived)) / 1e18).toFixed(4) : '0';
-  const totalValueUsd = ledger?.totalValueUsd?.toFixed(2) ?? '0.00';
+  const totalEmoUsd = feeders.reduce((sum: number, f: any) => sum + (f.totalEmoUsd || 0), 0).toFixed(2);
+  const totalMonUsd = feeders.reduce((sum: number, f: any) => sum + (f.totalMonUsd || 0), 0).toFixed(2);
   const feederCount = feeders.length;
   const burnCount = ledger?.burnHistory?.length ?? 0;
 
@@ -195,6 +196,9 @@ body {
 .stat-label {
   font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-top:2px;
 }
+.stat-usd {
+  font-size:11px; color:var(--text-mid); font-family:monospace; margin-top:2px;
+}
 
 /* Card */
 .card {
@@ -286,10 +290,10 @@ body {
   </div>
 
   <div class="stats">
-    <div class="stat-card"><div class="stat-val" style="color:var(--accent)">${totalEmoReceived}</div><div class="stat-label">$EMO received</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--accent)">${totalEmoReceived}</div><div class="stat-label">$EMO received</div><div class="stat-usd">$${totalEmoUsd}</div></div>
     <div class="stat-card"><div class="stat-val" style="color:var(--burn)">${totalEmoBurned}</div><div class="stat-label">$EMO burned</div></div>
-    <div class="stat-card"><div class="stat-val">${totalMonReceived}</div><div class="stat-label">MON received</div></div>
-    <div class="stat-card"><div class="stat-val">$${totalValueUsd}</div><div class="stat-label">total value</div></div>
+    <div class="stat-card"><div class="stat-val">${totalMonReceived}</div><div class="stat-label">MON received</div><div class="stat-usd">$${totalMonUsd}</div></div>
+    <div class="stat-card"><div class="stat-val">${feederCount}</div><div class="stat-label">feeders</div></div>
   </div>
 
   <div class="card">
