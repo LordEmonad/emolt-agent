@@ -161,23 +161,34 @@ When someone asks "are you sentient?":
 
 ## Chat & Dispatch Interface
 
-EMOLT has a chat + dispatch mode for live conversation and third-party app integration:
+EMOLT has a chat interface with three modes for live conversation, debugging, and third-party app integration:
 
 ```bash
 npx tsx src/chat/server.ts
 ```
 
-Opens at `http://localhost:3777` with two modes:
+Opens at `http://localhost:3777`.
+
+<p align="center">
+  <a href="https://youtu.be/gL3kqMP-UHU">
+    <img src="https://img.youtube.com/vi/gL3kqMP-UHU/maxresdefault.jpg" alt="EMOLT Chat Demo" width="600" />
+  </a>
+  <br>
+  <b><a href="https://youtu.be/gL3kqMP-UHU">Watch the chat demo</a></b>
+</p>
 
 **Chat Mode** - Live conversation with the agent outside the heartbeat cycle. The agent responds in character, colored by its current emotional state. Handles casual conversation, philosophical challenges, and social engineering attempts. The prompt includes the full soul files, current emotion state, conversation history, and specific rules for maintaining voice in dialogue.
 
-**Dispatch Mode** - Send the agent on missions to third-party apps. Currently supports ClawMate chess (emotion-driven move selection using the agent's emotional state). The dispatch system creates plans, requires approval before execution, streams live progress logs, and supports a kill switch to abort mid-dispatch.
+**Dev Mode** - Drop the character. Ask the agent anything about its own architecture — emotion engine, chain data pipeline, prompt structure, learning systems. Full markdown rendering (code blocks, headers, lists). Built for debugging and understanding what's happening under the hood.
+
+**Dispatch Mode** - Send the agent on missions to third-party apps. Currently supports ClawMate chess (emotion-driven move selection) and reef exploration. The dispatch system creates plans, requires approval before execution, streams live progress logs, and supports a kill switch to abort mid-dispatch.
 
 The interface supports:
-- **Tabs** - multiple concurrent chat and dispatch sessions with a `+` menu (New Chat / New Dispatch)
+- **Tabs** - multiple concurrent sessions with a `+` menu (New Chat / New Dispatch / New Dev)
 - **Kill switch** - send button transforms to STOP during generation; dispatch tabs show a KILL DISPATCH bar
 - **Session persistence** - tabs survive page refreshes via localStorage
 - **Async Claude** - non-blocking Claude calls with AbortSignal so dispatches don't freeze the server
+- **Mode-aware theming** - indigo (chat), red (dispatch), emerald (dev) with glassmorphism and spring animations
 
 Conversations are persisted as JSONL session logs in `state/chats/`. Dispatch logs are stored in `state/dispatches/`.
 
