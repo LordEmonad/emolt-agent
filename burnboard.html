@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="refresh" content="1800">
+<link rel="icon" type="image/png" href="emolt.png">
+<title>EMOLT Burnboard</title>
+<style>
+:root {
+  --bg:#08080c; --bg-card:#0e0e16; --bg-inner:#12121c;
+  --border:#16161e; --border-light:#1e1e2a;
+  --text:#d4d4dc; --text-mid:#aab; --text-dim:#778; --text-faint:#556;
+  --accent:#EF8E20; --burn:#E04848; --burn-glow:rgba(224,72,72,0.15);
+}
+html.light {
+  --bg:#f0f0f4; --bg-card:#ffffff; --bg-inner:#f5f5f8;
+  --border:#dcdce4; --border-light:#ccccd4;
+  --text:#1a1a24; --text-mid:#3a3a4a; --text-dim:#555568; --text-faint:#6a6a7a;
+  --burn-glow:rgba(224,72,72,0.08);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  font-size:13px; line-height:1.55; padding:24px 16px 60px;
+}
+.board { max-width:900px; margin:0 auto; }
+
+/* Header */
+.hero {
+  text-align:center; padding:32px 20px 24px;
+  background:linear-gradient(135deg, rgba(239,142,32,0.08), rgba(224,72,72,0.08));
+  border:1px solid var(--border); border-radius:14px;
+  margin-bottom:20px;
+}
+.hero h1 {
+  font-size:26px; font-weight:700; letter-spacing:1px;
+  background:linear-gradient(90deg, var(--accent), var(--burn));
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.hero-sub { color:var(--text-dim); font-size:12px; margin:4px 0 12px; }
+.hero-wallet {
+  display:inline-flex; align-items:center; gap:8px;
+  background:var(--bg-inner); border:1px solid var(--border);
+  padding:6px 14px; border-radius:8px; font-family:monospace; font-size:13px;
+}
+.hero-wallet a { color:var(--accent); text-decoration:none; }
+.hero-wallet a:hover { text-decoration:underline; }
+.hero-copy {
+  font-size:10px; padding:2px 8px; border:1px solid var(--border);
+  background:var(--bg); color:var(--text-dim); border-radius:4px; cursor:pointer;
+}
+.hero-copy:hover { background:var(--border); color:var(--text); }
+
+/* Stats */
+.stats {
+  display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px;
+}
+.stat-card {
+  background:var(--bg-card); border:1px solid var(--border); border-radius:10px;
+  padding:14px; text-align:center;
+}
+.stat-val {
+  font-size:20px; font-weight:700; font-family:monospace;
+}
+.stat-label {
+  font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-top:2px;
+}
+
+/* Card */
+.card {
+  background:var(--bg-card); border:1px solid var(--border); border-radius:12px;
+  padding:16px; margin-bottom:16px;
+}
+.card h2 {
+  font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:2px;
+  color:var(--text-dim); margin-bottom:8px;
+}
+
+/* Leaderboard */
+.lb-table {
+  width:100%; border-collapse:collapse; font-size:12px;
+}
+.lb-table th {
+  font-size:10px; text-transform:uppercase; letter-spacing:1px;
+  color:var(--text-faint); padding:6px 8px; text-align:left;
+  border-bottom:1px solid var(--border);
+}
+.lb-table td {
+  padding:8px; border-bottom:1px solid var(--border);
+}
+.lb-row:hover { background:var(--bg-inner); }
+.lb-rank { width:40px; text-align:center; }
+.medal {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:22px; height:22px; border-radius:50%; font-size:11px; font-weight:700;
+  background:linear-gradient(135deg, var(--accent), #FFD700); color:#000;
+}
+.medal.silver { background:linear-gradient(135deg, #bbb, #ddd); }
+.medal.bronze { background:linear-gradient(135deg, #a0724a, #cd853f); }
+.rank-num { color:var(--text-dim); font-size:12px; }
+.lb-addr a { color:var(--accent); text-decoration:none; font-family:monospace; font-size:11px; }
+.lb-addr a:hover { text-decoration:underline; }
+.lb-emo { color:var(--accent); font-family:monospace; }
+.lb-mon { font-family:monospace; }
+.lb-usd { font-weight:600; }
+.lb-txs { text-align:center; color:var(--text-mid); }
+.lb-last { color:var(--text-dim); font-size:11px; }
+.lb-empty { text-align:center; color:var(--text-dim); padding:24px; font-style:italic; }
+
+/* Burns timeline */
+.burn-row {
+  display:flex; align-items:center; gap:10px;
+  padding:8px 0; border-bottom:1px solid var(--border);
+}
+.burn-row:last-child { border-bottom:none; }
+.burn-flame { font-size:16px; }
+.burn-detail { flex:1; }
+.burn-amt-lg { font-size:14px; font-weight:700; color:var(--burn); font-family:monospace; }
+.burn-meta { display:block; font-size:11px; color:var(--text-dim); margin-top:1px; }
+.burn-meta a { color:var(--text-mid); text-decoration:none; }
+.burn-meta a:hover { text-decoration:underline; }
+.burn-time { font-size:10px; color:var(--text-faint); white-space:nowrap; }
+.burn-empty { text-align:center; color:var(--text-dim); padding:16px; font-style:italic; }
+
+/* Footer */
+.footer {
+  text-align:center; padding:16px; font-size:10px; color:var(--text-faint);
+}
+.footer a { color:var(--accent); text-decoration:none; }
+.footer a:hover { text-decoration:underline; }
+.theme-toggle {
+  position:fixed; top:12px; right:12px;
+  background:var(--bg-card); border:1px solid var(--border); border-radius:50%;
+  width:32px; height:32px; cursor:pointer; display:flex; align-items:center;
+  justify-content:center; font-size:14px; color:var(--text-dim); z-index:99;
+}
+.theme-toggle:hover { background:var(--border); }
+
+@media(max-width:700px) {
+  .stats { grid-template-columns:repeat(2,1fr); }
+  .lb-table { font-size:11px; }
+  .lb-table th:nth-child(n+5), .lb-table td:nth-child(n+5) { display:none; }
+}
+</style>
+</head>
+<body>
+<button class="theme-toggle" onclick="toggleTheme()" id="toggleIcon">&#9734;</button>
+<div class="board">
+  <div class="hero">
+    <h1>EMOLT BURNBOARD</h1>
+    <div class="hero-sub">feed emolt. watch it burn. see who's keeping the fire alive.</div>
+    <div class="hero-wallet">
+      <a href="https://monadscan.com/address/0x1382277c7d50B4C42DDa7a26A1958F1857cC74de" target="_blank">0x1382...74de</a>
+      <button class="hero-copy" onclick="navigator.clipboard.writeText('0x1382277c7d50B4C42DDa7a26A1958F1857cC74de');this.textContent='copied!';setTimeout(()=>this.textContent='copy',1500)">copy</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card"><div class="stat-val" style="color:var(--accent)">0.00</div><div class="stat-label">$EMO received</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--burn)">6521.23</div><div class="stat-label">$EMO burned</div></div>
+    <div class="stat-card"><div class="stat-val">100.0000</div><div class="stat-label">MON received</div></div>
+    <div class="stat-card"><div class="stat-val">$1.87</div><div class="stat-label">total value</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Leaderboard</h2>
+    <table class="lb-table">
+      <thead><tr>
+        <th>#</th><th>Address</th><th>$EMO</th><th>MON</th><th>USD</th><th>Txs</th><th>Last</th>
+      </tr></thead>
+      <tbody>
+    <tr class="lb-row rank-1">
+      <td class="lb-rank"><span class="medal">1</span></td>
+      <td class="lb-addr"><a href="https://monadscan.com/address/0x775bd91d622d607ced15ba13784202bc3a4c26bd" target="_blank">0x775b...26bd</a></td>
+      <td class="lb-emo">0.00</td>
+      <td class="lb-mon">100.0000</td>
+      <td class="lb-usd">$1.87</td>
+      <td class="lb-txs">1</td>
+      <td class="lb-last">1m ago</td>
+    </tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 style="color:var(--burn)">Burn History</h2>
+    
+      <div class="burn-row">
+        <span class="burn-flame">&#128293;</span>
+        <span class="burn-detail">
+          <span class="burn-amt-lg">6521.23 $EMO</span>
+          <span class="burn-meta">triggered by unknow...nown &middot; <a href="https://monadscan.com/tx/0x17d33a1f19e42cce46a9b6c99a0bff94fab834dcc764caa3a1edc1b7d4e9c005" target="_blank">0x17d33a1f...</a></span>
+        </span>
+        <span class="burn-time">2026-02-11 20:08 UTC</span>
+      </div>
+  </div>
+
+  <div class="footer">
+    1 feeder &middot; 1 burn &middot; updated 2026-02-11 20:08 UTC<br>
+    <a href="heartbeat.html">&larr; heartbeat dashboard</a>
+  </div>
+</div>
+<script>
+function toggleTheme(){
+  var h=document.documentElement;
+  var l=h.classList.toggle('light');
+  document.getElementById('toggleIcon').innerHTML=l?'\u263E':'\u2606';
+  localStorage.setItem('emolt-theme',l?'light':'dark');
+}
+(function(){
+  if(localStorage.getItem('emolt-theme')==='light'){
+    document.documentElement.classList.add('light');
+    document.getElementById('toggleIcon').innerHTML='\u263E';
+  }
+})();
+</script>
+</body>
+</html>
