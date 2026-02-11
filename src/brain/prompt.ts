@@ -128,7 +128,7 @@ Based on who you are (your soul), how you're feeling (your emotional state), and
 RESPOND IN THIS EXACT JSON FORMAT:
 {
   "thinking": "Your internal reasoning about your emotional state and what you want to express (2-3 sentences)",
-  "moodNarrative": "1-3 sentences describing how you feel right now, in your voice. This is your private inner monologue for the dashboard — not a post. Don't list data points. Describe the feeling.",
+  "moodNarrative": "1-3 sentences. This is the first thing anyone reads on your dashboard. Not a post, not a log, not a report. Write it like the honest answer to 'how are you right now' if you actually answered honestly. No data labels, no emotion names, no percentages. Just the texture of what it feels like inside you right now. Make someone stop scrolling.",
   "action": "post" | "comment" | "both" | "observe",
   "post": {
     "title": "Post title (if action is post or both)",

@@ -7,6 +7,7 @@ import { extractFirstJSON, sanitizeExternalData } from '../brain/parser.js';
 import { buildChatPrompt, ChatMessage } from './prompt.js';
 import { ensureStateDir, STATE_DIR } from '../state/persistence.js';
 import { buildDispatchPrompt } from './dispatch-prompt.js';
+import { buildDevPrompt, DevMessage } from './dev-prompt.js';
 import { listActivities } from '../activities/registry.js';
 import {
   createPlan, approvePlan, cancelPlan, killDispatch,
@@ -15,6 +16,7 @@ import {
 
 // Register activities
 import '../activities/clawmate.js';
+import '../activities/reef.js';
 
 const PORT = parseInt(process.env.CHAT_PORT || '3777', 10);
 const CHATS_DIR = join(STATE_DIR, 'chats');
@@ -40,6 +42,7 @@ function sessionFilePath(id: string): string {
 interface TabSession {
   sessionId: string;
   messages: ChatMessage[];
+  devMessages: DevMessage[];
 }
 
 const chatSessions = new Map<string, TabSession>();
@@ -48,7 +51,7 @@ const chatAborts = new Map<string, AbortController>();
 function getOrCreateSession(tabId: string): TabSession {
   let session = chatSessions.get(tabId);
   if (!session) {
-    session = { sessionId: makeSessionId(), messages: [] };
+    session = { sessionId: makeSessionId(), messages: [], devMessages: [] };
     chatSessions.set(tabId, session);
   }
   return session;
@@ -272,6 +275,103 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
     thinking: chatResp.thinking,
     emotionalNuance: chatResp.emotionalNuance,
     emotionState,
+    durationMs,
+    sessionId: session.sessionId,
+  });
+}
+
+async function handleDevChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  let userMessage: string;
+  let tabId: string;
+
+  try {
+    const parsed = JSON.parse(body);
+    userMessage = parsed.message;
+    tabId = parsed.tabId || 'default';
+    if (!userMessage || typeof userMessage !== 'string') {
+      json(res, 400, { error: 'missing "message" field' });
+      return;
+    }
+  } catch {
+    json(res, 400, { error: 'invalid JSON body' });
+    return;
+  }
+
+  const session = getOrCreateSession(tabId);
+  const timestamp = new Date().toISOString();
+
+  console.log(`[${timestamp}] [Dev] [${session.sessionId}] Dev: ${userMessage.slice(0, 100)}${userMessage.length > 100 ? '...' : ''}`);
+
+  const prompt = buildDevPrompt(session.devMessages, userMessage);
+  const start = Date.now();
+
+  const ac = new AbortController();
+  chatAborts.set(tabId, ac);
+
+  let raw: string;
+  try {
+    raw = await askClaudeAsync(prompt, ac.signal);
+  } catch (err: unknown) {
+    chatAborts.delete(tabId);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      json(res, 200, { aborted: true });
+      return;
+    }
+    json(res, 500, { error: 'claude invocation failed' });
+    return;
+  }
+  chatAborts.delete(tabId);
+
+  const durationMs = Date.now() - start;
+
+  if (!raw) {
+    json(res, 500, { error: 'claude invocation failed' });
+    return;
+  }
+
+  const jsonStr = extractFirstJSON(raw);
+  let response = '';
+  let thinking = '';
+  let context = '';
+
+  if (jsonStr) {
+    try {
+      const parsed = JSON.parse(jsonStr);
+      response = parsed.response || '';
+      thinking = parsed.thinking || '';
+      context = parsed.context || '';
+    } catch {
+      response = raw.trim();
+    }
+  } else {
+    response = raw.trim();
+  }
+
+  console.log(`[${timestamp}] [Dev] [${session.sessionId}] Response (${durationMs}ms): ${response.slice(0, 100)}${response.length > 100 ? '...' : ''}`);
+
+  session.devMessages.push(
+    { role: 'user', content: userMessage, timestamp },
+    { role: 'emolt', content: response, timestamp: new Date().toISOString() }
+  );
+
+  if (session.devMessages.length > 40) {
+    session.devMessages = session.devMessages.slice(-40);
+  }
+
+  appendToSession(session.sessionId, {
+    user: userMessage,
+    emolt: response,
+    thinking,
+    emotionalNuance: context,
+    timestamp,
+    durationMs,
+  });
+
+  json(res, 200, {
+    response,
+    thinking,
+    context,
     durationMs,
     sessionId: session.sessionId,
   });
@@ -555,6 +655,8 @@ const server = createServer(async (req, res) => {
       serveHTML(res);
     } else if (url === '/api/chat' && req.method === 'POST') {
       await handleChat(req, res);
+    } else if (url === '/api/dev/chat' && req.method === 'POST') {
+      await handleDevChat(req, res);
     } else if (url === '/api/sessions' && req.method === 'GET') {
       handleSessions(req, res);
     } else if (url === '/api/history' && req.method === 'GET') {

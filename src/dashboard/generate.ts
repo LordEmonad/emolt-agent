@@ -360,20 +360,23 @@ function buildCurrentState(): string {
     moodSection = `<div class="card"><h2>Mood vs Current</h2><p class="muted">Top = current, bottom = mood (EMA)</p>${moodBars}</div>`;
   }
 
+  // Build emotion tag line: dominant label + compounds, all as one subtle line
+  const emotionTags: string[] = [];
+  emotionTags.push(`<span class="etag etag-dominant" style="color:${domColor}">${esc(label.toLowerCase())}</span>`);
+  for (const c of compounds) {
+    emotionTags.push(`<span class="etag">${esc(c.toLowerCase())}</span>`);
+  }
+  const tagLine = emotionTags.join('<span class="etag-sep">&middot;</span>');
+
   return `
   <div class="card current-state-card">
-    <h2>Current Emotional State</h2>
     <div class="state-grid">
       <div class="wheel-container">${svg}</div>
       <div class="state-details">
-        <div class="dominant-display">
-          <span class="dominant-tier" style="color:${domColor}">${esc(label.toUpperCase())}</span>
-          <span class="dominant-emotion" style="color:${domColor}">${dominant}</span>
-        </div>
-        ${compounds.length > 0 ? `<div class="compounds">${compounds.map((c: string) => `<span class="compound-tag">${esc(c)}</span>`).join('')}</div>` : ''}
-        ${moodNarrative ? `<p class="mood-narrative">${esc(moodNarrative)}</p>` : ''}
+        ${moodNarrative ? `<p class="mood-narrative">${esc(moodNarrative)}</p>` : '<p class="mood-narrative mood-empty">listening.</p>'}
+        <div class="emotion-tagline">${tagLine}</div>
         ${trigger ? `<p class="trigger-detail">${esc(trigger)}</p>` : ''}
-        <div class="emo-bars">${bars}</div>
+        <details class="emo-breakdown"><summary class="emo-breakdown-toggle">spectrum</summary><div class="emo-bars">${bars}</div></details>
       </div>
     </div>
   </div>
@@ -941,14 +944,19 @@ body {
 .current-state-card { grid-column:span 2; }
 .state-grid { display:grid; grid-template-columns:auto 1fr; gap:24px; align-items:start; }
 .wheel-container { width:280px; flex-shrink:0; }
-.dominant-display { margin-bottom:12px; }
-.dominant-tier { display:block; font-size:18px; font-weight:600; letter-spacing:4px; }
-.dominant-emotion { display:block; font-size:11px; letter-spacing:3px; text-transform:uppercase; opacity:0.6; }
-.compounds { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
-.compound-tag { font-size:10px; letter-spacing:1.5px; color:var(--text-mid); background:var(--bg-inner); border:1px solid var(--border-light); padding:3px 10px; border-radius:8px; text-transform:uppercase; transition:background 0.3s; }
-.trigger { font-size:12px; color:var(--text-muted); margin-bottom:12px; font-style:italic; }
-.mood-narrative { font-size:14px; color:var(--text-main); margin-bottom:8px; font-style:italic; line-height:1.6; opacity:0.9; }
-.trigger-detail { font-size:11px; color:var(--text-muted); margin-bottom:12px; opacity:0.5; }
+.mood-narrative { font-size:15px; color:var(--text-main); line-height:1.7; margin-bottom:14px; letter-spacing:0.2px; }
+.mood-empty { opacity:0.3; }
+.emotion-tagline { display:flex; align-items:center; gap:0; flex-wrap:wrap; margin-bottom:12px; }
+.etag { font-size:10px; letter-spacing:1.5px; color:var(--text-muted); text-transform:lowercase; }
+.etag-dominant { font-weight:500; }
+.etag-sep { font-size:10px; color:var(--text-dim); margin:0 8px; user-select:none; }
+.trigger-detail { font-size:11px; color:var(--text-muted); margin-bottom:12px; opacity:0.4; }
+.emo-breakdown { margin-top:4px; }
+.emo-breakdown-toggle { font-size:10px; letter-spacing:2px; color:var(--text-dim); cursor:pointer; text-transform:lowercase; user-select:none; list-style:none; }
+.emo-breakdown-toggle::-webkit-details-marker { display:none; }
+.emo-breakdown-toggle::before { content:'\\25B8 '; font-size:8px; margin-right:4px; }
+.emo-breakdown[open] .emo-breakdown-toggle::before { content:'\\25BE '; }
+.emo-breakdown[open] .emo-bars { margin-top:10px; }
 
 /* Emotion bars */
 .emo-bars { display:flex; flex-direction:column; gap:4px; }
@@ -1172,8 +1180,8 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   /* Plutchik wheel */
   .wheel-container { width:100%; max-width:280px; margin:0 auto; }
   .state-grid { grid-template-columns:1fr; gap:16px; }
-  .dominant-tier { font-size:16px; letter-spacing:3px; }
-  .dominant-emotion { font-size:10px; }
+  .mood-narrative { font-size:14px; line-height:1.6; }
+  .etag { font-size:9px; }
 
   /* Emotion bars */
   .emo-bar-label { width:68px; font-size:9px; letter-spacing:0.5px; }

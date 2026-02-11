@@ -196,7 +196,7 @@ export function getDispatch(dispatchId: string): {
   return {
     plan: inst.plan,
     result: inst.result,
-    recentLog: inst.logEntries.slice(-30),
+    recentLog: inst.logEntries,
   };
 }
 
@@ -209,7 +209,7 @@ export function getCurrentDispatch(): {
   // Find running dispatch first
   for (const inst of dispatches.values()) {
     if (inst.plan.status === 'running') {
-      return { plan: inst.plan, result: inst.result, recentLog: inst.logEntries.slice(-30) };
+      return { plan: inst.plan, result: inst.result, recentLog: inst.logEntries };
     }
   }
   // Fall back to most recent
@@ -220,7 +220,7 @@ export function getCurrentDispatch(): {
     }
   }
   if (latest) {
-    return { plan: latest.plan, result: latest.result, recentLog: latest.logEntries.slice(-30) };
+    return { plan: latest.plan, result: latest.result, recentLog: latest.logEntries };
   }
   return { plan: null, result: null, recentLog: [] };
 }
