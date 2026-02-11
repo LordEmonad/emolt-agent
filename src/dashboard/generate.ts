@@ -214,6 +214,7 @@ function buildHeader(): string {
   if (oracleAddr) links.push(`<a class="header-link" href="https://monadvision.com/address/${oracleAddr}" target="_blank">oracle</a>`);
   links.push(`<a class="header-link" href="https://monadvision.com/nft/0x4F646aa4c5aAF03f2F4b86D321f59D9D0dAeF17D/0" target="_blank">emoodring</a>`);
   links.push(`<a class="header-link" href="https://nad.fun/tokens/0x81A224F8A62f52BdE942dBF23A56df77A10b7777" target="_blank">$emo</a>`);
+  links.push(`<a class="header-link" href="timeline.html" target="_blank">timeline</a>`);
   const ghStars = readJSON(join(STATE, 'github-stars-prev.json'));
   const starCount = ghStars?.stars ?? '';
   links.push(`<a class="header-link" href="${GITHUB_URL}" target="_blank">github${starCount ? ` <span id="gh-stars">\u2605 ${starCount}</span>` : ` <span id="gh-stars"></span>`}</a>`);

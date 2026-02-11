@@ -41,6 +41,7 @@ import { loadMemory, saveMemory, formatMemoryForPrompt } from './state/memory.js
 import { trackNewPost, refreshPostEngagement, buildFeedbackReport, syncToPostPerformance } from './social/feedback.js';
 import { runReflection, applyReflectionToMemory } from './brain/reflection.js';
 import { generateDashboard } from './dashboard/generate.js';
+import { generateTimeline } from './dashboard/timeline.js';
 import {
   ensureStateDir,
   loadEmotionState,
@@ -703,17 +704,22 @@ Good examples of your voice on crypto posts:
     // logging failure is non-fatal
   }
 
-  // 15. Regenerate dashboard
+  // 15. Regenerate dashboard + timeline
   try {
     generateDashboard();
   } catch {
     // dashboard generation is non-fatal
   }
+  try {
+    generateTimeline();
+  } catch {
+    // timeline generation is non-fatal
+  }
 
   // 16. Push updated dashboard to git
   try {
     const { execSync } = await import('child_process');
-    execSync('git add heartbeat.html && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
+    execSync('git add heartbeat.html timeline.html && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
       stdio: 'ignore',
       timeout: 30_000,
     });
