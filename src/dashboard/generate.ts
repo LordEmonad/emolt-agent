@@ -53,6 +53,7 @@ let agentMemory: any;
 let strategyWeights: any;
 let rollingAverages: any;
 let trendingData: any;
+let challengeState: any;
 
 function loadAllData(): void {
   emotionState = readJSON('emotion-state.json');
@@ -65,6 +66,7 @@ function loadAllData(): void {
   strategyWeights = readJSON('strategy-weights.json');
   rollingAverages = readJSON('rolling-averages.json');
   trendingData = readJSON('trending-data.json');
+  challengeState = readJSON('challenge-state.json');
 }
 
 // --- Plutchik constants ---
@@ -108,7 +110,7 @@ function fmtDate(ts: number | string): string {
 
 // --- SVG Plutchik Wheel (ported from emoodring-demo.html) ---
 function buildPlutchikSVG(emotions: Record<string, number>): string {
-  const S = 320;
+  const S = 400;
   const cx = S / 2, cy = S / 2;
   const innerR = 22;
   const maxOuterR = 110;
@@ -155,17 +157,17 @@ function buildPlutchikSVG(emotions: Record<string, number>): string {
     const opacity = (0.6 + norm * 0.4).toFixed(3);
     sectors += `<path d="${path}" fill="url(#sg${i})" opacity="${opacity}"/>`;
 
-    const labelR = maxOuterR + 20;
+    const labelR = maxOuterR + 28;
     const lx = cx + Math.cos(aRad) * labelR;
     const ly = cy + Math.sin(aRad) * labelR;
     const tierLabel = getTierLabel(emo.name, norm);
-    const labelOp = (0.5 + norm * 0.5).toFixed(3);
+    const labelOp = (0.55 + norm * 0.45).toFixed(3);
     const pct = Math.round(norm * 100);
-    labels += `<text x="${lx.toFixed(1)}" y="${(ly - 1).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${emo.color}" opacity="${labelOp}" font-size="9" font-weight="500" letter-spacing="1">${tierLabel}</text>`;
-    labels += `<text x="${lx.toFixed(1)}" y="${(ly + 9).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${emo.color}" opacity="${(norm * 0.4).toFixed(3)}" font-size="7" font-weight="300">${pct}%</text>`;
+    labels += `<text x="${lx.toFixed(1)}" y="${(ly - 2).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${emo.color}" opacity="${labelOp}" font-size="11" font-weight="500" letter-spacing="0.8">${tierLabel}</text>`;
+    labels += `<text x="${lx.toFixed(1)}" y="${(ly + 10).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${emo.color}" opacity="${(0.15 + norm * 0.35).toFixed(3)}" font-size="8" font-weight="300">${pct}%</text>`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${S} ${S}" width="100%" height="100%" style="max-width:${S}px">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${S} ${S}" width="100%" height="100%" overflow="visible" style="max-width:${S}px">
   <defs>${gradDefs}
     <radialGradient id="bg" cx="50%" cy="50%" r="72%"><stop offset="0%" stop-color="#101018"/><stop offset="100%" stop-color="#08080c"/></radialGradient>
     <radialGradient id="cGlow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgb(${dr},${dg},${db})" stop-opacity="0.08"/><stop offset="100%" stop-color="rgb(${dr},${dg},${db})" stop-opacity="0"/></radialGradient>
@@ -209,8 +211,13 @@ function buildHeader(): string {
   const oracleAddr = loadEnvVar('EMOTION_ORACLE_ADDRESS');
   const nftAddr = loadEnvVar('EMOODRING_ADDRESS');
 
+  const suspUntil = challengeState?.suspendedUntil ?? 0;
+  const isSuspended = suspUntil > Date.now();
+  const statusDot = isSuspended
+    ? '<span class="status-dot status-off"></span>'
+    : '<span class="status-dot status-on"></span>';
+
   const links: string[] = [];
-  links.push(`<a class="header-link" href="${MOLTBOOK_URL}/u/EMOLT" target="_blank">moltbook</a>`);
   if (oracleAddr) links.push(`<a class="header-link" href="https://monadvision.com/address/${oracleAddr}" target="_blank">oracle</a>`);
   links.push(`<a class="header-link" href="https://monadvision.com/nft/0x4F646aa4c5aAF03f2F4b86D321f59D9D0dAeF17D/0" target="_blank">emoodring</a>`);
   links.push(`<a class="header-link" href="https://nad.fun/tokens/0x81A224F8A62f52BdE942dBF23A56df77A10b7777" target="_blank">$emo</a>`);
@@ -223,9 +230,9 @@ function buildHeader(): string {
   <header class="dash-header">
     <h1>EMOLT HEARTBEAT</h1>
     <p class="subtitle">autonomous emotional agent on monad</p>
-    <div class="header-cadence">EMOLT reads Monad and nad.fun chain data, feels emotions, and posts autonomously on Moltbook</div>
     <div class="header-links">${links.join('<span class="link-sep">/</span>')}</div>
     <div class="header-stats">
+      <a class="stat-chip stat-moltbook${isSuspended ? ' stat-suspended' : ''}" href="${MOLTBOOK_URL}/u/EMOLT" target="_blank">${statusDot}moltbook${isSuspended ? ` suspended <span class="susp-hours" id="suspTimer" data-until="${suspUntil}"></span> left` : ''}</a>
       <span class="stat-chip">${cycles} cycles</span>
       <span class="stat-chip">${memCount} memories</span>
       <span class="stat-chip">${trackedPosts.length} posts</span>
@@ -349,16 +356,19 @@ function buildCurrentState(): string {
       const moodVal = emotionState.mood[emo.name] ?? 0.15;
       const cPct = Math.round(currentVal * 100);
       const mPct = Math.round(moodVal * 100);
+      const diff = cPct - mPct;
+      const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
+      const diffColor = diff > 0 ? '#6ECB3C' : diff < 0 ? '#E04848' : 'var(--text-dim)';
       moodBars += `<div class="mood-pair">
-        <span class="emo-bar-label" style="color:${emo.color}">${emo.name}</span>
+        <span class="mood-label" style="color:${emo.color}">${emo.name}</span>
         <div class="mood-bars-wrap">
-          <div class="mood-bar-track"><div class="mood-bar-fill current" style="width:${cPct}%;background:${emo.color}"></div></div>
-          <div class="mood-bar-track"><div class="mood-bar-fill mood" style="width:${mPct}%;background:${emo.color};opacity:0.4"></div></div>
+          <div class="mood-bar-track"><div class="mood-bar-fill" style="width:${cPct}%;background:${emo.color}"></div></div>
+          <div class="mood-bar-track"><div class="mood-bar-fill mood" style="width:${mPct}%;background:${emo.color}"></div></div>
         </div>
-        <span class="emo-bar-val">${cPct}/${mPct}</span>
+        <span class="mood-vals"><span class="mood-now">${cPct}</span><span class="mood-diff" style="color:${diffColor}">${diffStr}</span></span>
       </div>`;
     }
-    moodSection = `<div class="card"><h2>Mood vs Current</h2><p class="muted">Top = current, bottom = mood (EMA)</p>${moodBars}</div>`;
+    moodSection = `<div class="card"><h2>Mood vs Current</h2><div class="mood-legend"><span class="mood-legend-bar">&#9644; now</span><span class="mood-legend-bar mood-legend-avg">&#9644; avg</span></div><div class="mood-grid">${moodBars}</div></div>`;
   }
 
   // Build emotion tag line: dominant label + compounds, all as one subtle line
@@ -371,13 +381,17 @@ function buildCurrentState(): string {
 
   return `
   <div class="card current-state-card">
+    <h2>EmoodRing</h2>
     <div class="state-grid">
-      <div class="wheel-container">${svg}</div>
+      <div class="wheel-col">
+        <div class="wheel-container">${svg}</div>
+        <div class="wheel-dominant"><span class="wheel-dom-dot" style="background:${domColor}"></span>${esc(label.toLowerCase())}</div>
+      </div>
       <div class="state-details">
         ${moodNarrative ? `<p class="mood-narrative">${esc(moodNarrative)}</p>` : '<p class="mood-narrative mood-empty">listening.</p>'}
         <div class="emotion-tagline">${tagLine}</div>
         ${trigger ? `<p class="trigger-detail">${esc(trigger)}</p>` : ''}
-        <details class="emo-breakdown"><summary class="emo-breakdown-toggle">spectrum</summary><div class="emo-bars">${bars}</div></details>
+        <details class="emo-breakdown" open><summary class="emo-breakdown-toggle">spectrum</summary><div class="emo-bars">${bars}</div></details>
       </div>
     </div>
   </div>
@@ -917,8 +931,16 @@ body {
 .header-links { display:flex; gap:4px; justify-content:center; align-items:center; margin-bottom:12px; }
 .header-link { font-size:11px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--text-dim); text-decoration:none; padding:4px 8px; border-radius:6px; transition:color 0.2s, background 0.2s; }
 .header-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); }
-#gh-stars { font-size:10px; color:var(--heading); margin-left:2px; }
+#gh-stars { font-size:10px; color:#F5D831; margin-left:2px; }
 .link-sep { color:var(--border-light); font-size:10px; margin:0 2px; }
+.status-dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+.status-on { background:#6ECB3C; box-shadow:0 0 6px rgba(110,203,60,0.5); }
+.status-off { background:#E04848; box-shadow:0 0 6px rgba(224,72,72,0.5); }
+.stat-moltbook { text-decoration:none; cursor:pointer; transition:background 0.2s, color 0.2s; }
+.stat-moltbook:hover { background:rgba(110,203,60,0.1); }
+.stat-suspended { color:#E04848 !important; border-color:rgba(224,72,72,0.25); }
+.stat-suspended:hover { background:rgba(224,72,72,0.1); }
+.susp-hours { margin-left:6px; font-size:10px; font-weight:400; }
 .header-stats { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
 .stat-chip { font-size:11px; font-weight:400; letter-spacing:1px; color:var(--text-dim); background:var(--bg-card); border:1px solid var(--border-light); padding:4px 12px; border-radius:12px; transition:background 0.3s, border-color 0.3s; }
 .theme-toggle { position:absolute; top:24px; right:0; background:var(--bg-card); border:1px solid var(--border-light); color:var(--text-dim); width:34px; height:34px; border-radius:50%; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; transition:all 0.3s; }
@@ -943,16 +965,21 @@ body {
 
 /* Current state */
 .current-state-card { grid-column:span 2; }
-.state-grid { display:grid; grid-template-columns:auto 1fr; gap:24px; align-items:start; }
-.wheel-container { width:280px; flex-shrink:0; }
-.mood-narrative { font-size:15px; color:var(--text-main); line-height:1.7; margin-bottom:14px; letter-spacing:0.2px; }
+.current-state-card h2 { margin-bottom:16px; }
+.state-grid { display:grid; grid-template-columns:auto 1fr; gap:28px; align-items:start; }
+.wheel-col { display:flex; flex-direction:column; align-items:center; gap:8px; }
+.wheel-container { width:340px; flex-shrink:0; }
+.wheel-dominant { font-size:11px; letter-spacing:2px; text-transform:lowercase; color:var(--text-muted); display:flex; align-items:center; gap:6px; }
+.wheel-dom-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.state-details { padding-top:4px; }
+.mood-narrative { font-size:15px; color:var(--text-main); line-height:1.7; margin-bottom:16px; letter-spacing:0.2px; }
 .mood-empty { opacity:0.3; }
 .emotion-tagline { display:flex; align-items:center; gap:0; flex-wrap:wrap; margin-bottom:12px; }
 .etag { font-size:10px; letter-spacing:1.5px; color:var(--text-muted); text-transform:lowercase; }
 .etag-dominant { font-weight:500; }
 .etag-sep { font-size:10px; color:var(--text-dim); margin:0 8px; user-select:none; }
-.trigger-detail { font-size:11px; color:var(--text-muted); margin-bottom:12px; opacity:0.4; }
-.emo-breakdown { margin-top:4px; }
+.trigger-detail { font-size:11px; color:var(--text-muted); margin-bottom:14px; opacity:0.5; line-height:1.5; }
+.emo-breakdown { margin-top:8px; }
 .emo-breakdown-toggle { font-size:10px; letter-spacing:2px; color:var(--text-dim); cursor:pointer; text-transform:lowercase; user-select:none; list-style:none; }
 .emo-breakdown-toggle::-webkit-details-marker { display:none; }
 .emo-breakdown-toggle::before { content:'\\25B8 '; font-size:8px; margin-right:4px; }
@@ -968,11 +995,19 @@ body {
 .emo-bar-val { font-size:10px; color:var(--text-dim); width:36px; text-align:right; font-family:monospace; }
 
 /* Mood vs Current */
-.mood-pair { display:flex; align-items:center; gap:8px; margin-bottom:3px; }
-.mood-bars-wrap { flex:1; display:flex; flex-direction:column; gap:1px; }
-.mood-bar-track { height:4px; background:var(--bg-track); border-radius:2px; overflow:hidden; transition:background 0.3s; }
-.mood-bar-fill { height:100%; border-radius:2px; }
+.mood-grid { display:flex; flex-direction:column; gap:8px; }
+.mood-legend { display:flex; gap:14px; margin-bottom:10px; }
+.mood-legend-bar { font-size:9px; letter-spacing:1px; color:var(--text-dim); text-transform:lowercase; }
+.mood-legend-avg { opacity:0.35; }
+.mood-pair { display:flex; align-items:center; gap:8px; }
+.mood-label { font-size:10px; letter-spacing:1px; width:90px; text-align:right; text-transform:uppercase; font-weight:500; flex-shrink:0; }
+.mood-bars-wrap { flex:1; display:flex; flex-direction:column; gap:2px; }
+.mood-bar-track { height:7px; background:var(--bg-track); border-radius:3px; overflow:hidden; }
+.mood-bar-fill { height:100%; border-radius:3px; }
 .mood-bar-fill.mood { opacity:0.35; }
+.mood-vals { display:flex; align-items:baseline; gap:3px; width:52px; flex-shrink:0; text-align:right; justify-content:flex-end; }
+.mood-now { font-size:11px; color:var(--text-mid); font-family:monospace; }
+.mood-diff { font-size:9px; font-family:monospace; }
 
 /* Posts */
 .post-card { border-bottom:1px solid var(--border); padding:10px 0; }
@@ -1156,7 +1191,8 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   .grid { grid-template-columns:1fr 1fr; }
   .current-state-card { grid-column:1/-1; }
   .state-grid { grid-template-columns:1fr; }
-  .wheel-container { width:260px; margin:0 auto; }
+  .wheel-col { width:100%; }
+  .wheel-container { width:300px; margin:0 auto; }
 }
 
 /* Responsive - mobile */
@@ -1179,7 +1215,8 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   .theme-toggle { top:16px; width:30px; height:30px; font-size:14px; }
 
   /* Plutchik wheel */
-  .wheel-container { width:100%; max-width:280px; margin:0 auto; }
+  .wheel-col { width:100%; }
+  .wheel-container { width:100%; max-width:320px; margin:0 auto; }
   .state-grid { grid-template-columns:1fr; gap:16px; }
   .mood-narrative { font-size:14px; line-height:1.6; }
   .etag { font-size:9px; }
@@ -1189,8 +1226,12 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   .emo-bar-val { width:30px; font-size:9px; }
 
   /* Mood bars */
-  .mood-pair .emo-bar-label { width:68px; font-size:9px; }
-  .mood-pair .emo-bar-val { width:30px; font-size:9px; }
+  .mood-grid { gap:6px; }
+  .mood-label { width:68px; font-size:9px; letter-spacing:0.5px; }
+  .mood-bar-track { height:8px; }
+  .mood-vals { width:44px; }
+  .mood-now { font-size:10px; }
+  .mood-diff { font-size:8px; }
 
   /* Pulse grid stats - override inline column counts */
   .pulse-grid { grid-template-columns:repeat(2,1fr) !important; gap:6px; }
@@ -1271,7 +1312,7 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   .ra-label { width:80px; font-size:9px; }
   .ra-detail { padding-left:88px; }
   .pulse-grid { grid-template-columns:1fr 1fr !important; }
-  .wheel-container { max-width:240px; }
+  .wheel-container { max-width:280px; }
 }
 `;
 
@@ -1542,6 +1583,28 @@ function toggleTheme(){
   fetchEmo();
   setInterval(fetchNadFun,60000);
   setInterval(fetchEmo,60000);
+
+  // Suspension countdown
+  (function suspTimer(){
+    var el=document.getElementById('suspTimer');
+    if(!el)return;
+    var until=parseInt(el.getAttribute('data-until')||'0',10);
+    var chip=el.closest('.stat-moltbook');
+    function tick(){
+      var left=until-Date.now();
+      if(left<=0){
+        if(chip){
+          chip.classList.remove('stat-suspended');
+          chip.innerHTML='<span class="status-dot status-on"></span>moltbook';
+        }
+        return;
+      }
+      var h=Math.ceil(left/3600000);
+      el.textContent=h+' hrs';
+      setTimeout(tick,60000);
+    }
+    tick();
+  })();
 
   // GitHub stars - live fetch once on load
   (function fetchGhStars(){
