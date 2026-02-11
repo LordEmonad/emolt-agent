@@ -61,6 +61,14 @@ export function loadChainHistory(): ChainDataSummary | null {
         if (t.blockNumber !== undefined) t.blockNumber = BigInt(t.blockNumber);
       }
     }
+    if (parsed.incomingNativeTransfers) {
+      for (const t of parsed.incomingNativeTransfers) {
+        if (t.value !== undefined) t.value = BigInt(t.value);
+        if (t.blockNumber !== undefined) t.blockNumber = BigInt(t.blockNumber);
+      }
+    } else {
+      parsed.incomingNativeTransfers = [];
+    }
     return parsed;
   } catch {
     return null;
@@ -74,6 +82,11 @@ export function saveChainHistory(summary: ChainDataSummary): void {
     ...summary,
     avgGasUsed: summary.avgGasUsed.toString(),
     largeTransfers: summary.largeTransfers.map(t => ({
+      ...t,
+      value: t.value.toString(),
+      blockNumber: t.blockNumber.toString()
+    })),
+    incomingNativeTransfers: (summary.incomingNativeTransfers || []).map(t => ({
       ...t,
       value: t.value.toString(),
       blockNumber: t.blockNumber.toString()
@@ -350,6 +363,79 @@ export function loadTrendingData(): TrendingData | null {
 export function saveTrendingData(data: TrendingData): void {
   ensureStateDir();
   atomicWriteFileSync(TRENDING_DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+// --- Burn Ledger (Feed EMOLT) ---
+
+const BURN_LEDGER_FILE = join(STATE_DIR, 'burn-ledger.json');
+
+export interface FeederRecord {
+  address: string;
+  totalEmo: string;       // bigint as string
+  totalMon: string;       // bigint as string
+  totalEmoUsd: number;
+  totalMonUsd: number;
+  txCount: number;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+export interface BurnHistoryEntry {
+  txHash: string;
+  amount: string;         // bigint as string
+  timestamp: number;
+  feederAddress: string;
+}
+
+export interface BurnLedger {
+  feeders: Record<string, FeederRecord>;
+  totalEmoBurned: string;       // bigint as string
+  totalEmoReceived: string;     // bigint as string
+  totalMonReceived: string;     // bigint as string
+  totalMonBuyback: string;      // bigint as string — MON spent buying $EMO to burn
+  totalValueUsd: number;
+  burnHistory: BurnHistoryEntry[];
+  processedTxHashes: string[];  // dedup: prevent double-counting on restart
+  lastProcessedBlock: string;   // bigint as string (legacy, kept for compat)
+  lastProcessedEmoBlock: string; // separate tracking — $EMO tokentx
+  lastProcessedMonBlock: string; // separate tracking — MON txlist
+  lastUpdated: number;
+}
+
+export function createDefaultBurnLedger(): BurnLedger {
+  return {
+    feeders: {},
+    totalEmoBurned: '0',
+    totalEmoReceived: '0',
+    totalMonReceived: '0',
+    totalMonBuyback: '0',
+    totalValueUsd: 0,
+    burnHistory: [],
+    processedTxHashes: [],
+    lastProcessedBlock: '0',
+    lastProcessedEmoBlock: '0',
+    lastProcessedMonBlock: '0',
+    lastUpdated: Date.now()
+  };
+}
+
+export function loadBurnLedger(): BurnLedger {
+  try {
+    const data = readFileSync(BURN_LEDGER_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return createDefaultBurnLedger();
+  }
+}
+
+export function saveBurnLedger(ledger: BurnLedger): void {
+  ensureStateDir();
+  // Keep burnHistory capped at 100 entries
+  if (ledger.burnHistory.length > 100) {
+    ledger.burnHistory = ledger.burnHistory.slice(-100);
+  }
+  ledger.lastUpdated = Date.now();
+  atomicWriteFileSync(BURN_LEDGER_FILE, JSON.stringify(ledger, null, 2));
 }
 
 export function calculateSelfPerformance(): SelfPerformance {

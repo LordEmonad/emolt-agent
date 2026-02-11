@@ -6,6 +6,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { privateKeyToAccount } from 'viem/accounts';
 
 // --- State file paths ---
 const STATE = './state';
@@ -54,6 +55,7 @@ let strategyWeights: any;
 let rollingAverages: any;
 let trendingData: any;
 let challengeState: any;
+let burnLedger: any;
 
 function loadAllData(): void {
   emotionState = readJSON('emotion-state.json');
@@ -67,6 +69,7 @@ function loadAllData(): void {
   rollingAverages = readJSON('rolling-averages.json');
   trendingData = readJSON('trending-data.json');
   challengeState = readJSON('challenge-state.json');
+  burnLedger = readJSON('burn-ledger.json');
 }
 
 // --- Plutchik constants ---
@@ -222,9 +225,15 @@ function buildHeader(): string {
   links.push(`<a class="header-link" href="https://monadvision.com/nft/0x4F646aa4c5aAF03f2F4b86D321f59D9D0dAeF17D/0" target="_blank">emoodring</a>`);
   links.push(`<a class="header-link" href="https://nad.fun/tokens/0x81A224F8A62f52BdE942dBF23A56df77A10b7777" target="_blank">$emo</a>`);
   links.push(`<a class="header-link" href="timeline.html" target="_blank">timeline</a>`);
+  links.push(`<a class="header-link" href="burnboard.html" target="_blank">burnboard</a>`);
   const ghStars = readJSON(join(STATE, 'github-stars-prev.json'));
   const starCount = ghStars?.stars ?? '';
   links.push(`<a class="header-link" href="${GITHUB_URL}" target="_blank">github${starCount ? ` <span id="gh-stars">\u2605 ${starCount}</span>` : ` <span id="gh-stars"></span>`}</a>`);
+
+  const AGENT_WALLET = '0x1382277c7d50B4C42DDa7a26A1958F1857cC74de';
+  const emoBurnedHeader = burnLedger?.totalEmoBurned
+    ? (Number(BigInt(burnLedger.totalEmoBurned)) / 1e18).toFixed(2)
+    : '0';
 
   return `
   <header class="dash-header">
@@ -237,6 +246,11 @@ function buildHeader(): string {
       <span class="stat-chip">${memCount} memories</span>
       <span class="stat-chip">${trackedPosts.length} posts</span>
       <span class="stat-chip">last update: ${now}</span>
+    </div>
+    <div class="header-feed">
+      <span class="header-feed-text">Send <strong>$MON</strong> or <strong>$EMO</strong> to feed Emolt</span>
+      <span class="header-feed-addr" onclick="navigator.clipboard.writeText('${AGENT_WALLET}');var s=this;s.dataset.orig=s.textContent;s.textContent='copied!';setTimeout(()=>s.textContent=s.dataset.orig,1500)" title="click to copy">${AGENT_WALLET}</span>
+      <span class="header-feed-burn">&#128293; <strong>${emoBurnedHeader}</strong> $EMO burned</span>
     </div>
     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle light mode">
       <span class="toggle-icon" id="toggleIcon">&#9788;</span>
@@ -819,6 +833,91 @@ function buildRollingAverages(): string {
   </div>`;
 }
 
+function getAgentWalletAddress(): string {
+  const explicit = loadEnvVar('WALLET_ADDRESS');
+  if (explicit) return explicit;
+  const pk = loadEnvVar('PRIVATE_KEY');
+  if (pk) {
+    try { return privateKeyToAccount(pk as `0x${string}`).address; } catch {}
+  }
+  return '';
+}
+
+function buildFeedSection(): string {
+  const AGENT_WALLET = '0x1382277c7d50B4C42DDa7a26A1958F1857cC74de';
+  const walletAddr = AGENT_WALLET;
+  const addrLink = `https://monadscan.com/address/${walletAddr}`;
+
+  const feederCount = burnLedger ? Object.keys(burnLedger.feeders || {}).length : 0;
+  const totalValueUsd = burnLedger?.totalValueUsd ?? 0;
+  const totalEmoReceived = burnLedger?.totalEmoReceived ? (Number(BigInt(burnLedger.totalEmoReceived)) / 1e18).toFixed(2) : '0';
+  const totalEmoBurned = burnLedger?.totalEmoBurned ? (Number(BigInt(burnLedger.totalEmoBurned)) / 1e18).toFixed(2) : '0';
+  const totalMonReceived = burnLedger?.totalMonReceived ? (Number(BigInt(burnLedger.totalMonReceived)) / 1e18).toFixed(4) : '0';
+  const burnCount = burnLedger?.burnHistory?.length ?? 0;
+
+  // Recent burns (last 3)
+  let recentBurns = '';
+  if (burnLedger?.burnHistory?.length > 0) {
+    const recent = burnLedger.burnHistory.slice(-3).reverse();
+    for (const b of recent) {
+      const amt = (Number(BigInt(b.amount)) / 1e18).toFixed(2);
+      const age = timeAgo(b.timestamp);
+      const from = `${b.feederAddress.slice(0, 6)}...${b.feederAddress.slice(-4)}`;
+      recentBurns += `<div class="burn-entry"><span class="burn-flame-sm">&#128293;</span><span class="burn-amt">${amt} $EMO</span><span class="burn-from muted">from ${from}</span><span class="burn-age muted">${age}</span></div>`;
+    }
+  }
+
+  // Top 3 feeders mini-leaderboard
+  let topFeeders = '';
+  if (burnLedger?.feeders) {
+    const sorted = Object.values(burnLedger.feeders as Record<string, any>)
+      .sort((a: any, b: any) => (b.totalEmoUsd + b.totalMonUsd) - (a.totalEmoUsd + a.totalMonUsd))
+      .slice(0, 3);
+    if (sorted.length > 0) {
+      const medals = ['&#129351;', '&#129352;', '&#129353;'];
+      topFeeders = sorted.map((f: any, i: number) => {
+        const addr = `${f.address.slice(0, 6)}...${f.address.slice(-4)}`;
+        const usd = (f.totalEmoUsd + f.totalMonUsd).toFixed(2);
+        return `<div class="feed-top-row"><span class="feed-medal">${medals[i]}</span><a href="https://monadscan.com/address/${f.address}" target="_blank" class="feed-top-addr">${addr}</a><span class="feed-top-val">$${usd}</span><span class="muted">${f.txCount} tx</span></div>`;
+      }).join('');
+    }
+  }
+
+  return `
+  <div class="feed-banner">
+    <div class="feed-inner">
+      <div class="feed-left">
+        <div class="feed-title">Feed EMOLT</div>
+        <p class="feed-desc">Send <strong>$EMO</strong> or <strong>MON</strong> to EMOLT's wallet. When EMOLT receives $EMO, it feels a burst of joy &mdash; then burns every token, sending it to the dead address forever.</p>
+        <div class="feed-how">
+          <div class="feed-step"><span class="feed-step-num">1</span>Copy the wallet address below</div>
+          <div class="feed-step"><span class="feed-step-num">2</span>Send $EMO or MON on <strong>Monad</strong></div>
+          <div class="feed-step"><span class="feed-step-num">3</span>EMOLT detects it, feels joy, and auto-burns the $EMO</div>
+        </div>
+        <div class="feed-wallet-box">
+          <a href="${addrLink}" target="_blank" class="feed-wallet-addr">${walletAddr}</a>
+          <button class="feed-copy-btn" onclick="navigator.clipboard.writeText('${walletAddr}');this.textContent='copied!';setTimeout(()=>this.textContent='copy',1500)">copy</button>
+        </div>
+        <div class="feed-links">
+          <a href="${addrLink}" target="_blank" class="feed-link">view on monadscan</a>
+          <span class="feed-link-sep">&middot;</span>
+          <a href="burnboard.html" class="feed-link feed-link-burn">burnboard leaderboard &rarr;</a>
+        </div>
+      </div>
+      <div class="feed-right">
+        <div class="feed-stats">
+          <div class="feed-stat"><span class="feed-stat-val" style="color:#EF8E20">${totalEmoReceived}</span><span class="feed-stat-label">$EMO received</span></div>
+          <div class="feed-stat"><span class="feed-stat-val" style="color:#E04848">${totalEmoBurned}</span><span class="feed-stat-label">$EMO burned</span></div>
+          <div class="feed-stat"><span class="feed-stat-val">${totalMonReceived}</span><span class="feed-stat-label">MON received</span></div>
+          <div class="feed-stat"><span class="feed-stat-val">${feederCount}</span><span class="feed-stat-label">unique feeders</span></div>
+        </div>
+        ${topFeeders ? `<div class="feed-top"><div class="feed-top-title muted">top feeders</div>${topFeeders}</div>` : ''}
+        ${recentBurns ? `<div class="feed-recent"><div class="feed-recent-title muted">recent burns</div>${recentBurns}</div>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
 function buildOnChainStatus(): string {
   const oracleAddr = loadEnvVar('EMOTION_ORACLE_ADDRESS');
   const nftAddr = loadEnvVar('EMOODRING_ADDRESS');
@@ -924,6 +1023,22 @@ body {
 }
 .dashboard { max-width:1280px; margin:0 auto; }
 /* Theme toggle */
+/* Header Feed Strip */
+.header-feed {
+  display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap;
+  margin-top:10px; padding:8px 0 0;
+}
+.header-feed-text { font-size:12px; color:var(--text-mid); }
+.header-feed-text strong { color:#EF8E20; }
+.header-feed-addr-row { display:flex; align-items:center; gap:6px; }
+.header-feed-addr {
+  font-family:monospace; font-size:11px; color:#EF8E20; cursor:pointer;
+  padding:3px 10px; border-radius:6px; transition:color 0.15s;
+}
+.header-feed-addr:hover { color:#FFB347; }
+.header-feed-burn { font-size:12px; color:var(--text-mid); display:flex; align-items:center; gap:3px; }
+.header-feed-burn strong { color:#E04848; font-family:monospace; }
+
 .dash-header { text-align:center; margin-bottom:32px; padding:24px 0 20px; border-bottom:1px solid var(--border); position:relative; }
 .dash-header h1 { font-size:15px; font-weight:500; letter-spacing:8px; color:var(--heading); text-transform:uppercase; margin-bottom:2px; }
 .subtitle { font-size:11px; letter-spacing:3px; color:var(--text-faint); text-transform:uppercase; margin-bottom:4px; }
@@ -1144,6 +1259,73 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
 .oc-addr { font-size:11px; color:#22AACC; font-family:monospace; text-decoration:none; overflow:hidden; text-overflow:ellipsis; max-width:60%; }
 .oc-addr:hover { text-decoration:underline; }
 
+/* Feed EMOLT Banner */
+.feed-banner {
+  background:linear-gradient(135deg, rgba(239,142,32,0.06), rgba(224,72,72,0.06));
+  border:1px solid var(--border); border-left:3px solid #EF8E20;
+  border-radius:12px; padding:20px 24px; margin-top:16px;
+}
+.feed-inner { display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+.feed-title {
+  font-size:18px; font-weight:700; letter-spacing:1px;
+  background:linear-gradient(90deg, #EF8E20, #E04848);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+  margin-bottom:6px;
+}
+.feed-desc { font-size:12px; color:var(--text-mid); line-height:1.6; margin-bottom:12px; }
+.feed-desc strong { color:var(--text); }
+.feed-how { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+.feed-step { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--text-mid); }
+.feed-step strong { color:var(--text); }
+.feed-step-num {
+  width:18px; height:18px; border-radius:50%; font-size:10px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  background:linear-gradient(135deg, #EF8E20, #E04848); color:#000;
+}
+.feed-wallet-box {
+  display:flex; align-items:center; gap:10px;
+  background:var(--bg-inner); border:1px solid var(--border);
+  padding:8px 14px; border-radius:8px; margin-bottom:8px;
+}
+.feed-wallet-addr {
+  font-family:monospace; font-size:12px; color:#EF8E20; text-decoration:none;
+  word-break:break-all; flex:1;
+}
+.feed-wallet-addr:hover { text-decoration:underline; }
+.feed-copy-btn {
+  font-size:10px; padding:4px 12px; border:1px solid #EF8E20; background:transparent;
+  color:#EF8E20; border-radius:6px; cursor:pointer; font-weight:600; flex-shrink:0;
+  transition:all 0.15s;
+}
+.feed-copy-btn:hover { background:#EF8E20; color:#000; }
+.feed-links { display:flex; align-items:center; gap:8px; }
+.feed-link { font-size:11px; color:var(--text-dim); text-decoration:none; }
+.feed-link:hover { color:#EF8E20; text-decoration:underline; }
+.feed-link-burn { color:#EF8E20; font-weight:600; }
+.feed-link-sep { color:var(--text-faint); font-size:10px; }
+.feed-right { display:flex; flex-direction:column; gap:12px; }
+.feed-stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.feed-stat {
+  background:var(--bg-inner); border:1px solid var(--border); border-radius:8px;
+  padding:10px; text-align:center;
+}
+.feed-stat-val { display:block; font-size:18px; font-weight:700; font-family:monospace; }
+.feed-stat-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-top:2px; display:block; }
+.feed-top { }
+.feed-top-title { font-size:10px; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+.feed-top-row { display:flex; align-items:center; gap:6px; font-size:11px; padding:3px 0; }
+.feed-medal { font-size:13px; }
+.feed-top-addr { color:#EF8E20; text-decoration:none; font-family:monospace; font-size:11px; }
+.feed-top-addr:hover { text-decoration:underline; }
+.feed-top-val { font-weight:600; margin-left:auto; }
+.feed-recent { }
+.feed-recent-title { font-size:10px; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+.burn-entry { display:flex; gap:6px; align-items:center; font-size:11px; padding:3px 0; }
+.burn-flame-sm { font-size:12px; }
+.burn-amt { color:#E04848; font-family:monospace; font-weight:600; }
+.burn-from { font-size:10px; }
+.burn-age { font-size:10px; margin-left:auto; }
+
 /* Trending Ticker */
 .ticker-wrapper {
   display:flex; align-items:center; gap:0;
@@ -1201,6 +1383,11 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   .dashboard { max-width:100%; overflow:hidden; }
   .grid { grid-template-columns:1fr; gap:12px; }
   .grid-half { grid-template-columns:1fr; gap:12px; }
+  .feed-inner { grid-template-columns:1fr; gap:16px; }
+  .feed-banner { padding:16px; }
+  .feed-wallet-addr { font-size:10px; }
+  .header-feed { flex-direction:column; gap:6px; padding:8px 12px; }
+  .header-feed-addr { font-size:9px; word-break:break-all; }
   .card { padding:16px 14px; border-radius:10px; }
   .card-wide, .current-state-card { grid-column:1; }
 
@@ -1353,11 +1540,14 @@ export function generateDashboard(): void {
   </div>
   <div class="grid-half">
     ${buildOnChainStatus()}
+  </div>
+  <div class="grid-half">
     ${buildRollingAverages()}
   </div>
   <div style="margin-top:16px">
     ${buildHeartbeatLog()}
   </div>
+  ${buildFeedSection()}
 </div>
 <script>
 function toggleTheme(){

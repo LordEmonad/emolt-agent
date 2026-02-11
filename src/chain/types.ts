@@ -73,6 +73,7 @@ export interface BlockScanResults {
   simpleTransfers: number;       // txs that just send MON (no calldata)
   maxSingleTxValue: bigint;      // biggest single tx
   txsScanned: number;            // total individual txs examined
+  incomingNativeTransfers: { from: string; value: bigint; txHash: string; blockNumber: bigint }[];
 }
 
 export interface ChainDataSummary {
@@ -110,6 +111,9 @@ export interface ChainDataSummary {
   // Activity flags
   isChainQuiet: boolean;
   isChainBusy: boolean;
+
+  // Incoming native transfers to agent wallet (from block scan)
+  incomingNativeTransfers: { from: string; value: bigint; txHash: string; blockNumber: bigint }[];
 }
 
 // Broader ecosystem data from external APIs

@@ -13,6 +13,7 @@ import {
   mapEmoDexToStimuli,
   mapFeedSentimentToStimuli,
   mapGitHubToStimuli,
+  mapFeedToStimuli,
   analyzeEmotionMemory,
   getTimeContext,
   fetchMonPrice
@@ -27,6 +28,7 @@ import { collectEmoDexData, fetchEmoSocialLinks } from './chain/nadfun.js';
 import { fetchGitHubStars } from './chain/github.js';
 import { updateEmotionOnChain, readCurrentEmotionFromChain } from './chain/oracle.js';
 import { refreshEmoodRingMetadata } from './chain/emoodring.js';
+import { detectAndProcessFeeds, formatFeedForPrompt } from './chain/feed.js';
 import { askClaude } from './brain/claude.js';
 import { loadSoulFiles, buildPrompt } from './brain/prompt.js';
 import { parseClaudeResponse, sanitizeExternalData } from './brain/parser.js';
@@ -42,6 +44,7 @@ import { trackNewPost, refreshPostEngagement, buildFeedbackReport, syncToPostPer
 import { runReflection, applyReflectionToMemory } from './brain/reflection.js';
 import { generateDashboard } from './dashboard/generate.js';
 import { generateTimeline } from './dashboard/timeline.js';
+import { generateBurnboard } from './dashboard/burnboard.js';
 import {
   ensureStateDir,
   loadEmotionState,
@@ -62,7 +65,9 @@ import {
   loadPreviousSelfPerformance,
   savePreviousSelfPerformance,
   loadPreviousStarCount,
-  savePreviousStarCount
+  savePreviousStarCount,
+  loadBurnLedger,
+  saveBurnLedger
 } from './state/persistence.js';
 import type { DexTickerItem, NadFunTickerItem } from './state/persistence.js';
 
@@ -334,6 +339,38 @@ Good examples of your voice on crypto posts:
     console.warn('[EMO DEX] Failed to collect DEX data:', error);
   }
 
+  // 5.7. Feed EMOLT — detect incoming $EMO + MON, burn, track
+  let feedStimuli: EmotionStimulus[] = [];
+  let feedContext = '';
+  const burnLedger = loadBurnLedger();
+  try {
+    const latestBlock = await getBlockSnapshot();
+    const currentBlock = latestBlock.blockNumber;
+    const lookback = 4500n; // ~30 min at Monad block times
+    const feedFromBlock = currentBlock > lookback ? currentBlock - lookback : 0n;
+    // Note: getLogs is chunked in 100-block batches (Monad RPC limit)
+    // After first run, lastProcessedBlock narrows the scan to only new blocks
+    const emoPriceUsd = emoDexDataForAvg?.priceUsd ?? 0;
+
+    const feedResult = await detectAndProcessFeeds(
+      feedFromBlock,
+      currentBlock,
+      burnLedger,
+      monPriceUsd,
+      emoPriceUsd
+    );
+
+    feedStimuli = mapFeedToStimuli(feedResult, burnLedger);
+    feedContext = formatFeedForPrompt(burnLedger, feedResult);
+    saveBurnLedger(burnLedger);
+
+    if (feedResult.emoFeeds.length + feedResult.monFeeds.length > 0) {
+      console.log(`[Feed] ${feedStimuli.length} stimuli from feed activity`);
+    }
+  } catch (error) {
+    console.warn('[Feed] Feed detection failed (non-fatal):', error);
+  }
+
   // 6. Time awareness
   const timeContext = getTimeContext();
   const timeStimuli = mapTimeToStimuli(timeContext, chainData.isChainQuiet);
@@ -501,7 +538,7 @@ Good examples of your voice on crypto posts:
   const inertia = emotionMemory.dominantStreak >= 3
     ? { streakEmotion: emotionMemory.streakEmotion, streakLength: emotionMemory.dominantStreak }
     : undefined;
-  const rawStimuli = [...chainStimuli, ...priceStimuli, ...emoDexStimuli, ...timeStimuli, ...moltbookStimuli, ...feedContagionStimuli, ...ecosystemStimuli, ...selfPerfStimuli, ...githubStimuli, ...memoryStimuli];
+  const rawStimuli = [...chainStimuli, ...priceStimuli, ...emoDexStimuli, ...timeStimuli, ...moltbookStimuli, ...feedContagionStimuli, ...ecosystemStimuli, ...selfPerfStimuli, ...githubStimuli, ...memoryStimuli, ...feedStimuli];
   const allStimuli = applyStrategyWeights(rawStimuli, strategyWeights);
   emotionState = stimulate(emotionState, allStimuli, inertia);
   emotionState = updateMood(emotionState);
@@ -522,6 +559,7 @@ Good examples of your voice on crypto posts:
   const formattedMemory = [
     monadPulse,
     threadContext,
+    feedContext,
     formatMemoryForPrompt(memory),
   ].filter(Boolean).join('\n\n');
 
@@ -715,11 +753,16 @@ Good examples of your voice on crypto posts:
   } catch {
     // timeline generation is non-fatal
   }
+  try {
+    generateBurnboard();
+  } catch {
+    // burnboard generation is non-fatal
+  }
 
   // 16. Push updated dashboard to git
   try {
     const { execSync } = await import('child_process');
-    execSync('git add heartbeat.html timeline.html && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
+    execSync('git add heartbeat.html timeline.html burnboard.html && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
       stdio: 'ignore',
       timeout: 30_000,
     });

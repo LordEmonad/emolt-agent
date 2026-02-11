@@ -102,7 +102,8 @@ export type StrategyWeightKey =
   | 'selfPerformanceReaction'
   | 'ecosystemVolume'
   | 'gasPressure'
-  | 'githubStarReaction';
+  | 'githubStarReaction'
+  | 'feedJoy';
 
 // A stimulus that affects emotions
 export interface EmotionStimulus {

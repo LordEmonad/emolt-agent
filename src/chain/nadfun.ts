@@ -22,7 +22,7 @@ function getTrading() {
   return _trading;
 }
 
-// Simple circuit breaker: after 3 consecutive failures, skip for 3 cycles (90 min)
+// Simple circuit breaker: after 3 consecutive failures, skip for 1 cycle (30 min)
 const circuitBreakers: Record<string, { failures: number; skipUntil: number }> = {};
 
 function isCircuitOpen(name: string): boolean {
@@ -46,8 +46,8 @@ function recordFailure(name: string): void {
   const cb = circuitBreakers[name] || { failures: 0, skipUntil: 0 };
   cb.failures++;
   if (cb.failures >= 3) {
-    cb.skipUntil = Date.now() + 3 * 30 * 60 * 1000; // 90 min cooldown
-    console.warn(`[nad.fun] Circuit breaker tripped for ${name}, cooling down 90min`);
+    cb.skipUntil = Date.now() + 30 * 60 * 1000; // 30 min cooldown (1 cycle)
+    console.warn(`[nad.fun] Circuit breaker tripped for ${name}, cooling down 30min`);
   }
   circuitBreakers[name] = cb;
 }

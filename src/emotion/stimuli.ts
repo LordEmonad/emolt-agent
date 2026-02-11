@@ -564,6 +564,90 @@ export function mapGitHubToStimuli(currentStars: number, previousStars: number |
   return stimuli;
 }
 
+// --- Feed EMOLT stimuli ---
+
+import type { FeedDetectionResult } from '../chain/feed.js';
+import type { BurnLedger } from '../state/persistence.js';
+
+export function mapFeedToStimuli(feedResult: FeedDetectionResult, ledger: BurnLedger): EmotionStimulus[] {
+  const stimuli: EmotionStimulus[] = [];
+  const totalFeeds = feedResult.emoFeeds.length + feedResult.monFeeds.length;
+  if (totalFeeds === 0) return stimuli;
+
+  // Compute total USD value this cycle (approximate)
+  const totalValueUsd = ledger.totalValueUsd; // lifetime, but we use it for scaling
+
+  // Any feed received → JOY (base 0.3, scales with value up to +0.2)
+  const joyIntensity = Math.min(0.5, 0.3 + Math.min(0.2, totalValueUsd / 100));
+  stimuli.push({
+    emotion: PrimaryEmotion.JOY,
+    intensity: joyIntensity,
+    source: `${totalFeeds} transfer${totalFeeds > 1 ? 's' : ''} received — someone is feeding me`,
+    weightCategory: 'feedJoy'
+  });
+
+  // $EMO specifically → TRUST ("fed me pieces of myself")
+  if (feedResult.emoFeeds.length > 0) {
+    stimuli.push({
+      emotion: PrimaryEmotion.TRUST,
+      intensity: 0.25,
+      source: 'they sent me $EMO — feeding me pieces of myself',
+      weightCategory: 'feedJoy'
+    });
+  }
+
+  // Check for first-time feeders → SURPRISE
+  const feederAddresses = new Set([
+    ...feedResult.emoFeeds.map(f => f.from.toLowerCase()),
+    ...feedResult.monFeeds.map(f => f.from.toLowerCase()),
+  ]);
+  for (const addr of feederAddresses) {
+    const feeder = ledger.feeders[addr];
+    if (feeder && feeder.txCount === 1) {
+      // This is their first ever feed (txCount was just incremented to 1)
+      stimuli.push({
+        emotion: PrimaryEmotion.SURPRISE,
+        intensity: 0.20,
+        source: `new feeder appeared: ${addr.slice(0, 6)}...${addr.slice(-4)}`,
+        weightCategory: 'feedJoy'
+      });
+      break; // Only react to one new feeder per cycle
+    }
+  }
+
+  // Repeat feeder (3+ txs) → TRUST (loyalty)
+  for (const addr of feederAddresses) {
+    const feeder = ledger.feeders[addr];
+    if (feeder && feeder.txCount >= 3) {
+      const trustIntensity = Math.min(0.30, 0.15 + Math.min(0.15, feeder.txCount / 20));
+      stimuli.push({
+        emotion: PrimaryEmotion.TRUST,
+        intensity: trustIntensity,
+        source: `repeat feeder (${feeder.txCount} times) — they keep coming back`,
+        weightCategory: 'feedJoy'
+      });
+      break; // Only react to most loyal feeder
+    }
+  }
+
+  // Multiple feeders same cycle → ANTICIPATION
+  if (feederAddresses.size > 1) {
+    stimuli.push({
+      emotion: PrimaryEmotion.ANTICIPATION,
+      intensity: 0.2,
+      source: `${feederAddresses.size} different addresses feeding me this cycle`,
+      weightCategory: 'feedJoy'
+    });
+  }
+
+  // Cap and apply diminishing returns for multiple stimuli
+  for (const s of stimuli) {
+    s.intensity = Math.min(0.5, s.intensity);
+  }
+
+  return stimuli;
+}
+
 export function analyzeEmotionMemory(history: EmotionState[]): EmotionMemory {
   if (history.length < 2) {
     return {

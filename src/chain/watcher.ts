@@ -1,5 +1,5 @@
 import { parseEther } from 'viem';
-import { publicClient } from './client.js';
+import { publicClient, getAccount } from './client.js';
 import { collectNadFunData } from './nadfun.js';
 import type { BlockSnapshot, LargeTransfer, ChainDataSummary, NadFunContext, BlockScanResults } from './types.js';
 
@@ -27,8 +27,15 @@ export async function scanBlocks(fromBlock: bigint, toBlock: bigint): Promise<Bl
     contractInteractions: 0,
     simpleTransfers: 0,
     maxSingleTxValue: 0n,
-    txsScanned: 0
+    txsScanned: 0,
+    incomingNativeTransfers: []
   };
+
+  // Agent address for detecting incoming transfers
+  let agentAddr: string | null = null;
+  try {
+    agentAddr = getAccount().address.toLowerCase();
+  } catch { /* no private key — skip incoming detection */ }
 
   // Adaptive sampling: denser for recent blocks, sparser for older ones
   // Recent 25% of range: every 25 blocks, older 75%: every 100 blocks
@@ -87,6 +94,16 @@ export async function scanBlocks(fromBlock: bigint, toBlock: bigint): Promise<Bl
           results.contractInteractions++;
         } else {
           results.simpleTransfers++;
+        }
+
+        // Incoming native MON transfers to agent wallet
+        if (agentAddr && tx.to?.toLowerCase() === agentAddr && tx.value > 0n) {
+          results.incomingNativeTransfers.push({
+            from: tx.from,
+            value: tx.value,
+            txHash: tx.hash,
+            blockNumber: bn
+          });
         }
       }
 
@@ -154,7 +171,8 @@ export function aggregateSnapshots(
     nadFunGraduations: nadFunContext?.graduations ?? 0,
     nadFunContext,
     isChainQuiet: true,
-    isChainBusy: false
+    isChainBusy: false,
+    incomingNativeTransfers: scanResults.incomingNativeTransfers
   };
 
   if (snapshots.length === 0) return emptyResult;
@@ -195,7 +213,8 @@ export function aggregateSnapshots(
     nadFunGraduations: nadFunContext?.graduations ?? 0,
     nadFunContext,
     isChainQuiet: avgTx < prevAvgTx * 0.5,
-    isChainBusy: avgTx > prevAvgTx * 1.5
+    isChainBusy: avgTx > prevAvgTx * 1.5,
+    incomingNativeTransfers: scanResults.incomingNativeTransfers
   };
 }
 
@@ -240,7 +259,8 @@ export async function collectChainData(previousSummary: ChainDataSummary | null)
       largeTransfers: [], failedTxCount: 0, newContracts: 0,
       uniqueAddresses: new Set(), totalValueMoved: 0n,
       contractInteractions: 0, simpleTransfers: 0,
-      maxSingleTxValue: 0n, txsScanned: 0
+      maxSingleTxValue: 0n, txsScanned: 0,
+      incomingNativeTransfers: []
     };
     return aggregateSnapshots([], previousSummary, emptyScan, null);
   }
