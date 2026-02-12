@@ -29,8 +29,7 @@ Thumbs.db
 # Voice training corpus (copyrighted reference material, not shipped)
 soul/data/writing/
 
-# Generated HTML (regenerated at runtime)
-chat.html
+# Generated HTML (regenerated at runtime, except chat.html which is committed for judges/devs)
 
 # Development artifacts
 _w.js
@@ -51,3 +50,14 @@ ClawMate/
 
 # Third party apps (local only, never push)
 third party apps/
+
+# Local reference docs & scratch files
+CLAUDE.md
+RULES.md
+reef.md
+how-it-works.txt
+patch-design.cjs
+future updates/
+
+# Unused duplicate
+Plutchik-wheel.svg.png
