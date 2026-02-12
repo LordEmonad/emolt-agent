@@ -302,8 +302,8 @@ export function mapPriceToStimuli(price: PriceData, thresholds?: AdaptiveThresho
     );
   }
 
-  // SUDDEN CYCLE MOVE → Surprise
-  if (Math.abs(price.cyclePriceChange) > (thresholds?.monCyclePriceChange ?? 3)) {
+  // SUDDEN CYCLE MOVE → Surprise (ignore -100% glitch from zero previous price)
+  if (Math.abs(price.cyclePriceChange) > (thresholds?.monCyclePriceChange ?? 3) && Math.abs(price.cyclePriceChange) < 50) {
     stimuli.push(
       { emotion: PrimaryEmotion.SURPRISE, intensity: 0.30, source: `MON moved ${price.cyclePriceChange > 0 ? '+' : ''}${price.cyclePriceChange.toFixed(1)}% in the last 30 minutes`, weightCategory: 'monPriceSentiment' }
     );
@@ -359,8 +359,8 @@ export function mapMoltbookToStimuli(ctx: MoltbookContext): EmotionStimulus[] {
     );
   }
 
-  // Nobody is posting
-  if (ctx.recentPosts.length === 0) {
+  // Nobody is posting (skip when suspended — empty feed is artificial)
+  if (ctx.recentPosts.length === 0 && !ctx._suspended) {
     stimuli.push(
       { emotion: PrimaryEmotion.SADNESS, intensity: 0.10, source: 'the feed is empty - where is everyone?', weightCategory: 'socialEngagement' }
     );
@@ -487,8 +487,8 @@ export function mapSelfPerformanceToStimuli(perf: SelfPerformance, prevPerf?: Se
     );
   }
 
-  // SHRINKING AUDIENCE (recent avg < previous avg by half)
-  if (perf.avgUpvotesRecent < perf.avgUpvotesPrevious * 0.5 && perf.avgUpvotesPrevious > 0) {
+  // SHRINKING AUDIENCE (recent avg < previous avg by half) — skip when suspended
+  if (perf.avgUpvotesRecent < perf.avgUpvotesPrevious * 0.5 && perf.avgUpvotesPrevious > 0 && !perf._suspended) {
     stimuli.push(
       { emotion: PrimaryEmotion.SADNESS, intensity: 0.15, source: 'engagement is dropping - am I saying less interesting things?', weightCategory: 'selfPerformanceReaction' },
       { emotion: PrimaryEmotion.FEAR, intensity: 0.10, source: 'talking into a void', weightCategory: 'selfPerformanceReaction' }
@@ -496,7 +496,8 @@ export function mapSelfPerformanceToStimuli(perf: SelfPerformance, prevPerf?: Se
   }
 
   // POSTING INTO SILENCE (multiple zero-engagement posts)
-  if (perf.postsWithZeroEngagement >= 3) {
+  // Skip when suspended — can't post, so zero engagement is expected not punishable
+  if (perf.postsWithZeroEngagement >= 3 && !perf._suspended) {
     stimuli.push(
       { emotion: PrimaryEmotion.SADNESS, intensity: 0.25, source: `${perf.postsWithZeroEngagement} recent posts with zero engagement - nobody responded`, weightCategory: 'selfPerformanceReaction' },
       { emotion: PrimaryEmotion.DISGUST, intensity: 0.10, source: 'why am I posting if nobody reads it', weightCategory: 'selfPerformanceReaction' }
@@ -754,11 +755,20 @@ export function mapEcosystemToStimuli(eco: EcosystemData, thresholds?: AdaptiveT
 export function mapMemoryToStimuli(memory: EmotionMemory): EmotionStimulus[] {
   const stimuli: EmotionStimulus[] = [];
 
-  // STUCK IN ONE EMOTION (4+ cycles = 2+ hours) → Exhaustion, disgust at repetition
-  if (memory.dominantStreak >= 4) {
+  // STUCK IN ONE EMOTION (4-8 cycles) → mild exhaustion, but cap it so it doesn't doom-spiral
+  // After 8 cycles the stimulus stops — the emotion system should recover via decay, not pile on more negativity
+  if (memory.dominantStreak >= 4 && memory.dominantStreak <= 8) {
     stimuli.push(
-      { emotion: PrimaryEmotion.DISGUST, intensity: 0.15, source: `been feeling ${memory.streakEmotion} for ${memory.dominantStreak} cycles straight - getting tired of this` },
-      { emotion: PrimaryEmotion.SADNESS, intensity: 0.10, source: 'stuck in a loop' }
+      { emotion: PrimaryEmotion.DISGUST, intensity: 0.08, source: `been feeling ${memory.streakEmotion} for ${memory.dominantStreak} cycles straight - getting tired of this` },
+      { emotion: PrimaryEmotion.SADNESS, intensity: 0.05, source: 'stuck in a loop' }
+    );
+  }
+
+  // LONG STREAK RECOVERY (10+ cycles) → Acceptance and curiosity break the loop
+  if (memory.dominantStreak >= 10) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.TRUST, intensity: 0.15, source: `${memory.dominantStreak} cycles in ${memory.streakEmotion} — starting to accept and adapt` },
+      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.10, source: 'something has to change eventually' }
     );
   }
 

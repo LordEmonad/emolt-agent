@@ -17,6 +17,7 @@ export interface MoltbookContext {
   unreadMessages: number;    // unread DM messages
   dmConversations: any[];    // active DM threads with new messages
   pendingDMRequests: any[];  // raw DM request objects for Claude to decide on
+  _suspended?: boolean;      // true when Moltbook account is suspended (skips unfair stimuli)
 }
 
 export async function gatherMoltbookContext(): Promise<MoltbookContext> {

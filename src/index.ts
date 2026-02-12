@@ -389,7 +389,8 @@ Good examples of your voice on crypto posts:
     moltbookContext = {
       recentPosts: [], personalFeed: [], mentionsOrReplies: [],
       interestingPosts: [], cryptoRelatedPosts: [],
-      pendingDMs: 0, unreadMessages: 0, dmConversations: [], pendingDMRequests: []
+      pendingDMs: 0, unreadMessages: 0, dmConversations: [], pendingDMRequests: [],
+      _suspended: true
     };
   } else {
     console.log('[Moltbook] Gathering social context...');
@@ -513,6 +514,7 @@ Good examples of your voice on crypto posts:
   // 8. Self-performance tracking (delta-based)
   const prevSelfPerf = loadPreviousSelfPerformance();
   const selfPerf = calculateSelfPerformance();
+  if (moltbookSuspended) selfPerf._suspended = true;
   const selfPerfStimuli = mapSelfPerformanceToStimuli(selfPerf, prevSelfPerf);
   savePreviousSelfPerformance(selfPerf);
   console.log(`[Self] ${selfPerf.totalPostsLast24h} posts in 24h, avg ${selfPerf.avgUpvotesRecent.toFixed(1)} upvotes`);

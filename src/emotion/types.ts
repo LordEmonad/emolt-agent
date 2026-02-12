@@ -215,6 +215,7 @@ export interface SelfPerformance {
   postsWithZeroEngagement: number; // posts with 0 upvotes and 0 comments
   bestPostUpvotes: number;        // highest upvotes on any recent post
   commentsReceivedTotal: number;  // total comments across recent posts
+  _suspended?: boolean;           // true when suspended (skips unfair stimuli)
 }
 
 // Price data for MON token

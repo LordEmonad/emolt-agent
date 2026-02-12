@@ -68,8 +68,10 @@ export function getInertiaFactor(streakLength: number): number {
   if (streakLength < 3) return 1.0;
   if (streakLength <= 4) return 0.8;
   if (streakLength <= 6) return 0.7;
-  // Cap at 0.6 - never fully trap emotions, strong stimuli should still break through
-  return 0.6;
+  if (streakLength <= 8) return 0.6;
+  // Long streaks: inertia weakens — the system should recover, not lock forever
+  if (streakLength <= 12) return 0.75;
+  return 0.9; // Nearly full sensitivity — extended streaks must be escapable
 }
 
 export function stimulate(state: EmotionState, stimuli: EmotionStimulus[], inertia?: EmotionInertia): EmotionState {
