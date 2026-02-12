@@ -790,7 +790,7 @@ Good examples of your voice on crypto posts:
   // 16. Push updated dashboard to git
   try {
     const { execSync } = await import('child_process');
-    execSync('git add heartbeat.html timeline.html burnboard.html && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
+    execSync('git add heartbeat.html timeline.html burnboard.html src/dashboard/ src/emotion/ src/chain/ src/brain/ src/social/ src/state/ src/activities/ src/chat/ src/index.ts && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
       stdio: 'ignore',
       timeout: 30_000,
     });
