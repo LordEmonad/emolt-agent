@@ -38,10 +38,27 @@ function formatActivitiesList(): string {
   }).join('\n\n');
 }
 
-export function buildDispatchPrompt(userMessage: string): string {
+export interface DispatchConversation {
+  role: 'user' | 'emolt';
+  content: string;
+}
+
+function formatDispatchHistory(messages: DispatchConversation[]): string {
+  if (messages.length === 0) return '';
+  const recent = messages.slice(-6);
+  const lines = recent.map(m => {
+    const speaker = m.role === 'user' ? 'Operator' : 'EMOLT';
+    return `[${speaker}]: ${m.content}`;
+  });
+  return `\n## Recent Dispatch Conversation\n\n${lines.join('\n\n')}\n\n---\n`;
+}
+
+export function buildDispatchPrompt(userMessage: string, conversationHistory?: DispatchConversation[]): string {
   const soul = loadSoulFiles();
   const emotionState = formatEmotionStateForDispatch();
   const activitiesList = formatActivitiesList();
+
+  const historyBlock = conversationHistory ? formatDispatchHistory(conversationHistory) : '';
 
   return `${soul.soul}
 
@@ -50,7 +67,7 @@ export function buildDispatchPrompt(userMessage: string): string {
 ${soul.style}
 
 ---
-
+${historyBlock}
 ## Mode: DISPATCH PLANNING
 
 You are being asked to go do something in the real world (well, on-chain or in third-party apps). The human operator has given you a mission through your dispatch console. Your job is to interpret what they want, map it to an available activity, propose a plan, and express how you feel about it.

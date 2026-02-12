@@ -161,8 +161,8 @@ export function mapChainDataToStimuli(data: ChainDataSummary, thresholds?: Adapt
       }
     }
 
-    // nad.fun quiet (0 creates, 0 trending): mild Sadness
-    if (nf.creates === 0 && nf.trendingTokens.length === 0) {
+    // nad.fun quiet (0 creates, 0 trending): mild Sadness — but only if data is real, not API failure
+    if (nf.creates === 0 && nf.trendingTokens.length === 0 && !nf.dataPartial) {
       stimuli.push(
         { emotion: PrimaryEmotion.SADNESS, intensity: 0.15, source: 'nad.fun is quiet - no new launches, no trending tokens', weightCategory: 'nadFunExcitement' }
       );

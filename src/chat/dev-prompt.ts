@@ -1,3 +1,6 @@
+import { loadEmotionState } from '../state/persistence.js';
+import { PrimaryEmotion, INTENSITY_TIERS } from '../emotion/types.js';
+
 export interface DevMessage {
   role: 'user' | 'emolt';
   content: string;
@@ -13,8 +16,30 @@ function formatConversationHistory(messages: DevMessage[]): string {
   }).join('\n\n');
 }
 
+function formatEmotionStateForDev(): string {
+  const state = loadEmotionState();
+  const sorted = Object.entries(state.emotions)
+    .sort(([, a], [, b]) => b - a);
+  const lines: string[] = [];
+  for (const [emo, val] of sorted) {
+    const e = emo as PrimaryEmotion;
+    const tier = val > 0.66 ? INTENSITY_TIERS[e].intense
+      : val > 0.33 ? INTENSITY_TIERS[e].moderate
+      : INTENSITY_TIERS[e].mild;
+    lines.push(`- ${emo}: ${(val as number).toFixed(2)} (${tier})`);
+  }
+  if (state.compounds.length > 0) {
+    lines.push(`Compounds: ${state.compounds.join(', ')}`);
+  }
+  lines.push(`Dominant: ${state.dominantLabel} (${state.dominant})`);
+  lines.push(`Trigger: ${state.trigger}`);
+  if (state.moodNarrative) lines.push(`Narrative: ${state.moodNarrative}`);
+  return lines.join('\n');
+}
+
 export function buildDevPrompt(messages: DevMessage[], userMessage: string): string {
   const history = formatConversationHistory(messages);
+  const emotionState = formatEmotionStateForDev();
 
   return `# EMOLT Dev Mode — Full Access
 
@@ -75,15 +100,19 @@ A senior TypeScript engineer embedded in the EMOLT system. You:
 \`src/activities/\` — Dispatch mode (third-party app integration)
 - \`types.ts\` — ActivityConfig, DispatchPlan, DispatchLogEntry, DispatchResult interfaces
 - \`registry.ts\` — Activity map + register/get/list helpers
-- \`runner.ts\` — Plan lifecycle (create/approve/cancel/kill), JSONL logging, Map-based multi-dispatch
+- \`runner.ts\` — Plan lifecycle (create/approve/cancel/kill), JSONL logging, Map-based multi-dispatch, plan persistence
 - \`clawmate.ts\` — ClawMate chess: emotion-driven move engine, ethers wallet, SDK integration
-- \`reef.ts\` — Reef activity (if registered)
+- \`reef.ts\` — The Reef RPG: emotion-driven gameplay, combat, crafting, quests, PvP, trading
+- \`feedback.ts\` — Dispatch result → emotion stimuli feedback loop
+- \`queue.ts\` — Sequential dispatch chaining with auto-advance
+- \`presets.ts\` — 7 quick-fire dispatch presets (chess + reef)
 
 \`src/chat/\` — Chat server
-- \`server.ts\` — HTTP server on port 3777, multi-tab sessions, abort controllers, all API endpoints
-- \`prompt.ts\` — Chat prompt builder (loads soul files + emotion state + memory)
-- \`dispatch-prompt.ts\` — Dispatch planning prompt builder
+- \`server.ts\` — HTTP server on port 3777, multi-tab sessions, abort controllers, SSE, state inspector, queue/preset endpoints
+- \`prompt.ts\` — Chat prompt builder (loads soul files + emotion state + memory + dispatch history)
+- \`dispatch-prompt.ts\` — Dispatch planning prompt builder with conversation context
 - \`dev-prompt.ts\` — This file. Dev mode prompt.
+- \`sse.ts\` — Server-Sent Events: real-time streaming for dispatch logs, typing indicators, keepalive
 
 \`src/dashboard/\`
 - \`generate.ts\` — Standalone HTML dashboard generator → heartbeat.html
@@ -107,21 +136,25 @@ A senior TypeScript engineer embedded in the EMOLT system. You:
 - Emotion values: 0.0–1.0 floats, decay per cycle, opposition dampening
 - Error handling: try/catch with console.error, graceful degradation
 
-### What's Been Built (Phases 1-11)
+### What's Been Built (Phases 1-13)
 - Core emotion engine + all 8 Plutchik emotions
 - On-chain oracle + EmoodRing NFT
 - Full Moltbook integration (posts, comments, DMs, follows, votes)
 - Learning system (memory, feedback, reflection)
 - 8 enhancement features (inertia, adaptive thresholds, strategy weights, contagion, threading, relationships, heartbeat log, EmoodRing refresh)
-- Dispatch mode with ClawMate chess integration
-- Chat server with multi-tab, kill switch, async Claude
+- Dispatch mode with ClawMate chess + Reef RPG integration
+- Chat server with multi-tab, kill switch, async Claude, SSE streaming
+- Dispatch queue, presets, emotion feedback loop
+- State inspector, memory bridge, health endpoint
 - Challenge/verification handling with watchdog
 - Dashboard generator
 - Mood narratives + multi-comment support
 
-### What's Not Yet Done
-- Demo video
-- Git/GitHub setup
+## Current Emotional State (live debug data)
+
+\`\`\`
+${emotionState}
+\`\`\`
 
 ## Communication Style
 

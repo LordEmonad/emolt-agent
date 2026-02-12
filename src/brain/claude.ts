@@ -23,15 +23,20 @@ export function askClaudeAsync(prompt: string, signal?: AbortSignal): Promise<st
       return;
     }
 
+    let settled = false;
+
     const child = execFile('claude', ['-p', '--output-format', 'text'], {
       encoding: 'utf-8',
       maxBuffer: 2 * 1024 * 1024,
       timeout: 180000,
     }, (error, stdout) => {
+      if (settled) return;
       if (signal?.aborted) {
+        settled = true;
         reject(new DOMException('Aborted', 'AbortError'));
         return;
       }
+      settled = true;
       if (error) {
         console.error('[Claude] Async invocation failed:', error.message);
         resolve('');
@@ -47,6 +52,8 @@ export function askClaudeAsync(prompt: string, signal?: AbortSignal): Promise<st
 
     if (signal) {
       const onAbort = () => {
+        if (settled) return;
+        settled = true;
         child.kill('SIGTERM');
         reject(new DOMException('Aborted', 'AbortError'));
       };

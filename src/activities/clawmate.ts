@@ -1,7 +1,7 @@
 import { Chess } from 'chess.js';
 import type { Move } from 'chess.js';
 import { Wallet, JsonRpcProvider } from 'ethers';
-import { ClawmateClient } from 'clawmate-sdk';
+import { ClawmateClient, monToWei } from 'clawmate-sdk';
 import { registerActivity } from './registry.js';
 import { loadEmotionState } from '../state/persistence.js';
 import type { DispatchPlan, DispatchLogger, DispatchResult } from './types.js';
@@ -185,10 +185,11 @@ function sleep(ms: number): Promise<void> {
 async function createLobbyWithRecovery(
   client: InstanceType<typeof import('clawmate-sdk').ClawmateClient>,
   myWallet: string,
+  betAmountWei: string,
   log: DispatchLogger,
 ): Promise<{ lobbyId: string }> {
   try {
-    return await client.createLobby({ betAmountWei: '0' });
+    return await client.createLobby({ betAmountWei });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (!msg.includes('already have an open lobby')) throw err;
@@ -234,7 +235,7 @@ async function createLobbyWithRecovery(
 
     // Retry createLobby after cleanup
     log('step', 'retrying lobby creation...');
-    return await client.createLobby({ betAmountWei: '0' });
+    return await client.createLobby({ betAmountWei });
   }
 }
 
@@ -352,6 +353,8 @@ async function executeClawmate(plan: DispatchPlan, log: DispatchLogger, signal: 
   const mode = (plan.params.mode as string) || 'join';
   const wagerMon = (plan.params.wagerMon as number) || 0;
   const lobbyId = plan.params.lobbyId as string | undefined;
+  // Will be set after client init — deferred so we can use client.monToWei
+  let betAmountWei = '0';
 
   // Step 1: Load emotional state
   log('thought', 'checking how I feel before sitting down...');
@@ -398,6 +401,12 @@ async function executeClawmate(plan: DispatchPlan, log: DispatchLogger, signal: 
     ]);
     void connectResult;
     log('action', 'I\'m in.');
+
+    // Compute wager
+    if (wagerMon > 0) {
+      betAmountWei = monToWei(wagerMon);
+      log('step', `wager set: ${wagerMon} MON (${betAmountWei} wei)`);
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log('error', `couldn't get in: ${msg}`);
@@ -573,7 +582,7 @@ async function executeClawmate(plan: DispatchPlan, log: DispatchLogger, signal: 
     } else if (mode === 'create') {
       // Create a new lobby — with stale-lobby recovery
       log('action', `setting up a board${wagerMon > 0 ? ` — ${wagerMon} MON on the line` : ''}...`);
-      const lobby = await createLobbyWithRecovery(client, myWallet, log);
+      const lobby = await createLobbyWithRecovery(client, myWallet, betAmountWei, log);
       currentLobbyId = lobby.lobbyId;
       saveLobbyId(lobby.lobbyId);
       myColor = 'white';
@@ -598,7 +607,7 @@ async function executeClawmate(plan: DispatchPlan, log: DispatchLogger, signal: 
         log('action', `joined as black. let's see who I'm up against.`);
       } else {
         log('thought', 'empty room. I\'ll set up a board and wait.');
-        const lobby = await createLobbyWithRecovery(client, myWallet, log);
+        const lobby = await createLobbyWithRecovery(client, myWallet, betAmountWei, log);
         currentLobbyId = lobby.lobbyId;
         saveLobbyId(lobby.lobbyId);
         myColor = 'white';
@@ -627,6 +636,7 @@ async function executeClawmate(plan: DispatchPlan, log: DispatchLogger, signal: 
           gameFinished = true;
           gameWinner = data.winner;
           gameReason = data.reason;
+          if (moveTimeoutTimer) clearTimeout(moveTimeoutTimer);
 
           if (data.winner === 'draw') {
             log('result', `draw.${data.reason ? ` ${data.reason}.` : ''} neither of us broke.`);
@@ -644,7 +654,8 @@ async function executeClawmate(plan: DispatchPlan, log: DispatchLogger, signal: 
         const isMyTurn = turn === (myColor === 'white' ? 'w' : 'b');
 
         if (!isMyTurn) {
-          // Opponent's move — narrate it
+          // Opponent's move — narrate it, reset their timeout
+          if (moveTimeoutTimer) clearTimeout(moveTimeoutTimer);
           log('step', narrateOpponentMove(data.from, data.to, moveCount));
           return;
         }
@@ -661,9 +672,58 @@ async function executeClawmate(plan: DispatchPlan, log: DispatchLogger, signal: 
             log('action', narration);
             client.makeMove(currentLobbyId!, moveChoice.from, moveChoice.to, moveChoice.promotion || 'q');
             moveLog.push(`${moveCount}. ${moveChoice.san}`);
+            // Start opponent move timeout after we move
+            resetMoveTimeout();
           }, delay);
         }
       });
+
+      // Draw handling — emotion-driven accept/decline
+      client.on('draw_offered', (data: { by: string }) => {
+        if (!currentLobbyId || gameFinished) return;
+        log('step', `draw offered by ${data.by}. thinking...`);
+
+        // Patient or losing → accept; aggressive → decline
+        if (profile.patience > 0.5 || (profile.reckless < 0 && profile.aggression < 0.3)) {
+          log('action', 'accepting the draw. sometimes peace is the right move.');
+          client.acceptDraw(currentLobbyId);
+        } else if (profile.aggression > 0.5) {
+          log('action', 'declining. I came here to finish this.');
+          client.declineDraw(currentLobbyId);
+        } else {
+          // Coin flip weighted by patience
+          if (Math.random() < profile.patience) {
+            log('action', 'accepting the draw. felt right.');
+            client.acceptDraw(currentLobbyId);
+          } else {
+            log('action', 'declining. not yet.');
+            client.declineDraw(currentLobbyId);
+          }
+        }
+      });
+
+      client.on('draw_declined', () => {
+        log('step', 'draw declined. back to business.');
+      });
+
+      // Move timeout watchdog — if opponent takes > 3 minutes, claim timeout
+      let moveTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+      const MOVE_TIMEOUT_MS = 180_000; // 3 minutes
+
+      function resetMoveTimeout(): void {
+        if (moveTimeoutTimer) clearTimeout(moveTimeoutTimer);
+        moveTimeoutTimer = setTimeout(async () => {
+          if (gameFinished || !currentLobbyId) return;
+          log('thought', 'opponent hasn\'t moved in 3 minutes. claiming timeout...');
+          try {
+            const result = await client.timeout(currentLobbyId);
+            log('result', `timeout claimed: ${result.status}, winner: ${result.winner}`);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log('step', `timeout claim failed: ${msg}. they might still be thinking.`);
+          }
+        }, MOVE_TIMEOUT_MS);
+      }
 
       // Error handling
       client.on('move_error', (data: { reason: string }) => {
@@ -671,6 +731,7 @@ async function executeClawmate(plan: DispatchPlan, log: DispatchLogger, signal: 
       });
 
       client.on('disconnect', (reason: string) => {
+        if (moveTimeoutTimer) clearTimeout(moveTimeoutTimer);
         if (!gameFinished) {
           log('error', `the room went dark. disconnected: ${reason}`);
           reject(new Error(`disconnected mid-game: ${reason}`));

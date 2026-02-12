@@ -399,13 +399,25 @@ export async function collectNadFunData(): Promise<NadFunContext> {
       name: t.token_info.name || t.token_info.token_id.slice(0, 10),
     }));
 
-  console.log(`[nad.fun] API data: ${creates} creates, ${graduations} graduations, ${trendingTokens.length} trending, ${recentGraduates.length} graduates`);
+  // Flag when API failures caused incomplete data
+  // Circuit breaker tracks failures — any recorded failure means data is suspect
+  const creationFailed = (circuitBreakers['nadFunCreation']?.failures ?? 0) > 0;
+  const marketCapFailed = (circuitBreakers['nadFunMarketCap']?.failures ?? 0) > 0;
+  const dataPartial = (creationFailed && creationTokens.length === 0)
+    || (marketCapFailed && marketCapTokens.length === 0);
+
+  if (dataPartial) {
+    console.warn('[nad.fun] API data unavailable — marking context as partial');
+  } else {
+    console.log(`[nad.fun] API data: ${creates} creates, ${graduations} graduations, ${trendingTokens.length} trending, ${recentGraduates.length} graduates`);
+  }
 
   return {
     creates,
     graduations,
     trendingTokens,
     recentGraduates,
+    dataPartial,
     emoToken: {
       progress: Number(emoProgress),
       graduated: emoGraduated,

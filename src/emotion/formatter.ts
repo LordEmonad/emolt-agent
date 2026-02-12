@@ -70,6 +70,15 @@ export function formatEmotionHistory(history: EmotionState[]): string {
     }
   }
 
+  // Include recent moodNarratives so Claude can avoid repeating them
+  const recentNarratives = history.slice(-3)
+    .map(s => s.moodNarrative)
+    .filter((n): n is string => !!n);
+  if (recentNarratives.length > 0) {
+    lines.push('\nYour recent moodNarratives (DO NOT repeat these — find completely new images, structures, and rhythms):');
+    recentNarratives.forEach((n, i) => lines.push(`  ${i + 1}. "${n}"`));
+  }
+
   return lines.join('\n');
 }
 

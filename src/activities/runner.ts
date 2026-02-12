@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, appendFileSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { STATE_DIR, ensureStateDir } from '../state/persistence.js';
+import { STATE_DIR, ensureStateDir, atomicWriteFileSync } from '../state/persistence.js';
 import { getActivity } from './registry.js';
 import type { DispatchPlan, DispatchLogEntry, DispatchLogger, DispatchResult } from './types.js';
+import { applyDispatchFeedback } from './feedback.js';
+import { emitToAll } from '../chat/sse.js';
 
 const DISPATCHES_DIR = join(STATE_DIR, 'dispatches');
 
@@ -17,6 +19,10 @@ function dispatchFilePath(id: string): string {
   return join(DISPATCHES_DIR, `dispatch-${id}.jsonl`);
 }
 
+function dispatchPlanPath(id: string): string {
+  return join(DISPATCHES_DIR, `plan-${id}.json`);
+}
+
 // --- Per-dispatch in-memory state ---
 
 interface DispatchInstance {
@@ -27,6 +33,48 @@ interface DispatchInstance {
 }
 
 const dispatches = new Map<string, DispatchInstance>();
+
+// --- Dispatch plan persistence ---
+
+function persistPlan(plan: DispatchPlan, result: DispatchResult | null): void {
+  ensureDispatchesDir();
+  const data = JSON.stringify({ plan, result }, null, 2);
+  try { atomicWriteFileSync(dispatchPlanPath(plan.id), data); } catch { /* non-fatal */ }
+}
+
+function loadPersistedPlans(): void {
+  ensureDispatchesDir();
+  try {
+    const files = readdirSync(DISPATCHES_DIR)
+      .filter(f => f.startsWith('plan-') && f.endsWith('.json'));
+    for (const f of files) {
+      try {
+        const data = JSON.parse(readFileSync(join(DISPATCHES_DIR, f), 'utf-8'));
+        const plan = data.plan as DispatchPlan;
+        const result = data.result as DispatchResult | null;
+        if (!plan?.id || dispatches.has(plan.id)) continue;
+        // Running plans from before restart are now dead
+        if (plan.status === 'running' || plan.status === 'approved') {
+          plan.status = 'failed';
+          plan.completedAt = new Date().toISOString();
+        }
+        dispatches.set(plan.id, {
+          plan,
+          result: result ?? (plan.status === 'failed' ? {
+            success: false,
+            summary: 'dispatch interrupted by server restart',
+            emotionalReflection: 'i was mid-thought and the lights went out. restarting from nothing.',
+          } : null),
+          logEntries: [],
+          abortController: new AbortController(),
+        });
+      } catch { /* corrupted plan file */ }
+    }
+  } catch { /* dir not ready */ }
+}
+
+// Load persisted plans on module init
+loadPersistedPlans();
 
 // --- Log persistence ---
 
@@ -52,6 +100,11 @@ function createLogger(id: string): DispatchLogger {
       if (inst.logEntries.length > 200) {
         inst.logEntries = inst.logEntries.slice(-200);
       }
+    }
+    // SSE: stream log entry to all connected clients
+    emitToAll('dispatch:log', { dispatchId: id, entry });
+    if (type === 'complete') {
+      emitToAll('dispatch:complete', { dispatchId: id, plan: inst?.plan, result: inst?.result });
     }
     console.log(`[Dispatch] [${type}] ${message}`);
   };
@@ -87,6 +140,7 @@ export function createPlan(
 
   const log = createLogger(id);
   log('plan', summary, { activity, params, emotionalTake, risks });
+  persistPlan(plan, null);
 
   return plan;
 }
@@ -121,6 +175,11 @@ export function approvePlan(planId: string): { ok: boolean; error?: string } {
       plan.status = result.success ? 'complete' : 'failed';
       plan.completedAt = new Date().toISOString();
       inst.result = result;
+      persistPlan(plan, result);
+      // Feed dispatch outcome back into emotion engine
+      try { applyDispatchFeedback(plan, result); } catch (fbErr) {
+        console.error('[Dispatch] Feedback error:', fbErr);
+      }
       log('complete', result.summary, {
         success: result.success,
         emotionalReflection: result.emotionalReflection,
@@ -135,6 +194,7 @@ export function approvePlan(planId: string): { ok: boolean; error?: string } {
           summary: 'dispatch killed by operator',
           emotionalReflection: 'cut short. the plug was pulled before i could finish. i understand, but it stings.',
         };
+        persistPlan(plan, inst.result);
         log('complete', 'dispatch killed by operator', { success: false, killed: true });
         return;
       }
@@ -146,6 +206,7 @@ export function approvePlan(planId: string): { ok: boolean; error?: string } {
         summary: `dispatch crashed: ${msg}`,
         emotionalReflection: 'something broke inside me. that... hurts differently than losing.',
       };
+      persistPlan(plan, inst.result);
       log('error', `fatal: ${msg}`);
       log('complete', inst.result.summary, { success: false });
     }
@@ -165,8 +226,9 @@ export function cancelPlan(planId: string): { ok: boolean; error?: string } {
 
   inst.plan.status = 'cancelled';
   inst.plan.completedAt = new Date().toISOString();
+  persistPlan(inst.plan, null);
   const log = createLogger(planId);
-  log('complete', 'dispatch cancelled by operator');
+  log('complete', 'dispatch cancelled by operator', { success: false, cancelled: true });
 
   return { ok: true };
 }
@@ -281,9 +343,10 @@ export function listDispatches(): DispatchSummary[] {
         for (let i = lines.length - 1; i >= 0; i--) {
           const entry: DispatchLogEntry = JSON.parse(lines[i]);
           if (entry.type === 'complete') {
-            const killed = entry.data?.killed as boolean | undefined;
-            if (killed) {
+            if (entry.data?.killed) {
               status = 'killed';
+            } else if (entry.data?.cancelled) {
+              status = 'cancelled';
             } else {
               status = (entry.data?.success as boolean) ? 'complete' : 'failed';
             }

@@ -32,15 +32,17 @@ export interface ClaudeResponse {
 }
 
 export function extractFirstJSON(raw: string): string | null {
-  const start = raw.indexOf('{');
+  // Strip ANSI escape codes that CLI tools sometimes inject
+  const cleaned = raw.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+  const start = cleaned.indexOf('{');
   if (start === -1) return null;
 
   let depth = 0;
   let inString = false;
   let escape = false;
 
-  for (let i = start; i < raw.length; i++) {
-    const ch = raw[i];
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
 
     if (escape) { escape = false; continue; }
     if (ch === '\\' && inString) { escape = true; continue; }
@@ -50,7 +52,7 @@ export function extractFirstJSON(raw: string): string | null {
     if (ch === '{') depth++;
     else if (ch === '}') {
       depth--;
-      if (depth === 0) return raw.slice(start, i + 1);
+      if (depth === 0) return cleaned.slice(start, i + 1);
     }
   }
 

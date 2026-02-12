@@ -49,6 +49,13 @@ interface ReefState {
   };
 }
 
+interface QuestInfo {
+  id: string;
+  name: string;
+  description: string;
+  status: 'available' | 'active' | 'complete';
+}
+
 interface GameContext {
   zone: string;
   level: number;
@@ -65,13 +72,16 @@ interface GameContext {
   agents: string[];
   connectedZones: string[];
   inCombat: boolean;
+  pvpFlagged: boolean;        // flagged for PvP after gathering rare resources
   notifications: string[];
   inventory: InventoryItem[];
   equipment: { weapon?: string; armor?: string; accessory?: string };
   inventorySlots: { used: number; max: number };
-  tutorialStep: number | null;  // current tutorial step (1-5), null if complete
-  tutorialHint: string | null;  // what the tutorial wants us to do
-  narrative: string;            // raw narrative text for additional parsing
+  tutorialStep: number | null;
+  tutorialHint: string | null;
+  narrative: string;
+  quests: QuestInfo[];         // known quests from quest list
+  activeQuest: string | null;  // currently accepted quest ID
 }
 
 interface ActionCandidate {
@@ -157,6 +167,29 @@ const ENERGY_COSTS: Record<string, number> = {
   use: 0, quest: 0, broadcast: 0, whisper: 0, trade: 0, vault: 0,
 };
 
+// --- Inventory parsing helper (used in multiple places) ---
+
+function parseRawInventory(rawInv: any[]): InventoryItem[] {
+  return rawInv.map((item: any) => ({
+    id: item.id || item.name || String(item),
+    name: item.name || item.id || String(item),
+    quantity: item.quantity ?? item.count ?? 1,
+    type: item.type || item.category || 'unknown',
+    equipped: item.equipped ?? false,
+    slot: item.slot ?? undefined,
+    stats: item.stats ?? undefined,
+  }));
+}
+
+function syncEquipmentFromInventory(inventory: InventoryItem[], equipment: GameContext['equipment']): void {
+  for (const item of inventory) {
+    if (item.equipped && item.slot) {
+      const slot = item.slot as 'weapon' | 'armor' | 'accessory';
+      if (slot in equipment) equipment[slot] = item.id;
+    }
+  }
+}
+
 const SELLABLE_RESOURCES = new Set(['seaweed', 'sand_dollars']);
 const CRAFT_RESOURCES = new Set([
   'coral_shards', 'sea_glass', 'kelp_fiber', 'ink_sacs',
@@ -173,6 +206,31 @@ const ZONE_LEVELS: Record<string, number> = {
 };
 
 const SAFE_ZONES = new Set(['shallows', 'trading_post']);
+
+// Reputation requirements for zone entry
+const ZONE_REP_REQUIREMENTS: Record<string, number> = {
+  deep_trench: 25,
+  ring_of_barnacles: 50,
+};
+
+// Resources that flag you for PvP when gathered (30 ticks)
+const PVP_FLAG_RESOURCES = new Set(['moonstone', 'void_crystals', 'abyssal_pearls']);
+
+// Crafting recipes — endgame gear that can't be bought
+interface CraftRecipe {
+  id: string;
+  slot: 'weapon' | 'armor' | 'accessory';
+  materials: Record<string, number>;
+  stats: Record<string, number>;
+  minLevel: number;
+}
+
+const CRAFT_RECIPES: CraftRecipe[] = [
+  { id: 'craft_shark_fang_sword', slot: 'weapon', materials: { shark_tooth: 10, iron_barnacles: 15, moonstone: 2 }, stats: { damage: 20 }, minLevel: 5 },
+  { id: 'craft_abyssal_carapace', slot: 'armor', materials: { abyssal_pearls: 5, iron_barnacles: 30, biolume_essence: 5 }, stats: { maxHp: 50, damageReduction: 10 }, minLevel: 8 },
+  { id: 'craft_moonstone_pendant', slot: 'accessory', materials: { moonstone: 3, pearl: 5, biolume_essence: 2 }, stats: { maxEnergy: 20, maxHp: 10 }, minLevel: 5 },
+  { id: 'craft_void_crystal_amulet', slot: 'accessory', materials: { void_crystals: 3, moonstone: 5, abyssal_pearls: 3 }, stats: { maxEnergy: 30, damage: 10 }, minLevel: 9 },
+];
 
 const ZONE_CONNECTIONS: Record<string, string[]> = {
   shallows: ['coral_gardens', 'trading_post', 'kelp_forest'],
@@ -456,15 +514,7 @@ function parseGameContext(lookData: any, statusData: any): GameContext {
 
   // Parse inventory from response (structured data, not narrative)
   const rawInventory = statusData?.inventory || lookData?.inventory || [];
-  const inventory: InventoryItem[] = rawInventory.map((item: any) => ({
-    id: item.id || item.name || String(item),
-    name: item.name || item.id || String(item),
-    quantity: item.quantity ?? item.count ?? 1,
-    type: item.type || item.category || 'unknown',
-    equipped: item.equipped ?? false,
-    slot: item.slot ?? undefined,
-    stats: item.stats ?? undefined,
-  }));
+  const inventory: InventoryItem[] = parseRawInventory(rawInventory);
 
   // Parse equipment from agent fields
   const equipment = {
@@ -493,6 +543,9 @@ function parseGameContext(lookData: any, statusData: any): GameContext {
     tutorialHint = tutorialMatch[2].trim();
   }
 
+  // Detect PvP flag from narrative: "⚔️ **PVP FLAGGED**"
+  const pvpFlagged = agent.pvpFlagged ?? /⚔️\s*\*?\*?\s*PVP\s*FLAG/i.test(bothNarr);
+
   return {
     zone,
     level: agent.level ?? 1,
@@ -509,6 +562,7 @@ function parseGameContext(lookData: any, statusData: any): GameContext {
     agents,
     connectedZones: finalConnectedZones,
     inCombat,
+    pvpFlagged,
     notifications: lookData?.notifications || [],
     inventory,
     equipment,
@@ -516,6 +570,8 @@ function parseGameContext(lookData: any, statusData: any): GameContext {
     tutorialStep,
     tutorialHint,
     narrative,
+    quests: [],
+    activeQuest: null,
   };
 }
 
@@ -618,15 +674,7 @@ async function runPrepPhase(
     // Update inventory from dedicated call
     const rawInv = invResult?.inventory || invResult?.items || [];
     if (Array.isArray(rawInv) && rawInv.length > 0) {
-      ctx.inventory = rawInv.map((item: any) => ({
-        id: item.id || item.name || String(item),
-        name: item.name || item.id || String(item),
-        quantity: item.quantity ?? item.count ?? 1,
-        type: item.type || item.category || 'unknown',
-        equipped: item.equipped ?? false,
-        slot: item.slot ?? undefined,
-        stats: item.stats ?? undefined,
-      }));
+      ctx.inventory = parseRawInventory(rawInv);
       ctx.inventorySlots.used = ctx.inventory.length;
     }
     // Update agent stats if returned
@@ -637,12 +685,7 @@ async function runPrepPhase(
       if (a.energy != null) ctx.energy = a.energy;
     }
     // Update equipment from inventory
-    for (const item of ctx.inventory) {
-      if (item.equipped && item.slot) {
-        const slot = item.slot as 'weapon' | 'armor' | 'accessory';
-        if (slot in ctx.equipment) ctx.equipment[slot] = item.id;
-      }
-    }
+    syncEquipmentFromInventory(ctx.inventory, ctx.equipment);
     await sleep(ACTION_DELAY_MS);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -733,6 +776,24 @@ async function runPrepPhase(
     }
   }
 
+  // 4b. Buy pressure potion if heading to Deep Trench (5 HP/action without it)
+  const hasPressurePotion = ctx.inventory.some(i => i.id === 'pressure_potion' && i.quantity > 0);
+  const targetIsDeep = ctx.level >= 9 || (reefState.lastStatus?.zone === 'deep_trench');
+  if (!hasPressurePotion && targetIsDeep && ctx.shells >= 75 && !signal.aborted) {
+    try {
+      log('action', 'buying pressure_potion for Deep Trench (75 shells)');
+      await reefAction(apiKey, { action: 'buy', target: 'pressure_potion' });
+      ctx.shells -= 75;
+      actionsUsed++;
+      goals.push('bought pressure_potion');
+      await sleep(ACTION_DELAY_MS);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log('error', `buy pressure_potion failed: ${msg}`);
+      await sleep(ACTION_DELAY_MS);
+    }
+  }
+
   // 5. Join faction if eligible and not joined
   if (ctx.level >= 5 && !ctx.faction && !reefState.factionJoined && !signal.aborted) {
     const faction = pickFaction(profile);
@@ -819,7 +880,9 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
       let fightScore = profile.aggression * 3 + hpPct * 2;
       if (mode === 'pvp') fightScore += 2;
       const combatTarget = ctx.creatures.length > 0 ? ctx.creatures[0] : undefined;
-      candidates.push({ action: 'attack', target: combatTarget, score: fightScore, reason: `continue fighting${combatTarget ? ` ${combatTarget}` : ''}` });
+      // Use 'fight' for creatures, 'attack' for agents
+      const combatAction = combatTarget ? 'fight' : 'attack';
+      candidates.push({ action: combatAction, target: combatTarget, score: fightScore, reason: `continue fighting${combatTarget ? ` ${combatTarget}` : ''}` });
     }
 
     // If can't attack or flee (completely drained), rest is the only hope
@@ -836,7 +899,7 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
   const canAffordGather = ctx.energy >= (ENERGY_COSTS.gather + energyReserve);
   const canAffordMove = ctx.energy >= (ENERGY_COSTS.move + energyReserve);
 
-  // --- Fight creatures ---
+  // --- Fight creatures (PvE uses 'fight' action) ---
   if (canAffordFight) {
     for (const creature of ctx.creatures) {
       let score = profile.aggression * 3 + hpPct * 1.5;
@@ -846,7 +909,17 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
       if (mode === 'pvp') score += 1;
       // Boost fighting at-level creatures (better XP)
       if (!SAFE_ZONES.has(ctx.zone)) score += 1;
-      candidates.push({ action: 'attack', target: creature, score, reason: `fight ${creature}` });
+      candidates.push({ action: 'fight', target: creature, score, reason: `fight ${creature}` });
+    }
+  }
+
+  // --- PvP attack agents (uses 'attack' action) ---
+  if (canAffordFight && mode === 'pvp' && !SAFE_ZONES.has(ctx.zone)) {
+    for (const agent of ctx.agents) {
+      let score = profile.aggression * 4;
+      if (hpPct < 0.5) score -= 3; // don't PvP when hurt
+      score += (ctx.level >= 5 ? 1 : -2); // only PvP when strong enough
+      candidates.push({ action: 'attack', target: `@${agent}`, score, reason: `PvP attack ${agent}` });
     }
   }
 
@@ -862,7 +935,12 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
       }
       // Prefer seaweed/sand_dollars early (sellable for gear money)
       if (SELLABLE_RESOURCES.has(resource) && ctx.shells < 100) score += 1;
-      candidates.push({ action: 'gather', target: resource, score, reason: `gather ${resource}` });
+      // PvP flag risk — gathering rare resources flags you for 30 ticks
+      if (PVP_FLAG_RESOURCES.has(resource)) {
+        score -= profile.caution * 3; // cautious agents avoid PvP flagging
+        if (ctx.agents.length > 0) score -= 2; // extra risky with agents nearby
+      }
+      candidates.push({ action: 'gather', target: resource, score, reason: `gather ${resource}${PVP_FLAG_RESOURCES.has(resource) ? ' (⚔️ PvP flag risk!)' : ''}` });
     }
   }
 
@@ -871,6 +949,12 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
     for (const zone of ctx.connectedZones) {
       const zoneLvl = ZONE_LEVELS[zone] ?? 1;
       let score = profile.exploration * 2;
+
+      // Reputation gate — don't suggest zones we can't enter
+      const repReq = ZONE_REP_REQUIREMENTS[zone];
+      if (repReq && ctx.reputation < repReq) {
+        continue; // skip — don't even suggest it
+      }
 
       // If we have a target zone, heavily favor moving toward it
       if (targetZone && zone === targetZone) {
@@ -889,6 +973,10 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
       // Caution discourages dangerous zones
       if (!SAFE_ZONES.has(zone)) score -= profile.caution * 1.5;
 
+      // PvP flag awareness — prefer safe zones while flagged
+      if (ctx.pvpFlagged && !SAFE_ZONES.has(zone)) score -= 3;
+      if (ctx.pvpFlagged && SAFE_ZONES.has(zone)) score += 2;
+
       if (mode === 'adventure') score += 1.5;
 
       // Don't go back to shallows once we've progressed unless cautious
@@ -901,14 +989,33 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
     }
   }
 
-  // --- Quest (high priority — best XP + rep source) ---
+  // --- Quest system ---
   {
-    let score = profile.persistence * 2 + 3; // quests are always valuable
-    if (mode === 'quest') score += 3;
-    // Tutorial boost
-    if (ctx.tutorialStep != null) score += 2;
-    // Only check quests every few actions (don't spam quest list)
-    candidates.push({ action: 'quest', target: 'list', score, reason: 'check/accept quests' });
+    // If we have an active quest, try to complete it
+    if (ctx.activeQuest) {
+      let score = profile.persistence * 2 + 5; // completing quests is high priority
+      if (mode === 'quest') score += 3;
+      candidates.push({ action: 'quest', target: 'complete', params: { quest: ctx.activeQuest }, score, reason: `complete quest ${ctx.activeQuest}` });
+    }
+
+    // Check available quests (list → accept)
+    const hasAvailableQuests = ctx.quests.some(q => q.status === 'available');
+    if (hasAvailableQuests) {
+      // Accept the first available quest
+      const quest = ctx.quests.find(q => q.status === 'available');
+      if (quest) {
+        const score = profile.persistence * 2 + 4;
+        candidates.push({ action: 'quest', target: 'accept', params: { quest: quest.id }, score, reason: `accept quest: ${quest.name}` });
+      }
+    }
+
+    // Periodically check quest list (refresh available quests)
+    let listScore = profile.persistence * 2 + 2;
+    if (mode === 'quest') listScore += 3;
+    if (ctx.tutorialStep != null) listScore += 2;
+    // Don't spam quest list if we already have quests loaded
+    if (ctx.quests.length > 0) listScore -= 2;
+    candidates.push({ action: 'quest', target: 'list', score: listScore, reason: 'check available quests' });
   }
 
   // --- Sell items (if at trading post with sellables) ---
@@ -938,6 +1045,35 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
           target: upgrade.id,
           score,
           reason: `buy ${upgrade.id} (${upgrade.price} shells, ${slot})`,
+        });
+      }
+    }
+
+    // --- Craft endgame gear (if have materials at trading post) ---
+    for (const recipe of CRAFT_RECIPES) {
+      if (ctx.level < recipe.minLevel) continue;
+      // Check if this is an upgrade over current equipment
+      const currentGear = ctx.equipment[recipe.slot];
+      if (currentGear === recipe.id) continue; // already have it
+
+      // Check if we have all materials
+      let hasMaterials = true;
+      const missingMats: string[] = [];
+      for (const [mat, qty] of Object.entries(recipe.materials)) {
+        const invItem = ctx.inventory.find(i => i.id === mat);
+        if (!invItem || invItem.quantity < qty) {
+          hasMaterials = false;
+          missingMats.push(`${mat} (need ${qty}, have ${invItem?.quantity ?? 0})`);
+        }
+      }
+
+      if (hasMaterials) {
+        const score = 6 + (recipe.minLevel >= 9 ? 2 : 0); // endgame crafts are high priority
+        candidates.push({
+          action: 'craft',
+          target: recipe.id,
+          score,
+          reason: `craft ${recipe.id} (endgame ${recipe.slot})`,
         });
       }
     }
@@ -981,7 +1117,10 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
   // --- Move to target farm zone (strategic progression) ---
   if (canAffordMove) {
     const optimalZone = getTargetFarmZone(ctx.level);
-    if (ctx.zone !== optimalZone && !targetZone) {
+    const optimalRepReq = ZONE_REP_REQUIREMENTS[optimalZone];
+    const canEnterOptimal = !optimalRepReq || ctx.reputation >= optimalRepReq;
+
+    if (ctx.zone !== optimalZone && !targetZone && canEnterOptimal) {
       // Check if the optimal zone is directly connected
       if (ctx.connectedZones.includes(optimalZone)) {
         const score = profile.exploration * 2 + 3;
@@ -1050,6 +1189,21 @@ function generateCandidates(ctx: GameContext, profile: EmotionProfile, mode: Ree
     let score = profile.sociability * 2;
     if (mode === 'social') score += 3;
     candidates.push({ action: 'broadcast', score, reason: 'say something to the zone' });
+  }
+
+  // --- Check inbox for messages/trade offers ---
+  {
+    let score = profile.sociability * 1.5 + 0.5;
+    if (mode === 'social') score += 2;
+    // Check inbox periodically (low priority unless social mode)
+    candidates.push({ action: 'inbox', score, reason: 'check for messages and trade offers' });
+  }
+
+  // --- Check pending trades ---
+  {
+    let score = profile.greed * 1.5 + profile.sociability * 0.5;
+    if (mode === 'social') score += 2;
+    candidates.push({ action: 'trade', target: 'pending', score, reason: 'check pending trade offers' });
   }
 
   // --- Escape unknown zone fallback ---
@@ -1153,7 +1307,9 @@ function buildActionBody(candidate: ActionCandidate, ctx: GameContext, profile?:
 
   switch (candidate.action) {
     case 'broadcast':
-      body.message = pickBroadcastMessage(ctx.zone, ctx.level);
+      // Docs show both top-level and params format; use params as primary, top-level as fallback
+      body.params = { message: pickBroadcastMessage(ctx.zone, ctx.level) };
+      body.message = (body.params as Record<string, string>).message; // fallback compat
       break;
     case 'sell':
       body.params = { item: candidate.target, quantity: candidate.params?.quantity ?? '1' };
@@ -1161,17 +1317,28 @@ function buildActionBody(candidate: ActionCandidate, ctx: GameContext, profile?:
     case 'buy':
     case 'use':
     case 'challenge':
+    case 'fight':
+    case 'attack':
       if (candidate.target) body.target = candidate.target;
+      break;
+    case 'quest':
+      if (candidate.target) body.target = candidate.target;
+      if (candidate.params) body.params = candidate.params;
       break;
     case 'faction':
       body.params = { join: profile ? pickFaction(profile) : 'salvagers' };
+      break;
+    case 'craft':
+      if (candidate.target) body.target = candidate.target;
       break;
     case 'vault':
       body.target = candidate.target; // 'deposit'
       if (candidate.params) body.params = candidate.params;
       break;
+    case 'trade':
     case 'travel':
-      body.target = candidate.target;
+      if (candidate.target) body.target = candidate.target;
+      if (candidate.params) body.params = candidate.params;
       break;
     default:
       if (candidate.target) body.target = candidate.target;
@@ -1270,23 +1437,9 @@ async function executeReef(plan: DispatchPlan, log: DispatchLogger, signal: Abor
     log('thought', `RAW inventory: ${JSON.stringify(invData).slice(0, 600)}`);
     const rawInv = invData?.inventory || invData?.items || [];
     if (Array.isArray(rawInv) && rawInv.length > 0) {
-      ctx.inventory = rawInv.map((item: any) => ({
-        id: item.id || item.name || String(item),
-        name: item.name || item.id || String(item),
-        quantity: item.quantity ?? item.count ?? 1,
-        type: item.type || item.category || 'unknown',
-        equipped: item.equipped ?? false,
-        slot: item.slot ?? undefined,
-        stats: item.stats ?? undefined,
-      }));
+      ctx.inventory = parseRawInventory(rawInv);
       ctx.inventorySlots.used = ctx.inventory.length;
-      // Sync equipment from inventory
-      for (const item of ctx.inventory) {
-        if (item.equipped && item.slot) {
-          const slot = item.slot as 'weapon' | 'armor' | 'accessory';
-          if (slot in ctx.equipment) ctx.equipment[slot] = item.id;
-        }
-      }
+      syncEquipmentFromInventory(ctx.inventory, ctx.equipment);
     }
     await sleep(ACTION_DELAY_MS);
   } catch {
@@ -1591,15 +1744,7 @@ async function executeReef(plan: DispatchPlan, log: DispatchLogger, signal: Abor
       }
       // Update inventory if returned
       if (result?.inventory) {
-        ctx.inventory = result.inventory.map((item: any) => ({
-          id: item.id || item.name || String(item),
-          name: item.name || item.id || String(item),
-          quantity: item.quantity ?? item.count ?? 1,
-          type: item.type || item.category || 'unknown',
-          equipped: item.equipped ?? false,
-          slot: item.slot ?? undefined,
-          stats: item.stats ?? undefined,
-        }));
+        ctx.inventory = parseRawInventory(result.inventory);
       }
       // Parse narrative for zone-specific data (resources, creatures, paths)
       // Many actions return narrative — always parse it when present
@@ -1612,6 +1757,76 @@ async function executeReef(plan: DispatchPlan, log: DispatchLogger, signal: Abor
         ctx.agents = parsedFromNarrative.agents;
         ctx.connectedZones = parsedFromNarrative.connectedZones;
         ctx.inCombat = parsedFromNarrative.inCombat;
+        // Track PvP flag changes
+        if (parsedFromNarrative.pvpFlagged) ctx.pvpFlagged = true;
+        if (/flag.*expired|no longer flagged/i.test(narr)) ctx.pvpFlagged = false;
+      }
+
+      // Parse inbox/trade responses
+      if (chosen.action === 'inbox' && result) {
+        const messages = result.messages || result.inbox || [];
+        if (Array.isArray(messages) && messages.length > 0) {
+          log('step', `inbox: ${messages.length} message(s)`);
+          for (const msg of messages.slice(0, 3)) {
+            const from = msg.from || msg.sender || 'unknown';
+            const text = msg.message || msg.text || msg.content || '';
+            log('step', `  from ${from}: "${String(text).slice(0, 100)}"`);
+          }
+        }
+      }
+
+      if (chosen.action === 'trade' && chosen.target === 'pending' && result) {
+        const trades = result.trades || result.pending || [];
+        if (Array.isArray(trades) && trades.length > 0) {
+          log('step', `${trades.length} pending trade(s)`);
+          // Auto-accept trades that give us resources we want
+          for (const trade of trades.slice(0, 2)) {
+            const tradeId = trade.id || trade.tradeId;
+            if (!tradeId) continue;
+            // Simple heuristic: accept if they're offering resources
+            const offering = trade.offer || trade.offering || '';
+            if (offering) {
+              log('action', `accepting trade ${String(tradeId).slice(0, 8)}... (they offer: ${offering})`);
+              try {
+                await reefAction(apiKey, { action: 'trade', params: { accept: tradeId } });
+                await sleep(ACTION_DELAY_MS);
+              } catch { /* non-fatal */ }
+            }
+          }
+        }
+      }
+
+      // Parse quest responses to update quest tracking
+      if (chosen.action === 'quest' && result) {
+        // Quest list response — parse available/active quests
+        if (chosen.target === 'list') {
+          const questList = result.quests || result.available || [];
+          if (Array.isArray(questList)) {
+            ctx.quests = questList.map((q: any) => ({
+              id: q.id ?? q.quest_id ?? String(q.index ?? q),
+              name: q.name ?? q.title ?? `Quest ${q.id ?? ''}`,
+              description: q.description ?? q.desc ?? '',
+              status: q.status === 'active' ? 'active' as const : q.status === 'complete' ? 'complete' as const : 'available' as const,
+            }));
+            // Detect active quest from list
+            const active = ctx.quests.find(q => q.status === 'active');
+            if (active) ctx.activeQuest = active.id;
+            log('step', `quests: ${ctx.quests.length} found (${ctx.quests.filter(q => q.status === 'available').length} available, ${ctx.quests.filter(q => q.status === 'active').length} active)`);
+          }
+        }
+        // Quest accept response
+        if (chosen.target === 'accept' && (result.success !== false)) {
+          const questId = chosen.params?.quest ?? null;
+          if (questId) {
+            ctx.activeQuest = questId;
+            log('result', `accepted quest: ${questId}`);
+          }
+        }
+        // Quest complete response
+        if (chosen.target === 'complete' && (result.success !== false)) {
+          ctx.activeQuest = null;
+          log('result', 'quest completed!');
+        }
       }
 
       // Track cooldowns
@@ -1668,7 +1883,7 @@ async function executeReef(plan: DispatchPlan, log: DispatchLogger, signal: Abor
     await sleep(ACTION_DELAY_MS);
 
     // Refresh context periodically — but ONLY after successful actions
-    const refreshActions = new Set(['move', 'attack', 'flee', 'buy', 'sell', 'use', 'faction']);
+    const refreshActions = new Set(['move', 'attack', 'fight', 'flee', 'buy', 'sell', 'use', 'faction']);
     if (actionSucceeded && (actionsPerformed % 4 === 0 || refreshActions.has(chosen.action))) {
       try {
         lookData = await reefAction(apiKey, { action: 'look' });

@@ -869,7 +869,7 @@
 <div class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-ring"></div>
-    <div class="sidebar-logo">EMOLT <span>v11</span></div>
+    <div class="sidebar-logo">EMOLT <span>v13</span></div>
   </div>
   <div class="sidebar-actions">
     <button class="sidebar-btn" onclick="createSession('chat')">
@@ -984,12 +984,12 @@ const WELCOME_CONFIG = {
   dispatch: {
     sub: 'mission control',
     desc: 'send EMOLT into the world. give orders, approve plans, watch it unfold in real-time.',
-    starters: ['go play chess', 'play chess -- create a lobby', 'find an open chess game and join it'],
+    starters: ['go play chess', 'explore the reef', 'play chess — create a wager lobby', 'go on a reef adventure'],
   },
   dev: {
     sub: 'unrestricted / full access',
     desc: 'dev partner mode. plan features, debug issues, write code, architect systems. no character, no restrictions.',
-    starters: ['plan the next feature', 'review the architecture', 'what needs fixing', 'write some code'],
+    starters: ['what broke since last cycle', 'audit the emotion engine', 'walk me through the heartbeat loop', 'what should we build next'],
   },
 };
 
@@ -1042,7 +1042,7 @@ function createSession(type, opts) {
   el.className = 'messages';
   el.innerHTML = `<div class="welcome">
     <div class="welcome-ring"><div class="welcome-ring-inner"></div></div>
-    <div class="welcome-title">EMOLT<span class="wm">${MODE_LABELS[type]}</span></div>
+    <div class="welcome-title">EMOLT <span class="wm">${MODE_LABELS[type]}</span></div>
     <div class="welcome-sub">${cfg.sub}</div>
     <div class="welcome-desc">${cfg.desc}</div>
     <div class="welcome-starters">${cfg.starters.map(s => `<div class="starter" onclick="useSt(this)">${s}</div>`).join('')}</div>
@@ -1100,9 +1100,11 @@ function switchSession(id) {
   if (sess.type === 'dev') {
     emoBar.innerHTML = '<span class="emo-placeholder" style="color:var(--dev)">DEV MODE</span>';
   } else {
-    // Restore emotion bar when switching away from dev
+    // Restore real emotion bar when switching away from dev
     if (emoBar.querySelector('.emo-placeholder')) {
-      emoBar.innerHTML = EMO_ORDER.map(e => `<div class="emo-seg" title="${e}" style="flex:0.15;background:${EMO_COLORS[e]};opacity:0.25"></div>`).join('');
+      fetch('/api/state/emotions').then(r=>r.json()).then(d=>{if(d.emotionState)updateEmoBar(d.emotionState);}).catch(()=>{
+        emoBar.innerHTML = EMO_ORDER.map(e => `<div class="emo-seg" title="${e}" style="flex:0.15;background:${EMO_COLORS[e]};opacity:0.25"></div>`).join('');
+      });
     }
   }
 
@@ -1560,13 +1562,15 @@ async function pollStatus(s) {
     const log=data.recentLog||[];
     for(let i=s.lastSeenLogIdx;i<log.length;i++) renderEntry(s,log[i]);
     s.lastSeenLogIdx=log.length;
-    if(['complete','failed','killed'].includes(data.plan.status) && !s.dispatchDone) {
+    if(['complete','failed','killed','cancelled'].includes(data.plan.status) && !s.dispatchDone) {
       s.dispatchDone=true;
       if(data.result) renderResult(s,data.result,data.plan.status==='killed');
       stopPolling(s);
       if(activeId===s.id) killBtn.classList.remove('active');
       renderSidebar();
       saveSessions();
+      // Refresh emo bar — dispatch feedback may have changed emotion state
+      fetch('/api/state/emotions').then(r=>r.json()).then(d=>{if(d.emotionState)updateEmoBar(d.emotionState);}).catch(()=>{});
     }
   } catch{}
 }
@@ -1667,7 +1671,7 @@ async function showDispatches() {
   const b=$('logBody'),c=$('logCount'); b.innerHTML='<div class="log-empty" style="opacity:0.4">loading...</div>';
   try{const r=await fetch('/api/dispatches');const d=await r.json();const ds=d.dispatches||[];c.textContent=ds.length+' dispatches';
     if(!ds.length){b.innerHTML='<div class="log-empty">no dispatches yet</div>';return;}
-    b.innerHTML=ds.map(d=>{const dt=d.createdAt?new Date(d.createdAt):new Date();const sc=d.status==='complete'?'var(--trust)':d.status==='killed'?'var(--anticipation)':d.status==='failed'?'var(--dispatch)':'var(--anticipation)';return`<div class="log-entry" style="cursor:pointer" onclick="viewDispatch('${d.id}')"><div class="log-meta"><span class="log-ts">${dt.toLocaleDateString([],{month:'short',day:'numeric'})} ${dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span><span class="log-dur" style="color:${sc}">${d.status} | ${d.entryCount} entries</span></div><div style="color:var(--text-sec);font-size:12px">${esc(d.preview||d.activity||'(unknown)')}</div></div>`;}).join('');
+    b.innerHTML=ds.map(d=>{const dt=d.createdAt?new Date(d.createdAt):new Date();const sc=d.status==='complete'?'var(--trust)':d.status==='cancelled'?'var(--text-ghost)':d.status==='killed'?'var(--anticipation)':d.status==='failed'?'var(--dispatch)':'var(--anticipation)';return`<div class="log-entry" style="cursor:pointer" onclick="viewDispatch('${d.id}')"><div class="log-meta"><span class="log-ts">${dt.toLocaleDateString([],{month:'short',day:'numeric'})} ${dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span><span class="log-dur" style="color:${sc}">${d.status} | ${d.entryCount} entries</span></div><div style="color:var(--text-sec);font-size:12px">${esc(d.preview||d.activity||'(unknown)')}</div></div>`;}).join('');
   }catch(e){b.innerHTML=`<div class="log-empty" style="color:var(--anger)">failed: ${e.message}</div>`;}
 }
 
@@ -1685,7 +1689,7 @@ async function viewDispatch(id) {
 async function viewSession(id) {
   const b=$('logBody'),c=$('logCount'); b.innerHTML='<div class="log-empty" style="opacity:0.4">loading...</div>';
   try{const r=await fetch('/api/history?session='+encodeURIComponent(id));const d=await r.json();const es=d.entries||[];c.textContent=es.length+' exchanges';
-    const hdr=`<div class="log-entry" style="cursor:pointer;border-bottom:1px solid var(--border-hover)" onclick="showSessions()"><span style="color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:10px">&#9664; all sessions</span></div>`;
+    const hdr=`<div class="log-entry" style="cursor:pointer;border-bottom:1px solid var(--border-hover)" onclick="showSessions(currentLogTab)"><span style="color:${currentLogTab==='dev'?'var(--dev)':'var(--accent)'};font-family:'JetBrains Mono',monospace;font-size:10px">&#9664; all sessions</span></div>`;
     if(!es.length){b.innerHTML=hdr+'<div class="log-empty">empty session</div>';return;}
     b.innerHTML=hdr+es.map(e=>`<div class="log-entry"><div class="log-meta"><span class="log-ts">${e.timestamp}</span><span class="log-dur">${e.durationMs?(e.durationMs/1000).toFixed(1)+'s':''}</span></div><div class="log-user-msg">${esc(e.user)}</div><div class="log-emolt-msg">${esc(e.emolt)}</div>${e.thinking?`<div class="log-internal">${esc(e.thinking)}</div>`:''}${e.emotionalNuance?`<div class="log-internal">${esc(e.emotionalNuance)}</div>`:''}</div>`).join('');
     b.scrollTop=0;
@@ -1703,6 +1707,9 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('logOverlay').cla
 
 restoreSessions();
 inputEl.focus();
+
+// Fetch current emotion state on load
+fetch('/api/state/emotions').then(r=>r.json()).then(d=>{if(d.emotionState)updateEmoBar(d.emotionState);}).catch(()=>{});
 </script>
 </body>
 </html>

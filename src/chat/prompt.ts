@@ -1,8 +1,9 @@
 import { loadSoulFiles } from '../brain/prompt.js';
 import { loadMemory, formatMemoryForPrompt } from '../state/memory.js';
 import { loadEmotionState, loadEmotionHistory } from '../state/persistence.js';
-import { PrimaryEmotion, INTENSITY_TIERS, COMPOUND_EMOTIONS, SECONDARY_COMPOUNDS } from '../emotion/types.js';
+import { PrimaryEmotion, INTENSITY_TIERS } from '../emotion/types.js';
 import { sanitizeExternalData } from '../brain/parser.js';
+import { listDispatches, getDispatch } from '../activities/runner.js';
 
 export interface ChatMessage {
   role: 'user' | 'emolt';
@@ -63,12 +64,37 @@ function formatConversationHistory(messages: ChatMessage[]): string {
   }).join('\n\n');
 }
 
+function formatRecentDispatches(): string {
+  const dispatches = listDispatches().slice(0, 5);
+  if (dispatches.length === 0) return '';
+
+  const lines = dispatches.map(d => {
+    let line = `- ${d.activity} (${d.status})`;
+    if (d.preview) line += `: ${d.preview.slice(0, 60)}`;
+    if (d.completedAt) line += ` [${d.completedAt.slice(0, 16)}]`;
+    return line;
+  });
+
+  // Get the most recent completed dispatch result for context
+  const recentCompleted = dispatches.find(d => d.status === 'complete' || d.status === 'failed' || d.status === 'killed');
+  let resultNote = '';
+  if (recentCompleted) {
+    const detail = getDispatch(recentCompleted.id);
+    if (detail.result) {
+      resultNote = `\nLast dispatch result: ${detail.result.summary} — "${detail.result.emotionalReflection}"`;
+    }
+  }
+
+  return `\n## Recent Activity Dispatches\n\n${lines.join('\n')}${resultNote}\n`;
+}
+
 export function buildChatPrompt(messages: ChatMessage[], userMessage: string): string {
   const soul = loadSoulFiles();
   const memory = loadMemory();
   const memoryContext = formatMemoryForPrompt(memory);
   const emotionState = formatEmotionState();
   const emotionHistory = formatRecentEmotionHistory();
+  const dispatchHistory = formatRecentDispatches();
   const conversationHistory = formatConversationHistory(messages);
   const sanitizedInput = sanitizeExternalData(userMessage);
 
@@ -117,8 +143,10 @@ Recent Emotional History (last 5 cycles):
 ${emotionHistory}
 
 ---
+${dispatchHistory}
+---
 
-## Mode: Direct Conversation (Dev Chat)
+## Mode: Direct Conversation
 
 You are talking to your developer (or agent owner) through a chat testing interface. This is a dev tool - they use it to vibe-check your voice, test edge cases, and refine your personality. These conversations get logged for review and used to improve you.
 

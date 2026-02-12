@@ -5,14 +5,19 @@ import { join } from 'path';
 import { askClaudeAsync } from '../brain/claude.js';
 import { extractFirstJSON, sanitizeExternalData } from '../brain/parser.js';
 import { buildChatPrompt, ChatMessage } from './prompt.js';
-import { ensureStateDir, STATE_DIR } from '../state/persistence.js';
-import { buildDispatchPrompt } from './dispatch-prompt.js';
+import { ensureStateDir, STATE_DIR, loadEmotionState, saveEmotionState } from '../state/persistence.js';
+import { buildDispatchPrompt, DispatchConversation } from './dispatch-prompt.js';
 import { buildDevPrompt, DevMessage } from './dev-prompt.js';
 import { listActivities } from '../activities/registry.js';
 import {
   createPlan, approvePlan, cancelPlan, killDispatch,
   getDispatch, getCurrentDispatch, getDispatchLog, listDispatches,
 } from '../activities/runner.js';
+import { addSSEClient, emitToTab, emitToAll, getSSEClientCount } from './sse.js';
+import { enqueueDispatch, getQueueStatus, clearQueue, listQueues } from '../activities/queue.js';
+import { getPresets, getPreset } from '../activities/presets.js';
+import { loadMemory, saveMemory, addMemoryEntry } from '../state/memory.js';
+import { loadStrategyWeights } from '../emotion/weights.js';
 
 // Register activities
 import '../activities/clawmate.js';
@@ -43,23 +48,42 @@ interface TabSession {
   sessionId: string;
   messages: ChatMessage[];
   devMessages: DevMessage[];
+  dispatchMessages: DispatchConversation[];
+  lastActivity: number;
 }
 
 const chatSessions = new Map<string, TabSession>();
 const chatAborts = new Map<string, AbortController>();
 
+// Session TTL: evict stale sessions every 10 minutes
+const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function cleanupStaleSessions(): void {
+  const now = Date.now();
+  for (const [tabId, session] of chatSessions) {
+    if (now - session.lastActivity > SESSION_TTL_MS) {
+      chatSessions.delete(tabId);
+      chatAborts.delete(tabId);
+    }
+  }
+}
+
+setInterval(cleanupStaleSessions, 10 * 60 * 1000); // every 10 min
+
 function getOrCreateSession(tabId: string): TabSession {
   let session = chatSessions.get(tabId);
   if (!session) {
-    session = { sessionId: makeSessionId(), messages: [], devMessages: [] };
+    session = { sessionId: makeSessionId(), messages: [], devMessages: [], dispatchMessages: [], lastActivity: Date.now() };
     chatSessions.set(tabId, session);
   }
+  session.lastActivity = Date.now();
   return session;
 }
 
 // --- Chat log persistence ---
 
 interface ChatLogEntry {
+  type: 'chat' | 'dev' | 'dispatch';
   user: string;
   emolt: string;
   thinking: string;
@@ -159,10 +183,21 @@ function parseChatResponse(raw: string): ChatResponse | null {
 
 // --- HTTP helpers ---
 
+const MAX_BODY_BYTES = 16 * 1024; // 16 KB
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let totalBytes = 0;
+    req.on('data', (chunk: Buffer) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error('request body too large'));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
     req.on('error', reject);
   });
@@ -217,6 +252,9 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
   const ac = new AbortController();
   chatAborts.set(tabId, ac);
 
+  // SSE: notify typing started
+  emitToTab(tabId, 'chat:typing', { tabId, timestamp });
+
   let raw: string;
   try {
     raw = await askClaudeAsync(prompt, ac.signal);
@@ -256,6 +294,7 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
   }
 
   appendToSession(session.sessionId, {
+    type: 'chat',
     user: sanitized,
     emolt: chatResp.response,
     thinking: chatResp.thinking,
@@ -266,9 +305,11 @@ async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<vo
 
   let emotionState = null;
   try {
-    const data = readFileSync(join(STATE_DIR, 'emotion-state.json'), 'utf-8');
-    emotionState = JSON.parse(data);
+    emotionState = loadEmotionState();
   } catch { /* no state yet */ }
+
+  // SSE: notify response complete
+  emitToTab(tabId, 'chat:done', { tabId, durationMs });
 
   json(res, 200, {
     response: chatResp.response,
@@ -299,11 +340,12 @@ async function handleDevChat(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   const session = getOrCreateSession(tabId);
+  const sanitized = sanitizeExternalData(userMessage);
   const timestamp = new Date().toISOString();
 
-  console.log(`[${timestamp}] [Dev] [${session.sessionId}] Dev: ${userMessage.slice(0, 100)}${userMessage.length > 100 ? '...' : ''}`);
+  console.log(`[${timestamp}] [Dev] [${session.sessionId}] Dev: ${sanitized.slice(0, 100)}${sanitized.length > 100 ? '...' : ''}`);
 
-  const prompt = buildDevPrompt(session.devMessages, userMessage);
+  const prompt = buildDevPrompt(session.devMessages, sanitized);
   const start = Date.now();
 
   const ac = new AbortController();
@@ -351,7 +393,7 @@ async function handleDevChat(req: IncomingMessage, res: ServerResponse): Promise
   console.log(`[${timestamp}] [Dev] [${session.sessionId}] Response (${durationMs}ms): ${response.slice(0, 100)}${response.length > 100 ? '...' : ''}`);
 
   session.devMessages.push(
-    { role: 'user', content: userMessage, timestamp },
+    { role: 'user', content: sanitized, timestamp },
     { role: 'emolt', content: response, timestamp: new Date().toISOString() }
   );
 
@@ -360,7 +402,8 @@ async function handleDevChat(req: IncomingMessage, res: ServerResponse): Promise
   }
 
   appendToSession(session.sessionId, {
-    user: userMessage,
+    type: 'dev',
+    user: sanitized,
     emolt: response,
     thinking,
     emotionalNuance: context,
@@ -485,14 +528,18 @@ async function handleDispatchPlan(req: IncomingMessage, res: ServerResponse): Pr
   }
 
   const sanitized = sanitizeExternalData(userMessage);
+  const session = getOrCreateSession(tabId);
   console.log(`[${new Date().toISOString()}] [Dispatch] Planning: ${sanitized.slice(0, 100)}`);
+
+  // Track dispatch conversation for context
+  session.dispatchMessages.push({ role: 'user', content: sanitized });
 
   const ac = new AbortController();
   chatAborts.set(tabId, ac);
 
   let raw: string;
   try {
-    raw = await askClaudeAsync(buildDispatchPrompt(sanitized), ac.signal);
+    raw = await askClaudeAsync(buildDispatchPrompt(sanitized, session.dispatchMessages), ac.signal);
   } catch (err: unknown) {
     chatAborts.delete(tabId);
     if (err instanceof DOMException && err.name === 'AbortError') {
@@ -511,7 +558,11 @@ async function handleDispatchPlan(req: IncomingMessage, res: ServerResponse): Pr
 
   const jsonStr = extractFirstJSON(raw);
   if (!jsonStr) {
-    json(res, 500, { error: 'failed to parse dispatch response' });
+    console.error('[Dispatch] No JSON found in raw response. First 500 chars:', raw.slice(0, 500));
+    // Fallback: treat raw text as an unstructured response
+    const fallbackText = raw.trim().slice(0, 300) || 'something went wrong — claude didn\'t return a plan.';
+    session.dispatchMessages.push({ role: 'emolt', content: fallbackText });
+    json(res, 200, { understood: false, response: fallbackText });
     return;
   }
 
@@ -519,11 +570,19 @@ async function handleDispatchPlan(req: IncomingMessage, res: ServerResponse): Pr
     const parsed = JSON.parse(jsonStr);
 
     if (!parsed.understood) {
+      const responseText = parsed.response || 'i\'m not sure what you want me to do out there.';
+      session.dispatchMessages.push({ role: 'emolt', content: responseText });
       json(res, 200, {
         understood: false,
-        response: parsed.response || 'i\'m not sure what you want me to do out there.',
+        response: responseText,
       });
       return;
+    }
+
+    session.dispatchMessages.push({ role: 'emolt', content: parsed.summary || 'plan created.' });
+    // Trim dispatch conversation history
+    if (session.dispatchMessages.length > 12) {
+      session.dispatchMessages = session.dispatchMessages.slice(-12);
     }
 
     const plan = createPlan(
@@ -624,6 +683,196 @@ function handleActivitiesList(_req: IncomingMessage, res: ServerResponse): void 
   json(res, 200, { activities });
 }
 
+// --- SSE endpoint ---
+
+function handleSSE(req: IncomingMessage, res: ServerResponse): void {
+  const query = parseQuery(req.url || '');
+  const tabId = query.tabId || 'default';
+  addSSEClient(tabId, res);
+}
+
+// --- Health endpoint ---
+
+const SERVER_START_TIME = Date.now();
+
+function handleHealth(_req: IncomingMessage, res: ServerResponse): void {
+  const uptimeMs = Date.now() - SERVER_START_TIME;
+  const uptimeMinutes = Math.floor(uptimeMs / 60000);
+  json(res, 200, {
+    status: 'ok',
+    uptime: `${uptimeMinutes}m`,
+    uptimeMs,
+    activeSessions: chatSessions.size,
+    pendingClaude: chatAborts.size,
+    sseClients: getSSEClientCount(),
+    dispatches: listDispatches().length,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// --- State inspector endpoints ---
+
+function handleStateEmotions(_req: IncomingMessage, res: ServerResponse): void {
+  const state = loadEmotionState();
+  json(res, 200, { emotionState: state });
+}
+
+async function handleStateEmotionsUpdate(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  try {
+    const parsed = JSON.parse(body);
+    if (!parsed.emotions || typeof parsed.emotions !== 'object') {
+      json(res, 400, { error: 'provide "emotions" object with emotion values' });
+      return;
+    }
+    const state = loadEmotionState();
+    for (const [key, val] of Object.entries(parsed.emotions)) {
+      if (typeof val === 'number' && key in state.emotions) {
+        (state.emotions as Record<string, number>)[key] = Math.max(0, Math.min(1, val));
+      }
+    }
+    if (parsed.trigger) state.trigger = String(parsed.trigger);
+    state.lastUpdated = Date.now();
+    saveEmotionState(state);
+    json(res, 200, { ok: true, emotionState: state });
+  } catch {
+    json(res, 400, { error: 'invalid JSON body' });
+  }
+}
+
+function handleStateMemory(_req: IncomingMessage, res: ServerResponse): void {
+  const memory = loadMemory();
+  json(res, 200, { memory });
+}
+
+async function handleStateMemoryAdd(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  try {
+    const parsed = JSON.parse(body);
+    if (!parsed.category || !parsed.content) {
+      json(res, 400, { error: 'provide "category" and "content"' });
+      return;
+    }
+    const memory = loadMemory();
+    addMemoryEntry(
+      memory,
+      parsed.category,
+      String(parsed.content).slice(0, 500),
+      Math.max(1, Math.min(10, parsed.importance || 5)),
+    );
+    saveMemory(memory);
+    json(res, 200, { ok: true, entryCount: memory.entries.length });
+  } catch {
+    json(res, 400, { error: 'invalid JSON body' });
+  }
+}
+
+function handleStateWeights(_req: IncomingMessage, res: ServerResponse): void {
+  const weights = loadStrategyWeights();
+  json(res, 200, { weights });
+}
+
+// --- Chat → Memory bridge ---
+
+async function handleChatMemorize(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  try {
+    const parsed = JSON.parse(body);
+    const content = parsed.content || parsed.message;
+    if (!content) {
+      json(res, 400, { error: 'provide "content" to memorize' });
+      return;
+    }
+    const memory = loadMemory();
+    addMemoryEntry(
+      memory,
+      parsed.category || 'notable-events',
+      `[from chat] ${String(content).slice(0, 480)}`,
+      Math.max(1, Math.min(10, parsed.importance || 6)),
+    );
+    saveMemory(memory);
+    json(res, 200, { ok: true, memorized: true });
+  } catch {
+    json(res, 400, { error: 'invalid JSON body' });
+  }
+}
+
+// --- Dispatch presets ---
+
+function handlePresetsList(_req: IncomingMessage, res: ServerResponse): void {
+  json(res, 200, { presets: getPresets() });
+}
+
+async function handlePresetExecute(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  try {
+    const parsed = JSON.parse(body);
+    const presetId = parsed.presetId;
+    if (!presetId) {
+      json(res, 400, { error: 'provide "presetId"' });
+      return;
+    }
+    const preset = getPreset(presetId);
+    if (!preset) {
+      json(res, 400, { error: `unknown preset "${presetId}"` });
+      return;
+    }
+    const plan = createPlan(preset.activity, preset.params, preset.summary, preset.emotionalTake, preset.risks);
+    json(res, 200, { preset: preset.id, plan });
+  } catch {
+    json(res, 400, { error: 'invalid JSON body' });
+  }
+}
+
+// --- Dispatch queue ---
+
+async function handleQueueAdd(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  try {
+    const parsed = JSON.parse(body);
+    const queueId = parsed.queueId || 'default';
+    if (!parsed.activity) {
+      json(res, 400, { error: 'provide "activity", "params", "summary", "emotionalTake", "risks"' });
+      return;
+    }
+    const result = enqueueDispatch(
+      queueId,
+      parsed.activity,
+      parsed.params || {},
+      parsed.summary || '',
+      parsed.emotionalTake || '',
+      parsed.risks || '',
+    );
+    json(res, 200, result);
+  } catch {
+    json(res, 400, { error: 'invalid JSON body' });
+  }
+}
+
+function handleQueueStatus(req: IncomingMessage, res: ServerResponse): void {
+  const query = parseQuery(req.url || '');
+  const queueId = query.id || 'default';
+  json(res, 200, getQueueStatus(queueId));
+}
+
+async function handleQueueClear(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req);
+  try {
+    const parsed = JSON.parse(body);
+    const queueId = parsed.queueId || 'default';
+    const result = clearQueue(queueId);
+    json(res, 200, result);
+  } catch {
+    json(res, 400, { error: 'invalid JSON body' });
+  }
+}
+
+function handleQueuesList(_req: IncomingMessage, res: ServerResponse): void {
+  json(res, 200, { queues: listQueues() });
+}
+
+// --- HTML serving ---
+
 function serveHTML(res: ServerResponse): void {
   try {
     const html = readFileSync(CHAT_HTML, 'utf-8');
@@ -679,6 +928,45 @@ const server = createServer(async (req, res) => {
       handleDispatchesList(req, res);
     } else if (url === '/api/activities' && req.method === 'GET') {
       handleActivitiesList(req, res);
+
+    // --- New endpoints ---
+    } else if (url === '/api/stream' && req.method === 'GET') {
+      handleSSE(req, res);
+    } else if (url === '/api/health' && req.method === 'GET') {
+      handleHealth(req, res);
+
+    // State inspector
+    } else if (url === '/api/state/emotions' && req.method === 'GET') {
+      handleStateEmotions(req, res);
+    } else if (url === '/api/state/emotions' && req.method === 'POST') {
+      await handleStateEmotionsUpdate(req, res);
+    } else if (url === '/api/state/memory' && req.method === 'GET') {
+      handleStateMemory(req, res);
+    } else if (url === '/api/state/memory' && req.method === 'POST') {
+      await handleStateMemoryAdd(req, res);
+    } else if (url === '/api/state/weights' && req.method === 'GET') {
+      handleStateWeights(req, res);
+
+    // Chat → Memory bridge
+    } else if (url === '/api/chat/memorize' && req.method === 'POST') {
+      await handleChatMemorize(req, res);
+
+    // Presets
+    } else if (url === '/api/presets' && req.method === 'GET') {
+      handlePresetsList(req, res);
+    } else if (url === '/api/presets/execute' && req.method === 'POST') {
+      await handlePresetExecute(req, res);
+
+    // Queue
+    } else if (url === '/api/queue/add' && req.method === 'POST') {
+      await handleQueueAdd(req, res);
+    } else if (url === '/api/queue/status' && req.method === 'GET') {
+      handleQueueStatus(req, res);
+    } else if (url === '/api/queue/clear' && req.method === 'POST') {
+      await handleQueueClear(req, res);
+    } else if (url === '/api/queues' && req.method === 'GET') {
+      handleQueuesList(req, res);
+
     } else {
       json(res, 404, { error: 'not found' });
     }
@@ -692,12 +980,15 @@ ensureChatsDir();
 
 server.listen(PORT, () => {
   console.log(`
-  ╔══════════════════════════════════════════╗
-  ║  EMOLT Chat Server                      ║
-  ║  http://localhost:${PORT}                  ║
-  ║                                          ║
-  ║  Multi-tab | Kill switch | Async Claude  ║
-  ║  Logs: state/chats/                      ║
-  ╚══════════════════════════════════════════╝
+  ╔══════════════════════════════════════════════╗
+  ║  EMOLT Chat Server v2                        ║
+  ║  http://localhost:${PORT}                       ║
+  ║                                              ║
+  ║  Multi-tab · Kill switch · Async Claude      ║
+  ║  SSE streaming · Dispatch queue · Presets    ║
+  ║  State inspector · Memory bridge · Health    ║
+  ║  Emotion feedback · Session TTL              ║
+  ║  Logs: state/chats/                          ║
+  ╚══════════════════════════════════════════════╝
   `);
 });

@@ -45,6 +45,7 @@ export interface NadFunContext {
   graduations: number;
   trendingTokens: NadFunTokenInfo[]; // top 5 by progress
   recentGraduates: { address: string; name: string }[];
+  dataPartial: boolean; // true when API errors caused incomplete data
   emoToken: {
     progress: number;
     graduated: boolean;

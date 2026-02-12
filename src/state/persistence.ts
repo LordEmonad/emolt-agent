@@ -130,8 +130,8 @@ export function appendEmotionLog(state: EmotionState): void {
   ensureStateDir();
   const history = loadEmotionHistory();
   history.push(state);
-  // Keep last 48 entries (24 hours at 30-min cycles)
-  const trimmed = history.slice(-48);
+  // Keep last 500 entries (matching heartbeat-log.jsonl cap)
+  const trimmed = history.slice(-500);
   atomicWriteFileSync(EMOTION_LOG_FILE, JSON.stringify(trimmed, null, 2));
 }
 
