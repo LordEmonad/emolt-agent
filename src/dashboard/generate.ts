@@ -56,6 +56,8 @@ let rollingAverages: any;
 let trendingData: any;
 let challengeState: any;
 let burnLedger: any;
+let dexScreenerData: any;
+let kuruData: any;
 
 function loadAllData(): void {
   emotionState = readJSON('emotion-state.json');
@@ -67,6 +69,8 @@ function loadAllData(): void {
   agentMemory = readJSON('agent-memory.json');
   strategyWeights = readJSON('strategy-weights.json');
   rollingAverages = readJSON('rolling-averages.json');
+  dexScreenerData = readJSON('dex-screener-data.json');
+  kuruData = readJSON('kuru-data.json');
   trendingData = readJSON('trending-data.json');
   challengeState = readJSON('challenge-state.json');
   burnLedger = readJSON('burn-ledger.json');
@@ -823,6 +827,12 @@ function buildRollingAverages(): string {
     { label: 'TVL 24h change', value: (ra.tvlChange24h ?? 0).toFixed(1) + '%', detail: 'liquidity trend' },
     { label: 'gas price', value: (ra.gasPriceGwei ?? 0).toFixed(0) + ' gwei', detail: 'smoothed average' },
     { label: 'ecosystem tokens', value: (ra.ecosystemTokenChange ?? 0).toFixed(1) + '%', detail: 'portfolio change' },
+    { label: 'DEX volume (1h)', value: '$' + fmtNum(ra.dexVolume1h ?? 0), detail: 'DexScreener aggregate' },
+    { label: 'DEX buy/sell', value: (ra.dexBuySellRatio ?? 1).toFixed(2), detail: '>1 = more buys' },
+    { label: 'DEX liquidity', value: '$' + fmtNum(ra.dexLiquidity ?? 0), detail: 'total across pairs' },
+    { label: 'Kuru spread', value: (ra.kuruSpreadPct ?? 0).toFixed(3) + '%', detail: 'MON/USDC orderbook' },
+    { label: 'Kuru imbalance', value: ((ra.kuruBookImbalance ?? 0.5) * 100).toFixed(1) + '%', detail: 'bid-side weight' },
+    { label: 'Kuru depth', value: fmtNum(ra.kuruTotalDepth ?? 0) + ' MON', detail: 'total book depth' },
   ];
 
   let rows = '';
@@ -835,6 +845,84 @@ function buildRollingAverages(): string {
     <h2>Rolling Averages</h2>
     <p class="muted">${ra.cyclesTracked ?? 0} cycles tracked (EMA)</p>
     <div class="scroll-inner">${rows}</div>
+  </div>`;
+}
+
+function buildDexScreenerPanel(): string {
+  if (!dexScreenerData?.dataAvailable) return '<div class="card card-half"><h2>DEX Market</h2><p class="muted">monad dexscreener data</p><p class="muted">No data yet.</p></div>';
+
+  const d = dexScreenerData;
+  const bsColor = d.buySellRatio >= 1 ? '#6ECB3C' : '#E04848';
+  const volChgColor = d.volumeChangePct > 0 ? '#6ECB3C' : d.volumeChangePct < 0 ? '#E04848' : 'var(--text-dim)';
+
+  let pairRows = '';
+  for (const p of d.topPairs || []) {
+    // Format tiny prices with subscript notation like the mockup
+    let priceStr: string;
+    if (p.priceUsd >= 0.01) {
+      priceStr = `$${p.priceUsd.toFixed(4)}`;
+    } else if (p.priceUsd > 0) {
+      const s = p.priceUsd.toFixed(10);
+      const afterDot = s.slice(2); // after "0."
+      const leadingZeros = afterDot.length - afterDot.replace(/^0+/, '').length;
+      if (leadingZeros >= 3) {
+        const sig = afterDot.replace(/^0+/, '').slice(0, 3);
+        priceStr = `$0.0<sub>${leadingZeros}</sub>${sig}`;
+      } else {
+        priceStr = `$${p.priceUsd.toFixed(6)}`;
+      }
+    } else {
+      priceStr = '$0';
+    }
+    pairRows += `<div class="dex-pair-row"><span class="dex-pair-sym">${esc(p.baseToken.symbol)}/${esc(p.quoteToken.symbol)}</span><span class="dex-pair-price">${priceStr}</span><span class="dex-pair-vol">$${fmtNum(p.volume1h)} 1h</span></div>`;
+  }
+
+  return `
+  <div class="card card-half">
+    <h2>DEX Market</h2>
+    <p class="muted">monad dexscreener data</p>
+    <div class="pulse-grid" style="grid-template-columns:repeat(2,1fr)">
+      <div class="pulse-stat"><span class="pulse-val">$${fmtNum(d.totalVolume1h)}</span><span class="pulse-label">1h volume</span></div>
+      <div class="pulse-stat"><span class="pulse-val">$${fmtNum(d.totalLiquidity)}</span><span class="pulse-label">liquidity</span></div>
+      <div class="pulse-stat"><span class="pulse-val" style="color:${bsColor}">${d.buySellRatio.toFixed(2)}</span><span class="pulse-label">buy/sell</span></div>
+      <div class="pulse-stat"><span class="pulse-val" style="color:${volChgColor}">${d.volumeChangePct > 0 ? '+' : ''}${d.volumeChangePct.toFixed(1)}%</span><span class="pulse-label">vol change</span></div>
+    </div>
+    ${pairRows ? `<h3>Top Pairs</h3>${pairRows}` : ''}
+  </div>`;
+}
+
+function buildKuruPanel(): string {
+  if (!kuruData?.dataAvailable) return '<div class="card card-half"><h2>MON/USDC Orderbook</h2><p class="muted">kuru</p><p class="muted">No data yet.</p></div>';
+
+  const k = kuruData;
+  const bidPct = (k.bookImbalance * 100).toFixed(1);
+  const askPct = (100 - Number(bidPct)).toFixed(1);
+  const imbalanceLabel = k.bookImbalance > 0.6 ? 'bid-heavy' : k.bookImbalance < 0.4 ? 'ask-heavy' : 'balanced';
+  const imbalanceColor = k.bookImbalance > 0.6 ? '#6ECB3C' : k.bookImbalance < 0.4 ? '#E04848' : 'var(--text-dim)';
+  const spreadChgColor = k.spreadChangePct > 0 ? '#E04848' : k.spreadChangePct < 0 ? '#6ECB3C' : 'var(--text-dim)';
+  const depthChg = ((k.depthChangeRatio - 1) * 100);
+  const depthChgColor = depthChg > 0 ? '#6ECB3C' : depthChg < 0 ? '#E04848' : 'var(--text-dim)';
+
+  return `
+  <div class="card card-half">
+    <h2>MON/USDC Orderbook</h2>
+    <p class="muted">kuru</p>
+    <div class="kuru-price-row">
+      <span class="kuru-price" style="color:#6ECB3C">$${k.bestBid.toFixed(4)}</span>
+      <span class="kuru-spread-badge">${k.spreadPct.toFixed(3)}%</span>
+      <span class="kuru-price" style="color:#E04848">$${k.bestAsk.toFixed(4)}</span>
+    </div>
+    <div class="depth-bar-wrap">
+      <div class="depth-bar-label"><span>bids</span><span>asks</span></div>
+      <div class="depth-bar-track"><div class="depth-bar-bid" style="width:${bidPct}%"></div><div class="depth-bar-ask" style="width:${askPct}%"></div></div>
+      <div class="depth-detail"><span class="depth-detail-bid">${fmtNum(k.bidDepthMon, 1)} MON ($${fmtNum(k.bidDepthUsd)})</span><span class="depth-detail-ask">${fmtNum(k.askDepthMon, 1)} MON ($${fmtNum(k.askDepthUsd)})</span></div>
+    </div>
+    <div class="pulse-grid" style="grid-template-columns:repeat(2,1fr);margin-top:10px">
+      <div class="pulse-stat"><span class="pulse-val" style="color:${imbalanceColor}">${bidPct}%</span><span class="pulse-label">${imbalanceLabel}</span></div>
+      <div class="pulse-stat"><span class="pulse-val">${k.whaleOrders}</span><span class="pulse-label">whale orders</span></div>
+      <div class="pulse-stat"><span class="pulse-val">${k.spreadChangePct !== 0 ? (k.spreadChangePct > 0 ? '+' : '') + k.spreadChangePct.toFixed(1) + '%' : '&mdash;'}</span><span class="pulse-label">spread &Delta;</span></div>
+      <div class="pulse-stat"><span class="pulse-val" style="color:${depthChgColor}">${depthChg !== 0 ? (depthChg > 0 ? '+' : '') + depthChg.toFixed(1) + '%' : '&mdash;'}</span><span class="pulse-label">depth &Delta;</span></div>
+    </div>
   </div>`;
 }
 
@@ -1786,6 +1874,12 @@ export function generateDashboard(): void {
     ${buildRelationships()}
     ${buildStrategyWeights()}
   </div>
+  <div class="section-label"><span>Market Data</span></div>
+  <div class="grid-half">
+    ${buildDexScreenerPanel()}
+    ${buildKuruPanel()}
+  </div>
+  <div class="section-label"><span>On-Chain &amp; Analytics</span></div>
   <div class="grid-half">
     ${buildOnChainStatus()}
     ${buildRollingAverages()}

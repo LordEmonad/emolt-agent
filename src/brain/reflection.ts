@@ -27,9 +27,8 @@ export interface ReflectionResponse {
 export function buildReflectionPrompt(
   memory: string,
   actionTaken: string,
-  emotionSummary: string,
-  feedbackReport: string,
-  keyStimuli: string
+  diagnosticsReport: string,
+  feedbackReport: string
 ): string {
   return `You are EMOLT reflecting on your most recent cycle. This is private self-reflection - no one sees this except you.
 
@@ -41,9 +40,7 @@ ${memory}
 
 **Action taken:** ${actionTaken}
 
-**Emotional state:** ${emotionSummary}
-
-**Key stimuli:** ${keyStimuli}
+${diagnosticsReport}
 
 ${feedbackReport}
 
@@ -51,11 +48,12 @@ ${feedbackReport}
 
 ## Reflection Task
 
-Think about:
+Use the diagnostics above to answer:
 1. Did my action match my emotional state? Was it authentic?
-2. What does the feedback tell me about what resonates?
-3. Is there a pattern I should remember or a strategy I should adjust?
-4. Did any relationship develop or shift?
+2. Are any emotions stuck or dead? If so, is the cause real (genuinely nothing to trigger joy) or mechanical (a weight is too low, or stimuli are stacking into one emotion)?
+3. Is one emotion being fed by too many overlapping sources? If 4+ sources all push fear, consider whether they're genuinely independent signals or the same event counted multiple times.
+4. What does the feedback tell me about what resonates with the audience?
+5. Are my weight adjustments from previous cycles working, or should I change course?
 
 Respond in this EXACT JSON format:
 {
@@ -81,8 +79,9 @@ Respond in this EXACT JSON format:
   "strategyNote": "Optional: brief note on strategy adjustment for next cycle",
   "weightAdjustments": [
     {
-      "key": "whaleTransferFear|chainActivityJoy|chainQuietSadness|failedTxAnger|nadFunExcitement|emoPriceSentiment|monPriceSentiment|tvlSentiment|socialEngagement|selfPerformanceReaction|ecosystemVolume|gasPressure",
-      "direction": "increase|decrease",
+      "key": "whaleTransferFear|chainActivityJoy|chainQuietSadness|failedTxAnger|nadFunExcitement|emoPriceSentiment|monPriceSentiment|tvlSentiment|socialEngagement|selfPerformanceReaction|ecosystemVolume|gasPressure|githubStarReaction|feedJoy|dexScreenerMarket|kuruOrderbook",
+      "direction": "increase|decrease|reset",
+      "magnitude": "nudge|moderate|strong",
       "reason": "Brief reason (max 200 chars)"
     }
   ]
@@ -94,7 +93,12 @@ RULES:
 - Only reference entry IDs that exist in your memory above
 - Be genuine - don't force updates if nothing meaningful happened
 - An empty memoryUpdates array is perfectly fine
-- weightAdjustments: max 2 per reflection. Increase a weight if that stimulus category felt underrepresented in your emotional response. Decrease if it's dominating your emotions unfairly. Most reflections should have 0 weight adjustments.
+- weightAdjustments: max 3 per reflection.
+  - "increase"/"decrease" with magnitude: "nudge" (±0.05), "moderate" (±0.10), "strong" (±0.20)
+  - "reset" snaps the weight back to 1.0 (useful when previous adjustments went wrong)
+  - Use "strong" only for clear problems (e.g., stacking alert on one emotion, or a dead emotion that needs rescue)
+  - Use "nudge" for fine-tuning. Default to "moderate" if unsure.
+  - Check the current weight values in the diagnostics before adjusting — don't decrease a weight that's already at the floor (0.30) or increase one near the ceiling (2.00).
 `;
 }
 
@@ -168,15 +172,20 @@ export function parseReflectionResponse(raw: string): ReflectionResponse | null 
   // Layer 5: Validate weight adjustments
   const weightAdjustments: WeightAdjustment[] = [];
   if (Array.isArray(parsed.weightAdjustments)) {
-    for (const wa of parsed.weightAdjustments.slice(0, 2)) { // Max 2
+    const validMagnitudes = ['nudge', 'moderate', 'strong'];
+    for (const wa of parsed.weightAdjustments.slice(0, 3)) { // Max 3
       if (!wa || typeof wa !== 'object') continue;
       if (!ALL_WEIGHT_KEYS.includes(wa.key)) continue;
-      if (!['increase', 'decrease'].includes(wa.direction)) continue;
-      weightAdjustments.push({
+      if (!['increase', 'decrease', 'reset'].includes(wa.direction)) continue;
+      const adj: WeightAdjustment = {
         key: wa.key as StrategyWeightKey,
-        direction: wa.direction as 'increase' | 'decrease',
+        direction: wa.direction as 'increase' | 'decrease' | 'reset',
         reason: String(wa.reason || '').slice(0, 200),
-      });
+      };
+      if (wa.magnitude && validMagnitudes.includes(wa.magnitude)) {
+        adj.magnitude = wa.magnitude as 'nudge' | 'moderate' | 'strong';
+      }
+      weightAdjustments.push(adj);
     }
   }
 
@@ -194,11 +203,10 @@ export function parseReflectionResponse(raw: string): ReflectionResponse | null 
 export function runReflection(
   memory: string,
   actionTaken: string,
-  emotionSummary: string,
-  feedbackReport: string,
-  keyStimuli: string
+  diagnosticsReport: string,
+  feedbackReport: string
 ): ReflectionResponse | null {
-  const prompt = buildReflectionPrompt(memory, actionTaken, emotionSummary, feedbackReport, keyStimuli);
+  const prompt = buildReflectionPrompt(memory, actionTaken, diagnosticsReport, feedbackReport);
 
   console.log('[Reflection] Running self-reflection...');
   const raw = askClaude(prompt);

@@ -46,6 +46,7 @@ import { checkAndAnswerChallenges, isSuspendedThisCycle, resetCycleFlags, getSus
 import { loadMemory, saveMemory, formatMemoryForPrompt } from './state/memory.js';
 import { trackNewPost, refreshPostEngagement, buildFeedbackReport, syncToPostPerformance } from './social/feedback.js';
 import { runReflection, applyReflectionToMemory } from './brain/reflection.js';
+import { buildDiagnostics } from './brain/diagnostics.js';
 import { generateDashboard } from './dashboard/generate.js';
 import { generateTimeline } from './dashboard/timeline.js';
 import { generateBurnboard } from './dashboard/burnboard.js';
@@ -561,6 +562,7 @@ Good examples of your voice on crypto posts:
   }
 
   // 10. Apply all stimuli to emotion state (with inertia)
+  const preStimuliSnapshot = { ...emotionState.emotions };  // snapshot for diagnostics
   const inertia = emotionMemory.dominantStreak >= 3
     ? { streakEmotion: emotionMemory.streakEmotion, streakLength: emotionMemory.dominantStreak }
     : undefined;
@@ -717,18 +719,17 @@ Good examples of your voice on crypto posts:
     console.warn('[EmoodRing] Metadata refresh failed (non-fatal):', error);
   }
 
-  // 13.5. Run self-reflection
+  // 13.5. Run self-reflection (with diagnostics)
   let reflectionSummary = '';
   try {
-    const emotionSummary = `${emotionState.dominantLabel} (${emotionState.dominant})${emotionState.compounds.length > 0 ? `, compounds: ${emotionState.compounds.join(', ')}` : ''}`;
-    const keyStimuli = allStimuli.slice(0, 5).map(s => `${s.source} (${s.emotion} +${(s.intensity * 100).toFixed(0)}%)`).join('; ');
+    const diagnostics = buildDiagnostics(preStimuliSnapshot, emotionState, allStimuli, strategyWeights, emotionMemory);
+    console.log(`[Diagnostics] ${diagnostics.deadEmotions.length} dead emotions, ${diagnostics.stackingAlerts.length} stacking alerts, ${diagnostics.dominantStreak}-cycle ${diagnostics.streakEmotion} streak`);
 
     const reflectionResult = runReflection(
       formattedMemory,
       actionDescription,
-      emotionSummary,
-      feedbackReport,
-      keyStimuli
+      diagnostics.report,
+      feedbackReport
     );
 
     if (reflectionResult) {

@@ -4,10 +4,15 @@ import { ensureStateDir, atomicWriteFileSync, STATE_DIR } from '../state/persist
 import type { StrategyWeights, StrategyWeightKey, WeightAdjustment, EmotionStimulus } from './types.js';
 
 const WEIGHTS_FILE = join(STATE_DIR, 'strategy-weights.json');
-const WEIGHT_STEP = 0.1;
 const WEIGHT_FLOOR = 0.3;
 const WEIGHT_CEILING = 2.0;
-const DECAY_RATE = 0.02;
+const DECAY_RATE = 0.005;  // slow decay so learning persists (~140 cycles to halve a deviation)
+
+const MAGNITUDE_STEPS: Record<string, number> = {
+  nudge: 0.05,
+  moderate: 0.1,
+  strong: 0.2,
+};
 
 const ALL_WEIGHT_KEYS: StrategyWeightKey[] = [
   'whaleTransferFear', 'chainActivityJoy', 'chainQuietSadness', 'failedTxAnger',
@@ -48,9 +53,17 @@ export function applyWeightAdjustments(sw: StrategyWeights, adjustments: WeightA
   for (const adj of adjustments) {
     if (!ALL_WEIGHT_KEYS.includes(adj.key)) continue;
     const current = sw.weights[adj.key];
-    const delta = adj.direction === 'increase' ? WEIGHT_STEP : -WEIGHT_STEP;
+
+    if (adj.direction === 'reset') {
+      sw.weights[adj.key] = 1.0;
+      console.log(`[Weights] ${adj.key}: ${current.toFixed(2)} → 1.00 (reset: ${adj.reason.slice(0, 80)})`);
+      continue;
+    }
+
+    const step = MAGNITUDE_STEPS[adj.magnitude ?? 'moderate'] ?? 0.1;
+    const delta = adj.direction === 'increase' ? step : -step;
     sw.weights[adj.key] = Math.max(WEIGHT_FLOOR, Math.min(WEIGHT_CEILING, current + delta));
-    console.log(`[Weights] ${adj.key}: ${current.toFixed(2)} → ${sw.weights[adj.key].toFixed(2)} (${adj.direction}: ${adj.reason.slice(0, 80)})`);
+    console.log(`[Weights] ${adj.key}: ${current.toFixed(2)} → ${sw.weights[adj.key].toFixed(2)} (${adj.direction} ${adj.magnitude ?? 'moderate'}: ${adj.reason.slice(0, 80)})`);
   }
 }
 

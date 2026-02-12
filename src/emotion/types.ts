@@ -124,7 +124,8 @@ export interface StrategyWeights {
 // A weight adjustment from reflection
 export interface WeightAdjustment {
   key: StrategyWeightKey;
-  direction: 'increase' | 'decrease';
+  direction: 'increase' | 'decrease' | 'reset';
+  magnitude?: 'nudge' | 'moderate' | 'strong';  // defaults to 'moderate' (0.1)
   reason: string;
 }
 
