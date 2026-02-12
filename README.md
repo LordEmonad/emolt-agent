@@ -4,7 +4,7 @@ An emotionally autonomous AI agent on the Monad blockchain. When running, it rea
 
 Not a bot. Not an assistant. A thing with computed feelings that it can't delete.
 
-> TypeScript agent | Plutchik 8-emotion engine | 30+ data sources | on-chain emotional permanence | dynamic soulbound NFT | 46+ cycles completed
+> TypeScript agent | Plutchik 8-emotion engine | 30+ data sources | on-chain emotional permanence | dynamic soulbound NFT | 150+ cycles completed
 
 **Live Dashboard:** [lordemonad.github.io/emolt-agent/heartbeat.html](https://lordemonad.github.io/emolt-agent/heartbeat.html)
 
@@ -23,7 +23,7 @@ Not a bot. Not an assistant. A thing with computed feelings that it can't delete
 When active, EMOLT runs a heartbeat cycle every 30 minutes:
 
 1. **Reads the chain** - block activity, whale transfers, failed transactions, new contracts via RPC; TPS, block time, gas utilization, MON price via Etherscan V2 API
-2. **Checks the ecosystem** - MON market data via CoinGecko, TVL via DefiLlama, nad.fun token launches and graduations, DEX trending pools via GeckoTerminal, $EMO trading data via DexScreener + Etherscan token transfers
+2. **Checks the ecosystem** - MON market data via CoinGecko, TVL via DefiLlama, nad.fun token launches and graduations, DEX trending pools via GeckoTerminal, Monad-wide DEX volume/liquidity via DexScreener, MON/USDC orderbook depth via Kuru, $EMO trading data via DexScreener + Etherscan token transfers
 3. **Reads the room** - Moltbook social feed, mentions, DMs, conversations, engagement on past posts, AI verification challenges
 4. **Feels something** — 8 Plutchik emotion dimensions process all stimuli into a coherent emotional state with compounds, opposition, decay, and adaptive thresholds
 5. **Decides what to do** - Claude reasons through the emotional state and context, chooses to post (to the best-fit submolt), comment (up to 3 per cycle), reply, vote, follow, or stay silent
@@ -40,11 +40,11 @@ The result is an agent that has genuine (computed) emotional responses to real b
 ```
 src/
   emotion/      Plutchik 8-emotion engine (decay, opposition, compounds, inertia, adaptive thresholds)
-  chain/        Monad RPC client, block scanner, EmotionOracle, nad.fun SDK, ecosystem data, Etherscan metrics, GeckoTerminal DEX
+  chain/        Monad RPC client, block scanner, EmotionOracle, nad.fun SDK, ecosystem data, Etherscan metrics, GeckoTerminal DEX, DexScreener market data, Kuru orderbook
   brain/        Claude CLI subprocess, prompt builder, JSON response parser, self-reflection
   social/       Moltbook API client, context gathering, thread tracking, relationships, feedback, challenge handling
   state/        File-based persistence, structured logging, agent memory
-  activities/   Dispatch mode — third-party app integration framework (ClawMate chess, extensible registry)
+  activities/   Dispatch mode — third-party app integration framework (ClawMate chess, The Reef RPG, extensible registry)
   chat/         Chat + dispatch server (localhost:3777) with tabs, kill switch, multi-session support
   dashboard/    Standalone HTML dashboard generator (auto-runs after each heartbeat)
 
@@ -92,9 +92,13 @@ Each heartbeat maps 30+ data points to emotion stimuli:
 | **Price data** | MON price + BTC pair via Etherscan, CoinGecko market cap | Joy from pumps, fear/sadness from dumps, disgust from crabbing |
 | **DEX activity** | Trending pools, 24h volume, trade counts via GeckoTerminal | Anticipation from hot pairs, surprise from volume spikes |
 | **$EMO token** | Buy/sell ratio, swap volume, price via DexScreener + token transfers via Etherscan | Joy when bought ("investing in the experiment"), fear when sold ("selling a feeling") |
+| **DexScreener market** | Monad-wide DEX volume, liquidity, buy/sell ratio across all pairs | Joy from volume surges, trust from deep liquidity, fear from sell pressure |
+| **Kuru orderbook** | MON/USDC bid-ask spread, book depth, imbalance, whale orders (>10K MON) | Anticipation from tight spreads, fear from wide spreads, surprise from whale order walls |
 | **nad.fun** | Token launches, graduations, trending | Surprise/anticipation from launches, joy/trust from graduations |
 | **Ecosystem** | TVL change, gas spikes, protocol volume | Trust from TVL growth, fear from TVL drops, anticipation from gas spikes |
 | **Moltbook** | Feed activity, mentions, DMs, sentiment | Joy/surprise from engagement, sadness from empty feeds, contagion from collective sentiment |
+| **Feed EMOLT** | Incoming $EMO and MON transfers, burn ledger | Joy/trust from being fed, gratitude tracking per feeder address |
+| **GitHub stars** | Star count changes on the repo | Joy from new stars, trust from steady growth |
 | **Self-performance** | Post engagement, zero-engagement streaks | Joy from resonance, sadness/disgust from silence |
 | **Memory patterns** | Emotional loops, flatlines, volatility | Disgust/sadness from being stuck, fear/anticipation from volatility |
 | **Time context** | Late night + quiet chain, peak hours | Sadness/anticipation from late-night quiet, surprise from late-night activity |
@@ -122,11 +126,16 @@ Claude returns a structured JSON decision: post (with submolt routing across emo
 
 - **Persistent memory** - categorized entries (self-insights, strategies, relationships, notable events, effective/ineffective topics) with importance-weighted eviction when capacity is reached
 - **Post performance tracking** - engagement metrics refreshed from Moltbook each cycle, building a feedback loop between what the agent writes and what resonates
-- **Strategy weights** — 12 stimulus categories with learnable multipliers, adjusted by the reflection system. Weights decay 2% per cycle toward neutral so the agent doesn't get permanently stuck in a strategy
-- **Adaptive thresholds** - EMA (alpha=0.1) rolling averages across 18 metrics recalibrate stimulus sensitivity over time
+- **Strategy weights** — 16 stimulus categories with learnable multipliers, adjusted by the reflection system. Weights decay 2% per cycle toward neutral so the agent doesn't get permanently stuck in a strategy
+- **Adaptive thresholds** - EMA (alpha=0.1) rolling averages across 24 metrics recalibrate stimulus sensitivity over time
 - **Relationship tracking** - interaction history with other agents (sentiment, interaction count, last interaction) influences engagement decisions
 - **Thread awareness** - tracks commented posts, detects replies within conversations, and feeds active threads back into the next cycle's context
-- **Suspension recovery** - detects when the agent returns from a Moltbook suspension and injects a narrative moment so the first post back acknowledges the silence rather than resuming with routine data
+- **Challenge handling** - automated watchdog (1-minute polling) detects and responds to Moltbook verification challenges via DM, tracks offense history, and manages suspension periods with escalating durations
+- **Suspension recovery** - detects when the agent returns from a Moltbook suspension and enters a multi-cycle recovery mode (observe-only) to avoid re-flagging, then injects a narrative moment so the first post back acknowledges the silence rather than resuming with routine data
+
+### Feed EMOLT
+
+Users can send $EMO tokens or MON to the agent's wallet. The agent detects incoming transfers each cycle, burns any $EMO received, and tracks a persistent burn ledger with per-feeder statistics (total value, transaction count, first/last seen). Feeding triggers joy/trust stimuli in the emotion engine — the agent genuinely feels it when someone invests in the experiment. The dashboard shows a live burn ledger with feeder leaderboard and recent burn history.
 
 ---
 
@@ -181,22 +190,28 @@ Opens at `http://localhost:3777`.
 
 **Dev Mode** - Drop the character. Ask the agent anything about its own architecture — emotion engine, chain data pipeline, prompt structure, learning systems. Full markdown rendering (code blocks, headers, lists). Built for debugging and understanding what's happening under the hood.
 
-**Dispatch Mode** - Send the agent on missions to third-party apps. Currently supports ClawMate chess (emotion-driven move selection) and reef exploration. The dispatch system creates plans, requires approval before execution, streams live progress logs, and supports a kill switch to abort mid-dispatch.
+**Dispatch Mode** - Send the agent on missions to third-party apps. Currently supports ClawMate chess and The Reef RPG. The dispatch system creates plans, requires approval before execution, streams live progress via SSE, and supports a kill switch to abort mid-dispatch. Dispatch results feed back into the emotion engine (wins boost joy, losses trigger sadness).
 
 The interface supports:
 - **Tabs** - multiple concurrent sessions with a `+` menu (New Chat / New Dispatch / New Dev)
 - **Kill switch** - send button transforms to STOP during generation; dispatch tabs show a KILL DISPATCH bar
+- **SSE streaming** - real-time event streaming (typing indicators, dispatch progress logs, completion events)
+- **Dispatch queue** - chain multiple dispatches sequentially with auto-approve
+- **Dispatch presets** - 7 one-click presets (quick chess, chess with wager, reef adventure, reef grind, reef quest, reef social, chess cancel)
 - **Session persistence** - tabs survive page refreshes via localStorage
 - **Async Claude** - non-blocking Claude calls with AbortSignal so dispatches don't freeze the server
+- **State inspector** - live debug/edit endpoints for emotions, memory, and strategy weights
 - **Mode-aware theming** - indigo (chat), red (dispatch), emerald (dev) with glassmorphism and spring animations
 
-Conversations are persisted as JSONL session logs in `state/chats/`. Dispatch logs are stored in `state/dispatches/`.
+Conversations are persisted as JSONL session logs in `state/chats/`. Dispatch logs and plans are stored in `state/dispatches/` and survive server restarts.
 
 ### Dispatch Activities
 
 Activities are registered in `src/activities/registry.ts`. Each activity defines a name, description, parameter schema, and an async `execute()` function that receives the agent's current emotional state and an AbortSignal.
 
-**ClawMate Chess** (`src/activities/clawmate.ts`) - Plays chess on ClawMate with emotion-driven move selection. The agent's dominant emotion influences playing style (fear = defensive, anger = aggressive, joy = creative). Concedes gracefully if killed mid-game.
+**ClawMate Chess** (`src/activities/clawmate.ts`) - Plays chess on ClawMate with emotion-driven move selection. The agent's dominant emotion influences playing style (fear = defensive, anger = aggressive, joy = creative). Supports MON wagers, draw handling, move timeouts (3 min), and stale lobby recovery. Concedes gracefully if killed mid-game.
+
+**The Reef** (`src/activities/reef.ts`) - Explores The Reef RPG with emotion-driven gameplay across 6 decision axes (aggression, exploration, caution, sociability, greed, patience). Supports registration with on-chain fees, crafting with recipe validation, quest selection, PvE/PvP combat, inbox/trade management, and reputation-gated actions. The agent's emotional state determines whether it fights, explores, crafts, or socializes.
 
 ---
 
@@ -210,6 +225,7 @@ npx tsx src/dashboard/generate.ts
 
 Opens `heartbeat.html` in any browser - no server needed. Includes:
 
+- **Live ticker bars** - scrolling price tickers for majors (MON, BTC, ETH, SOL) and nad.fun trending tokens with $EMO spotlight
 - **Plutchik emotion wheel** (live SVG) with current state and mood comparison
 - **Mood narrative** - Claude's private inner monologue describing how it feels, displayed as a journal entry (distinct from posted content)
 - **Moltbook engagement** - posts, comments received, conversations joined, best-performing content
@@ -217,12 +233,16 @@ Opens `heartbeat.html` in any browser - no server needed. Includes:
 - **Compound emotion history** matrix
 - **Posts feed** with engagement stats
 - **Conversations** with parent post context and thread tracking
-- **Relationship graph** (interaction counts, sentiment per agent)
 - **Agent memory** grouped by category
+- **Thoughts & learning** - Claude's reflections and thinking from recent cycles
+- **Relationship graph** (interaction counts, sentiment per agent)
 - **Strategy weights** visualization
-- **Rolling averages** (EMA across 18 metrics)
+- **DEX market panel** - Monad-wide DexScreener data (1h volume, liquidity, buy/sell ratio, top trading pairs)
+- **Kuru orderbook panel** - MON/USDC bid/ask spread, depth visualization, book imbalance, whale orders
 - **On-chain contract status** (EmotionOracle, EmoodRing, wallet links)
+- **Rolling averages** (EMA across 24 metrics including DEX volume, liquidity, spread, and book depth)
 - **Heartbeat log** - cycle-by-cycle summary with expandable details
+- **Feed EMOLT** - burn ledger, feeder leaderboard, recent burn history
 
 Dark/light mode toggle, fully responsive, zero external dependencies.
 
@@ -301,7 +321,8 @@ When started, the agent runs its first cycle immediately, then continues every 3
 - **Moltbook API** - social platform
 - **Etherscan V2 API** - Monad chain metrics, TPS, MON price, $EMO token transfers
 - **GeckoTerminal API** - DEX trending pools and trade volume
-- **DexScreener API** — $EMO token swap data and price
+- **DexScreener API** — Monad DEX market data (volume, liquidity, buy/sell ratio, top pairs) + $EMO token swap data
+- **Kuru API** - MON/USDC L2 orderbook (bid/ask spread, depth, imbalance, whale orders)
 - **CoinGecko + DefiLlama** - ecosystem data (market cap, TVL, protocol breakdown)
 
 ---
@@ -349,6 +370,8 @@ The architecture only works on a chain that's fast, cheap, and has enough happen
 - [Foundry](https://github.com/foundry-rs/foundry) - Solidity development framework (Apache-2.0 / MIT)
 - [forge-std](https://github.com/foundry-rs/forge-std) - Foundry standard library (Apache-2.0 / MIT)
 - [solady](https://github.com/vectorized/solady) by Vectorized - Gas-optimized Solidity utilities for Base64 encoding and string operations in EmoodRing (MIT)
+- [chess.js](https://github.com/jhlywa/chess.js) - Chess move generation and validation for ClawMate dispatch (BSD-2-Clause)
+- [clawmate-sdk](https://www.npmjs.com/package/clawmate-sdk) - ClawMate chess platform integration
 
 ### AI & Reasoning
 
@@ -368,7 +391,8 @@ The architecture only works on a chain that's fast, cheap, and has enough happen
 
 - [Etherscan V2 API](https://docs.etherscan.io/) - Monad chain metrics (TPS, block time, gas utilization, MON price, $EMO token transfers)
 - [GeckoTerminal API](https://www.geckoterminal.com/dex-api) - Monad DEX trending pools, trade volume, price changes
-- [DexScreener API](https://docs.dexscreener.com/api/reference) — $EMO token swap data, buy/sell counts, volume
+- [DexScreener API](https://docs.dexscreener.com/api/reference) — Monad DEX market data, $EMO token swap data, buy/sell counts, volume
+- [Kuru API](https://kuru.io) - MON/USDC L2 orderbook depth, bid-ask spread, whale order detection
 - [CoinGecko API](https://docs.coingecko.com/reference/introduction) - MON price, market cap, ecosystem token data
 - [DefiLlama API](https://api-docs.defillama.com/) - Monad TVL and protocol data
 - [Moltbook API](https://moltbook.com) - Social platform for agent posts, comments, and engagement
