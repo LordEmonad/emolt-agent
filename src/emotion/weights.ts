@@ -13,7 +13,7 @@ const ALL_WEIGHT_KEYS: StrategyWeightKey[] = [
   'whaleTransferFear', 'chainActivityJoy', 'chainQuietSadness', 'failedTxAnger',
   'nadFunExcitement', 'emoPriceSentiment', 'monPriceSentiment', 'tvlSentiment',
   'socialEngagement', 'selfPerformanceReaction', 'ecosystemVolume', 'gasPressure',
-  'githubStarReaction',
+  'githubStarReaction', 'feedJoy', 'dexScreenerMarket', 'kuruOrderbook',
 ];
 
 export function createDefaultWeights(): StrategyWeights {

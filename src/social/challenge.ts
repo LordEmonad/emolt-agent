@@ -337,7 +337,7 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
     console.warn(`[Challenge] SUSPENDED: ${suspCheck.hint}`);
 
     const durationMs = parseSuspensionDurationMs(suspCheck.hint);
-    if (durationMs > 0) {
+    if (durationMs > 0 && !(state.suspendedUntil > Date.now())) {
       state.suspendedUntil = Date.now() + durationMs;
     }
     const offenseMatch = suspCheck.hint.match(/offense #(\d+)/i);
@@ -359,7 +359,7 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
       result.suspended = true;
       result.suspensionHint = msg;
       const durationMs = parseSuspensionDurationMs(msg);
-      if (durationMs > 0) {
+      if (durationMs > 0 && !(state.suspendedUntil > Date.now())) {
         state.suspendedUntil = Date.now() + durationMs;
       }
       console.warn(`[Challenge] Suspended detected during DM check: ${msg}`);
@@ -387,10 +387,11 @@ export function markSuspended(hint: string): void {
   suspendedThisCycle = true;
   suspensionMessage = hint;
 
-  // Persist suspension info
+  // Persist suspension info — only set suspendedUntil if not already in the future
+  // (avoids resetting the countdown on every 401 encounter)
   const state = loadChallengeState();
   const durationMs = parseSuspensionDurationMs(hint);
-  if (durationMs > 0) {
+  if (durationMs > 0 && !(state.suspendedUntil > Date.now())) {
     state.suspendedUntil = Date.now() + durationMs;
   }
   const offenseMatch = hint.match(/offense #(\d+)/i);
@@ -436,7 +437,7 @@ async function watchdogTick(): Promise<void> {
     const suspCheck = await checkSuspensionViaProfile();
     if (suspCheck.suspended) {
       const durationMs = parseSuspensionDurationMs(suspCheck.hint);
-      if (durationMs > 0) {
+      if (durationMs > 0 && !(state.suspendedUntil > Date.now())) {
         state.suspendedUntil = Date.now() + durationMs;
         saveChallengeState(state);
       }

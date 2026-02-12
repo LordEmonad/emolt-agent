@@ -145,3 +145,47 @@ export interface EcosystemData {
   fetchedAt: number;
   dataAvailable: boolean;        // false if all fetches failed
 }
+
+export interface DexScreenerPairData {
+  pairAddress: string;
+  dexId: string;
+  baseToken: { symbol: string; name: string };
+  quoteToken: { symbol: string; name: string };
+  priceUsd: number;
+  volume1h: number;
+  buys1h: number;
+  sells1h: number;
+  liquidityUsd: number;
+  priceChange1h: number;
+}
+
+export interface DexScreenerMarketData {
+  totalVolume1h: number;
+  totalLiquidity: number;
+  buyTxCount: number;
+  sellTxCount: number;
+  buySellRatio: number;         // >1 = more buys
+  topPairs: DexScreenerPairData[];  // top 3 by volume
+  newPairsCount: number;        // pairs not seen last cycle
+  volumeChangePct: number;      // vs previous cycle
+  liquidityChangePct: number;   // vs previous cycle
+  fetchedAt: number;
+  dataAvailable: boolean;
+}
+
+export interface KuruOrderbookData {
+  bestBid: number;
+  bestAsk: number;
+  spreadPct: number;            // (ask-bid)/mid * 100
+  midPrice: number;
+  bidDepthMon: number;          // total MON on bid side
+  askDepthMon: number;          // total MON on ask side
+  bidDepthUsd: number;
+  askDepthUsd: number;
+  bookImbalance: number;        // bid_depth / (bid+ask), 0.5 = balanced
+  whaleOrders: number;          // orders > 10k MON
+  spreadChangePct: number;      // vs previous cycle
+  depthChangeRatio: number;     // current total / previous total
+  fetchedAt: number;
+  dataAvailable: boolean;
+}

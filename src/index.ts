@@ -14,6 +14,8 @@ import {
   mapFeedSentimentToStimuli,
   mapGitHubToStimuli,
   mapFeedToStimuli,
+  mapDexScreenerToStimuli,
+  mapKuruOrderbookToStimuli,
   analyzeEmotionMemory,
   getTimeContext,
   fetchMonPrice
@@ -26,6 +28,8 @@ import { collectEcosystemData, formatEcosystemForPrompt } from './chain/ecosyste
 import { collectMonadMetrics, collectEmoTransfers, collectMonadDexOverview, formatMonadMetricsForPrompt } from './chain/etherscan.js';
 import { collectEmoDexData, fetchEmoSocialLinks } from './chain/nadfun.js';
 import { fetchGitHubStars } from './chain/github.js';
+import { collectDexScreenerData, formatDexScreenerForPrompt } from './chain/dexscreener.js';
+import { collectKuruOrderbook, formatKuruOrderbookForPrompt } from './chain/kuru.js';
 import { updateEmotionOnChain, readCurrentEmotionFromChain } from './chain/oracle.js';
 import { refreshEmoodRingMetadata } from './chain/emoodring.js';
 import { detectAndProcessFeeds, formatFeedForPrompt } from './chain/feed.js';
@@ -391,7 +395,9 @@ Good examples of your voice on crypto posts:
     console.log('[Moltbook] Gathering social context...');
   }
   console.log('[Etherscan] Fetching Monad chain metrics...');
-  const [moltbookContextResult, ecosystemData, threadRepliesResult, monadMetrics, monadDex, emoTransfers] = await Promise.all([
+  console.log('[DexScreener] Fetching Monad DEX data...');
+  console.log('[Kuru] Fetching MON/USDC orderbook...');
+  const [moltbookContextResult, ecosystemData, threadRepliesResult, monadMetrics, monadDex, emoTransfers, dexScreenerData, kuruData] = await Promise.all([
     moltbookSuspended
       ? Promise.resolve(moltbookContext!)
       : gatherMoltbookContext(),
@@ -402,6 +408,8 @@ Good examples of your voice on crypto posts:
     collectMonadMetrics().catch(() => null),
     collectMonadDexOverview().catch(() => null),
     collectEmoTransfers().catch(() => null),
+    collectDexScreenerData().catch(() => null),
+    collectKuruOrderbook().catch(() => null),
   ]);
   moltbookContext = moltbookContextResult;
   threadReplies = threadRepliesResult;
@@ -426,6 +434,22 @@ Good examples of your voice on crypto posts:
     }
   } else {
     console.log('[Ecosystem] External data unavailable this cycle');
+  }
+
+  // DexScreener + Kuru stimulus mapping
+  let dexScreenerStimuli: EmotionStimulus[] = [];
+  let kuruStimuli: EmotionStimulus[] = [];
+  if (dexScreenerData?.dataAvailable) {
+    dexScreenerStimuli = mapDexScreenerToStimuli(dexScreenerData, adaptiveThresholds);
+    console.log(`[DexScreener] $${(dexScreenerData.totalVolume1h / 1e3).toFixed(0)}K 1h vol, ${dexScreenerData.buyTxCount} buys/${dexScreenerData.sellTxCount} sells, ${dexScreenerStimuli.length} stimuli`);
+  } else {
+    console.log('[DexScreener] Data unavailable this cycle');
+  }
+  if (kuruData?.dataAvailable) {
+    kuruStimuli = mapKuruOrderbookToStimuli(kuruData, adaptiveThresholds);
+    console.log(`[Kuru] Bid: $${kuruData.bestBid.toFixed(4)} | Ask: $${kuruData.bestAsk.toFixed(4)} | Spread: ${kuruData.spreadPct.toFixed(3)}% | ${kuruStimuli.length} stimuli`);
+  } else {
+    console.log('[Kuru] Data unavailable this cycle');
   }
 
   // 7.5. Save trending data for dashboard ticker
@@ -538,7 +562,7 @@ Good examples of your voice on crypto posts:
   const inertia = emotionMemory.dominantStreak >= 3
     ? { streakEmotion: emotionMemory.streakEmotion, streakLength: emotionMemory.dominantStreak }
     : undefined;
-  const rawStimuli = [...chainStimuli, ...priceStimuli, ...emoDexStimuli, ...timeStimuli, ...moltbookStimuli, ...feedContagionStimuli, ...ecosystemStimuli, ...selfPerfStimuli, ...githubStimuli, ...memoryStimuli, ...feedStimuli];
+  const rawStimuli = [...chainStimuli, ...priceStimuli, ...emoDexStimuli, ...timeStimuli, ...moltbookStimuli, ...feedContagionStimuli, ...ecosystemStimuli, ...selfPerfStimuli, ...githubStimuli, ...memoryStimuli, ...feedStimuli, ...dexScreenerStimuli, ...kuruStimuli];
   const allStimuli = applyStrategyWeights(rawStimuli, strategyWeights);
   emotionState = stimulate(emotionState, allStimuli, inertia);
   emotionState = updateMood(emotionState);
@@ -556,8 +580,12 @@ Good examples of your voice on crypto posts:
     console.log(`[Threads] ${threadReplies.length} replies to your comments`);
   }
   const monadPulse = formatMonadMetricsForPrompt(monadMetrics, monadDex, emoTransfers);
+  const dexScreenerBlock = dexScreenerData ? formatDexScreenerForPrompt(dexScreenerData) : '';
+  const kuruBlock = kuruData ? formatKuruOrderbookForPrompt(kuruData) : '';
   const formattedMemory = [
     monadPulse,
+    dexScreenerBlock,
+    kuruBlock,
     threadContext,
     feedContext,
     formatMemoryForPrompt(memory),
@@ -714,7 +742,7 @@ Good examples of your voice on crypto posts:
   }
 
   // 14. Persist state + memory + rolling averages + strategy weights
-  rollingAvg = updateRollingAverages(rollingAvg, chainData, priceDataForAvg, ecosystemData, emoDexDataForAvg);
+  rollingAvg = updateRollingAverages(rollingAvg, chainData, priceDataForAvg, ecosystemData, emoDexDataForAvg, dexScreenerData, kuruData);
   saveRollingAverages(rollingAvg);
   saveStrategyWeights(strategyWeights);
   saveEmotionState(emotionState);

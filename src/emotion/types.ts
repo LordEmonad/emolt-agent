@@ -103,7 +103,9 @@ export type StrategyWeightKey =
   | 'ecosystemVolume'
   | 'gasPressure'
   | 'githubStarReaction'
-  | 'feedJoy';
+  | 'feedJoy'
+  | 'dexScreenerMarket'
+  | 'kuruOrderbook';
 
 // A stimulus that affects emotions
 export interface EmotionStimulus {
@@ -161,6 +163,14 @@ export interface RollingAverages {
   monVolume24h: number;
   gasPriceGwei: number;
   ecosystemTokenChange: number;
+  // DexScreener
+  dexVolume1h: number;
+  dexBuySellRatio: number;
+  dexLiquidity: number;
+  // Kuru Orderbook
+  kuruSpreadPct: number;
+  kuruBookImbalance: number;
+  kuruTotalDepth: number;
   cyclesTracked: number;
   lastUpdated: number;
 }
@@ -187,6 +197,14 @@ export interface AdaptiveThresholds {
   monVolume24hLow: number;
   gasPriceGwei: number;
   ecosystemTokenChange: number;
+  // DexScreener
+  dexVolumeHigh: number;
+  dexBuySellExtreme: number;
+  dexLiquidityShift: number;
+  // Kuru Orderbook
+  kuruSpreadWide: number;
+  kuruImbalanceExtreme: number;
+  kuruDepthThin: number;
 }
 
 // Self-performance tracking

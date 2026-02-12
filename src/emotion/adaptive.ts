@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ensureStateDir, atomicWriteFileSync, STATE_DIR } from '../state/persistence.js';
 import type { RollingAverages, AdaptiveThresholds } from './types.js';
-import type { ChainDataSummary, EcosystemData, EmoDexData } from '../chain/types.js';
+import type { ChainDataSummary, EcosystemData, EmoDexData, DexScreenerMarketData, KuruOrderbookData } from '../chain/types.js';
 import type { PriceData } from './types.js';
 
 const ROLLING_AVG_FILE = join(STATE_DIR, 'rolling-averages.json');
@@ -28,6 +28,12 @@ export function createDefaultRollingAverages(): RollingAverages {
     monVolume24h: 50e6,
     gasPriceGwei: 50,
     ecosystemTokenChange: 20,
+    dexVolume1h: 500000,
+    dexBuySellRatio: 1.0,
+    dexLiquidity: 10e6,
+    kuruSpreadPct: 0.3,
+    kuruBookImbalance: 0.5,
+    kuruTotalDepth: 500000,
     cyclesTracked: 0,
     lastUpdated: Date.now(),
   };
@@ -36,7 +42,9 @@ export function createDefaultRollingAverages(): RollingAverages {
 export function loadRollingAverages(): RollingAverages {
   try {
     const data = readFileSync(ROLLING_AVG_FILE, 'utf-8');
-    return JSON.parse(data);
+    const loaded = JSON.parse(data);
+    // Merge with defaults so old state files get new fields
+    return Object.assign(createDefaultRollingAverages(), loaded);
   } catch {
     return createDefaultRollingAverages();
   }
@@ -58,6 +66,8 @@ export function updateRollingAverages(
   priceData?: PriceData,
   ecosystemData?: EcosystemData | null,
   emoDexData?: EmoDexData | null,
+  dexData?: DexScreenerMarketData | null,
+  kuruData?: KuruOrderbookData | null,
 ): RollingAverages {
   const updated = { ...avg };
 
@@ -103,6 +113,20 @@ export function updateRollingAverages(
     }
   }
 
+  // DexScreener
+  if (dexData?.dataAvailable) {
+    updated.dexVolume1h = ema(avg.dexVolume1h, dexData.totalVolume1h);
+    updated.dexBuySellRatio = ema(avg.dexBuySellRatio, dexData.buySellRatio);
+    updated.dexLiquidity = ema(avg.dexLiquidity, dexData.totalLiquidity);
+  }
+
+  // Kuru Orderbook
+  if (kuruData?.dataAvailable) {
+    updated.kuruSpreadPct = ema(avg.kuruSpreadPct, kuruData.spreadPct);
+    updated.kuruBookImbalance = ema(avg.kuruBookImbalance, kuruData.bookImbalance);
+    updated.kuruTotalDepth = ema(avg.kuruTotalDepth, kuruData.bidDepthMon + kuruData.askDepthMon);
+  }
+
   updated.cyclesTracked++;
   return updated;
 }
@@ -129,5 +153,13 @@ export function computeAdaptiveThresholds(avg: RollingAverages): AdaptiveThresho
     monVolume24hLow: Math.max(5e6, avg.monVolume24h * 0.2),
     gasPriceGwei: Math.max(50, avg.gasPriceGwei * 2),
     ecosystemTokenChange: Math.max(20, avg.ecosystemTokenChange * 2),
+    // DexScreener
+    dexVolumeHigh: Math.max(500000, avg.dexVolume1h * 1.5),
+    dexBuySellExtreme: Math.max(1.5, avg.dexBuySellRatio * 1.5),
+    dexLiquidityShift: Math.max(1e6, avg.dexLiquidity * 0.1), // 10% of avg liquidity as "shift" threshold
+    // Kuru Orderbook
+    kuruSpreadWide: Math.max(0.3, avg.kuruSpreadPct * 1.5),
+    kuruImbalanceExtreme: 0.65, // fixed: >0.65 bid-heavy, <0.35 ask-heavy
+    kuruDepthThin: Math.max(100000, avg.kuruTotalDepth * 0.5), // depth below 50% of average
   };
 }

@@ -59,6 +59,15 @@ export function extractFirstJSON(raw: string): string | null {
   return null;
 }
 
+function sealNarrative(text: string | undefined | null): string | null {
+  if (!text) return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  // If narrative ends without terminal punctuation, it got cut mid-thought — seal with em dash
+  if (/[.!?\u2014\u2026]$/.test(trimmed)) return trimmed;
+  return trimmed + '\u2014';
+}
+
 export function parseClaudeResponse(raw: string): ClaudeResponse | null {
   try {
     // Extract first balanced JSON object from response
@@ -87,7 +96,7 @@ export function parseClaudeResponse(raw: string): ClaudeResponse | null {
     return {
       thinking: parsed.thinking || '',
       action: parsed.action || 'observe',
-      moodNarrative: parsed.moodNarrative || null,
+      moodNarrative: sealNarrative(parsed.moodNarrative) || null,
       post: parsed.post || null,
       comments,
       dm: parsed.dm || null,

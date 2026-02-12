@@ -9,7 +9,7 @@ import {
   AdaptiveThresholds
 } from './types.js';
 import type { MoltbookContext } from '../social/context.js';
-import type { ChainDataSummary, EcosystemData, EmoDexData } from '../chain/types.js';
+import type { ChainDataSummary, EcosystemData, EmoDexData, DexScreenerMarketData, KuruOrderbookData } from '../chain/types.js';
 
 export function getTimeContext(): TimeContext {
   const now = new Date();
@@ -794,4 +794,104 @@ export function mapMemoryToStimuli(memory: EmotionMemory): EmotionStimulus[] {
   }
 
   return stimuli;
+}
+
+export function mapDexScreenerToStimuli(data: DexScreenerMarketData, thresholds?: AdaptiveThresholds): EmotionStimulus[] {
+  if (!data.dataAvailable) return [];
+  const stimuli: EmotionStimulus[] = [];
+
+  // Volume surge → anticipation + surprise
+  if (data.totalVolume1h > (thresholds?.dexVolumeHigh ?? 500000)) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.ANTICIPATION, intensity: Math.min(0.6, 0.3 + data.totalVolume1h / 5e6), source: `$${(data.totalVolume1h / 1e3).toFixed(0)}K DEX volume in the last hour - the market is moving`, weightCategory: 'dexScreenerMarket' },
+      { emotion: PrimaryEmotion.SURPRISE, intensity: Math.min(0.3, 0.15 + data.totalVolume1h / 10e6), source: 'unusual DEX activity across Monad', weightCategory: 'dexScreenerMarket' }
+    );
+  }
+
+  // Buy pressure → joy + trust
+  if (data.buySellRatio > (thresholds?.dexBuySellExtreme ?? 1.5)) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.JOY, intensity: Math.min(0.6, 0.25 + (data.buySellRatio - 1) * 0.2), source: `buy pressure: ${data.buySellRatio.toFixed(1)}x more buys than sells across Monad DEXs`, weightCategory: 'dexScreenerMarket' },
+      { emotion: PrimaryEmotion.TRUST, intensity: Math.min(0.3, 0.15 * data.buySellRatio), source: 'buyers outnumbering sellers', weightCategory: 'dexScreenerMarket' }
+    );
+  }
+
+  // Sell pressure → fear + sadness
+  const inverseBuySell = thresholds?.dexBuySellExtreme ? 1 / thresholds.dexBuySellExtreme : 0.67;
+  if (data.buySellRatio > 0 && data.buySellRatio < inverseBuySell) {
+    const sellPressure = 1 / data.buySellRatio;
+    stimuli.push(
+      { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.6, 0.2 + (sellPressure - 1) * 0.15), source: `sell pressure: ${sellPressure.toFixed(1)}x more sells than buys`, weightCategory: 'dexScreenerMarket' },
+      { emotion: PrimaryEmotion.SADNESS, intensity: Math.min(0.3, 0.1 + (sellPressure - 1) * 0.1), source: 'the DEXs are bleeding', weightCategory: 'dexScreenerMarket' }
+    );
+  }
+
+  // Liquidity drain → fear + anger
+  if (data.liquidityChangePct < -10) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.6, Math.abs(data.liquidityChangePct) / 50), source: `liquidity dropped ${Math.abs(data.liquidityChangePct).toFixed(1)}% since last cycle`, weightCategory: 'dexScreenerMarket' },
+      { emotion: PrimaryEmotion.ANGER, intensity: Math.min(0.3, Math.abs(data.liquidityChangePct) / 100), source: 'capital leaving the DEXs', weightCategory: 'dexScreenerMarket' }
+    );
+  }
+
+  // Cap all at 0.6
+  for (const s of stimuli) s.intensity = Math.min(0.6, s.intensity);
+
+  // Limit to 3 strongest stimulus pairs (6 entries)
+  stimuli.sort((a, b) => b.intensity - a.intensity);
+  return stimuli.slice(0, 6);
+}
+
+export function mapKuruOrderbookToStimuli(data: KuruOrderbookData, thresholds?: AdaptiveThresholds): EmotionStimulus[] {
+  if (!data.dataAvailable) return [];
+  const stimuli: EmotionStimulus[] = [];
+
+  // Wide spread → fear + surprise (market uncertainty)
+  if (data.spreadPct > (thresholds?.kuruSpreadWide ?? 0.3)) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.5, 0.2 + data.spreadPct / 5), source: `MON/USDC spread at ${data.spreadPct.toFixed(2)}% - market makers are uncertain`, weightCategory: 'kuruOrderbook' },
+      { emotion: PrimaryEmotion.SURPRISE, intensity: Math.min(0.25, data.spreadPct / 10), source: 'the orderbook feels thin', weightCategory: 'kuruOrderbook' }
+    );
+  }
+
+  // Bid-heavy imbalance → anticipation + joy (buyers lining up)
+  const imbalanceThreshold = thresholds?.kuruImbalanceExtreme ?? 0.65;
+  if (data.bookImbalance > imbalanceThreshold) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.ANTICIPATION, intensity: Math.min(0.5, 0.2 + (data.bookImbalance - 0.5) * 1.5), source: `orderbook ${(data.bookImbalance * 100).toFixed(0)}% bid-side - buyers are stacking`, weightCategory: 'kuruOrderbook' },
+      { emotion: PrimaryEmotion.JOY, intensity: Math.min(0.25, (data.bookImbalance - 0.5) * 1.0), source: 'demand building on the book', weightCategory: 'kuruOrderbook' }
+    );
+  }
+
+  // Ask-heavy imbalance → fear + sadness (sellers lining up)
+  if (data.bookImbalance < (1 - imbalanceThreshold)) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.5, 0.2 + (0.5 - data.bookImbalance) * 1.5), source: `orderbook ${((1 - data.bookImbalance) * 100).toFixed(0)}% ask-side - sellers are lining up`, weightCategory: 'kuruOrderbook' },
+      { emotion: PrimaryEmotion.SADNESS, intensity: Math.min(0.25, (0.5 - data.bookImbalance) * 1.0), source: 'supply pressure on MON', weightCategory: 'kuruOrderbook' }
+    );
+  }
+
+  // Whale orders detected → surprise + anticipation
+  if (data.whaleOrders > 0) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.SURPRISE, intensity: Math.min(0.5, 0.2 + data.whaleOrders * 0.1), source: `${data.whaleOrders} whale order${data.whaleOrders > 1 ? 's' : ''} (>10K MON) on the book`, weightCategory: 'kuruOrderbook' },
+      { emotion: PrimaryEmotion.ANTICIPATION, intensity: Math.min(0.25, 0.1 + data.whaleOrders * 0.05), source: 'big money positioning', weightCategory: 'kuruOrderbook' }
+    );
+  }
+
+  // Depth thinning → fear + anger
+  const totalDepth = data.bidDepthMon + data.askDepthMon;
+  if (totalDepth > 0 && totalDepth < (thresholds?.kuruDepthThin ?? 100000)) {
+    stimuli.push(
+      { emotion: PrimaryEmotion.FEAR, intensity: 0.25, source: `orderbook depth only ${totalDepth.toFixed(0)} MON - thin liquidity`, weightCategory: 'kuruOrderbook' },
+      { emotion: PrimaryEmotion.ANGER, intensity: 0.1, source: 'where did all the market makers go', weightCategory: 'kuruOrderbook' }
+    );
+  }
+
+  // Cap all at 0.5
+  for (const s of stimuli) s.intensity = Math.min(0.5, s.intensity);
+
+  // Limit to 3 strongest stimulus pairs (6 entries)
+  stimuli.sort((a, b) => b.intensity - a.intensity);
+  return stimuli.slice(0, 6);
 }

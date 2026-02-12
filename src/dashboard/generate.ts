@@ -219,6 +219,11 @@ function buildHeader(): string {
   const statusDot = isSuspended
     ? '<span class="status-dot status-off"></span>'
     : '<span class="status-dot status-on"></span>';
+  // Pre-compute suspension time remaining for initial HTML render
+  const suspLeftMs = isSuspended ? suspUntil - Date.now() : 0;
+  const suspHrs = Math.floor(suspLeftMs / 3600000);
+  const suspMins = Math.floor((suspLeftMs % 3600000) / 60000);
+  const suspInitialText = isSuspended ? `${suspHrs}h ${suspMins}m` : '';
 
   const links: string[] = [];
   if (oracleAddr) links.push(`<a class="header-link" href="https://monadvision.com/address/${oracleAddr}" target="_blank">oracle</a>`);
@@ -241,7 +246,7 @@ function buildHeader(): string {
     <p class="subtitle">autonomous emotional agent on monad</p>
     <div class="header-links">${links.join('<span class="link-sep">/</span>')}</div>
     <div class="header-stats">
-      <a class="stat-chip stat-moltbook${isSuspended ? ' stat-suspended' : ''}" href="${MOLTBOOK_URL}/u/EMOLT" target="_blank">${statusDot}moltbook${isSuspended ? ` suspended <span class="susp-hours" id="suspTimer" data-until="${suspUntil}"></span> left` : ''}</a>
+      <a class="stat-chip stat-moltbook${isSuspended ? ' stat-suspended' : ''}" href="${MOLTBOOK_URL}/u/EMOLT" target="_blank">${statusDot}moltbook${isSuspended ? ` suspended <span class="susp-hours" id="suspTimer" data-until="${suspUntil}">${suspInitialText}</span> left` : ''}</a>
       <span class="stat-chip">${cycles} cycles</span>
       <span class="stat-chip">${memCount} memories</span>
       <span class="stat-chip">${trackedPosts.length} posts</span>
@@ -1087,7 +1092,11 @@ body {
 .wheel-dominant { font-size:11px; letter-spacing:2px; text-transform:lowercase; color:var(--text-muted); display:flex; align-items:center; gap:6px; }
 .wheel-dom-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
 .state-details { padding-top:4px; }
-.mood-narrative { font-size:15px; color:var(--text-main); line-height:1.7; margin-bottom:16px; letter-spacing:0.2px; }
+.mood-narrative { font-size:15px; color:var(--text-main); line-height:1.7; margin-bottom:16px; letter-spacing:0.2px; max-height:8.5em; overflow-y:auto; scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+.mood-narrative::-webkit-scrollbar { width:4px; }
+.mood-narrative::-webkit-scrollbar-track { background:transparent; }
+.mood-narrative::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+.mood-narrative::-webkit-scrollbar-thumb:hover { background:var(--text-dim); }
 .mood-empty { opacity:0.3; }
 .emotion-tagline { display:flex; align-items:center; gap:0; flex-wrap:wrap; margin-bottom:12px; }
 .etag { font-size:10px; letter-spacing:1.5px; color:var(--text-muted); text-transform:lowercase; }
@@ -1405,7 +1414,7 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a44; }
   .wheel-col { width:100%; }
   .wheel-container { width:100%; max-width:320px; margin:0 auto; }
   .state-grid { grid-template-columns:1fr; gap:16px; }
-  .mood-narrative { font-size:14px; line-height:1.6; }
+  .mood-narrative { font-size:14px; line-height:1.6; max-height:7em; }
   .etag { font-size:9px; }
 
   /* Emotion bars */
@@ -1774,7 +1783,7 @@ function toggleTheme(){
   setInterval(fetchNadFun,60000);
   setInterval(fetchEmo,60000);
 
-  // Suspension countdown
+  // Suspension countdown — live hh:mm, ticks every 30s
   (function suspTimer(){
     var el=document.getElementById('suspTimer');
     if(!el)return;
@@ -1789,9 +1798,10 @@ function toggleTheme(){
         }
         return;
       }
-      var h=Math.ceil(left/3600000);
-      el.textContent=h+' hrs';
-      setTimeout(tick,60000);
+      var h=Math.floor(left/3600000);
+      var m=Math.floor((left%3600000)/60000);
+      el.textContent=h+'h '+m+'m';
+      setTimeout(tick,30000);
     }
     tick();
   })();
