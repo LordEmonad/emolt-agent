@@ -1154,8 +1154,8 @@ html.light body::before { opacity:0.015; }
 .grid-half .card:nth-child(1) { animation-delay:0.05s; }
 .grid-half .card:nth-child(2) { animation-delay:0.1s; }
 .card-wide { grid-column:1/-1; }
-.grid-quad { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:14px; }
-.grid-half { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }
+.grid-quad { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:12px; }
+.grid-half { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
 .card-half { display:flex; flex-direction:column; }
 .card-half .scroll-inner { flex:1; }
 .card h2 {
@@ -1773,9 +1773,10 @@ export function generateDashboard(): void {
   ${nfTicker}
   <div class="grid">
     ${buildCurrentState()}
-    ${buildEngagementSummary()}
     ${buildTimeline()}
     ${buildCompoundHistory()}
+  </div>
+  <div class="grid-quad">
     ${buildPostsFeed()}
     ${buildConversations()}
     ${buildMemorySection()}
@@ -1787,11 +1788,9 @@ export function generateDashboard(): void {
   </div>
   <div class="grid-half">
     ${buildOnChainStatus()}
-  </div>
-  <div class="grid-half">
     ${buildRollingAverages()}
   </div>
-  <div style="margin-top:16px">
+  <div style="margin-top:12px">
     ${buildHeartbeatLog()}
   </div>
   ${buildFeedSection()}

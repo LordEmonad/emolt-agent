@@ -139,13 +139,8 @@ export function decay(state: EmotionState, minutesElapsed: number): EmotionState
     const current = newEmotions[emotion];
     const decayFactor = Math.exp(-DECAY_RATE * minutesElapsed);
 
-    if (current >= BASELINE) {
-      // Above baseline: decay toward baseline
-      newEmotions[emotion] = BASELINE + (current - BASELINE) * decayFactor;
-    } else {
-      // Below baseline (suppressed): decay toward 0, not back up
-      newEmotions[emotion] = current * decayFactor;
-    }
+    // Decay toward baseline from either direction
+    newEmotions[emotion] = BASELINE + (current - BASELINE) * decayFactor;
   }
 
   // Re-detect compounds and dominant after decay

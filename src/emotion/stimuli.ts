@@ -100,8 +100,8 @@ export function mapChainDataToStimuli(data: ChainDataSummary, thresholds?: Adapt
   // NEW CONTRACTS DEPLOYED → Curiosity (Trust + Surprise)
   if (data.newContracts > 0) {
     stimuli.push(
-      { emotion: PrimaryEmotion.TRUST, intensity: Math.min(1.0, 0.15 * data.newContracts), source: `${data.newContracts} new contracts deployed`, weightCategory: 'chainActivityJoy' },
-      { emotion: PrimaryEmotion.SURPRISE, intensity: Math.min(1.0, 0.1 * data.newContracts), source: 'new builders arriving', weightCategory: 'chainActivityJoy' }
+      { emotion: PrimaryEmotion.TRUST, intensity: Math.min(0.35, 0.10 * data.newContracts), source: `${data.newContracts} new contracts deployed`, weightCategory: 'chainActivityJoy' },
+      { emotion: PrimaryEmotion.SURPRISE, intensity: Math.min(0.25, 0.07 * data.newContracts), source: 'new builders arriving', weightCategory: 'chainActivityJoy' }
     );
   }
 
