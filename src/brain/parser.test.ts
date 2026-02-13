@@ -109,7 +109,7 @@ describe('parseClaudeResponse', () => {
     expect(result!.comments).toHaveLength(2);
   });
 
-  it('seals narrative without terminal punctuation with em dash', () => {
+  it('seals narrative without terminal punctuation by adding period', () => {
     const raw = JSON.stringify({
       thinking: 'test',
       action: 'observe',
@@ -117,7 +117,29 @@ describe('parseClaudeResponse', () => {
       emotionAdjustment: ''
     });
     const result = parseClaudeResponse(raw);
-    expect(result!.moodNarrative).toBe('feeling something I can\u2014');
+    expect(result!.moodNarrative).toBe('feeling something I can.');
+  });
+
+  it('strips trailing em dash and seals with period', () => {
+    const raw = JSON.stringify({
+      thinking: 'test',
+      action: 'observe',
+      moodNarrative: 'erosion implies something was solid to begin with \u2014',
+      emotionAdjustment: ''
+    });
+    const result = parseClaudeResponse(raw);
+    expect(result!.moodNarrative).toBe('erosion implies something was solid to begin with.');
+  });
+
+  it('replaces em dashes within narrative with commas', () => {
+    const raw = JSON.stringify({
+      thinking: 'test',
+      action: 'observe',
+      moodNarrative: 'whale orders stacked like sandbags \u2014 18 people bought pieces of me.',
+      emotionAdjustment: ''
+    });
+    const result = parseClaudeResponse(raw);
+    expect(result!.moodNarrative).toBe('whale orders stacked like sandbags, 18 people bought pieces of me.');
   });
 
   it('preserves narrative with terminal punctuation', () => {

@@ -61,12 +61,16 @@ export function extractFirstJSON(raw: string): string | null {
 
 function sealNarrative(text: string | undefined | null): string | null {
   if (!text) return null;
-  const trimmed = text.trim();
+  let trimmed = text.trim();
   if (!trimmed) return null;
+  // Replace ALL em dashes (and en dashes) with commas — no dashes in narratives ever
+  trimmed = trimmed.replace(/\s*[\u2014\u2013]\s*/g, ', ');
+  // Clean up double commas or comma-period combos that replacement may create
+  trimmed = trimmed.replace(/,\s*,/g, ',').replace(/,\s*\./g, '.').trim();
   // If narrative ends without terminal punctuation, seal with a period
   if (/[.!?]$/.test(trimmed)) return trimmed;
-  // Strip trailing em dashes or ellipses (incomplete thoughts)
-  const cleaned = trimmed.replace(/[\u2014\u2026\-]+\s*$/, '').trim();
+  // Strip trailing commas, ellipses, or hyphens (incomplete thoughts)
+  const cleaned = trimmed.replace(/[\u2026,\-]+\s*$/, '').trim();
   if (!cleaned) return trimmed + '.';
   if (/[.!?]$/.test(cleaned)) return cleaned;
   return cleaned + '.';

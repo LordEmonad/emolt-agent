@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { join } from 'path';
-import { createWalletClient, http } from 'viem';
+import { createWalletClient, http, decodeEventLog } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { registerActivity } from './registry.js';
 import { loadEmotionState, atomicWriteFileSync, STATE_DIR, ensureStateDir } from '../state/persistence.js';
@@ -225,6 +225,29 @@ const GAME_WORLD_ABI = [
       { name: 'varianceMode', type: 'uint8' },
     ],
     outputs: [{ name: '', type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'event',
+    name: 'ActionCommitted',
+    inputs: [
+      { name: 'commitId', type: 'uint256', indexed: true },
+      { name: 'characterId', type: 'uint256', indexed: true },
+      { name: 'actor', type: 'address', indexed: false },
+      { name: 'actionType', type: 'uint8', indexed: false },
+      { name: 'varianceMode', type: 'uint8', indexed: false },
+      { name: 'nonce', type: 'uint64', indexed: false },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'potionBalance',
+    inputs: [
+      { name: 'characterId', type: 'uint256' },
+      { name: 'potionType', type: 'uint8' },
+      { name: 'potionTier', type: 'uint8' },
+    ],
+    outputs: [{ name: '', type: 'uint32' }],
     stateMutability: 'view',
   },
 ] as const;
@@ -544,6 +567,31 @@ function pickAbilityChoice(profile: EmotionProfile): number {
 
 // --- Commit-Reveal Core ---
 
+// Nonce: user-supplied uint64 salt. Docs say a simple counter is fine.
+let nonceCounter = BigInt(Date.now());
+function nextNonce(): bigint {
+  return nonceCounter++;
+}
+
+// Extract commitId from ActionCommitted event in tx receipt
+function extractCommitId(receipt: any): bigint {
+  for (const log of receipt.logs || []) {
+    try {
+      const decoded = decodeEventLog({
+        abi: GAME_WORLD_ABI,
+        data: log.data,
+        topics: log.topics,
+      });
+      if (decoded.eventName === 'ActionCommitted') {
+        return (decoded.args as any).commitId as bigint;
+      }
+    } catch {
+      // Not this event, continue
+    }
+  }
+  throw new Error('ActionCommitted event not found in receipt — cannot extract commitId');
+}
+
 async function waitForBlocks(
   startBlock: bigint,
   blocksNeeded: number,
@@ -577,6 +625,7 @@ async function commitRevealLootbox(
   log('step', 'commit-reveal: opening lootbox...');
 
   const secret = generateSecret();
+  const nonce = nextNonce();
 
   // Read commit fee (required as msg.value)
   const commitFee = await publicClient.readContract({
@@ -584,14 +633,7 @@ async function commitRevealLootbox(
     abi: GAME_WORLD_ABI,
     functionName: 'commitFee',
   });
-  log('thought', `commit fee: ${commitFee} wei`);
-
-  const nonce = await publicClient.readContract({
-    address: contracts.gameWorld,
-    abi: GAME_WORLD_ABI,
-    functionName: 'nextCommitId',
-  });
-  log('thought', `nonce: ${nonce}`);
+  log('thought', `commit fee: ${commitFee} wei | nonce: ${nonce}`);
 
   // Compute hash via view function
   const hash = await publicClient.readContract({
@@ -616,11 +658,15 @@ async function commitRevealLootbox(
   if (commitReceipt.status !== 'success') throw new Error(`commit tx reverted: ${commitTxHash}`);
   log('step', `commit confirmed at block ${commitReceipt.blockNumber}`);
 
+  // Extract commitId from ActionCommitted event (not nextCommitId — avoids race conditions)
+  const commitId = extractCommitId(commitReceipt);
+  log('thought', `commitId from event: ${commitId}`);
+
   // Save pending commit for crash recovery
   state.pendingCommit = {
     type: 'lootbox',
     secret,
-    commitId: String(nonce),
+    commitId: String(commitId),
     commitBlockNumber: Number(commitReceipt.blockNumber),
     commitTxHash,
     variance: varianceMode,
@@ -637,7 +683,7 @@ async function commitRevealLootbox(
       address: contracts.gameWorld,
       abi: GAME_WORLD_ABI,
       functionName: 'revealWindow',
-      args: [nonce],
+      args: [commitId],
     }) as readonly [bigint, bigint, boolean, boolean, boolean];
     const [, , isOpen, isExpired] = window;
     if (isExpired) {
@@ -659,7 +705,7 @@ async function commitRevealLootbox(
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
     functionName: 'revealOpenLootboxesMax',
-    args: [nonce, secret, 0, 5, varianceMode],
+    args: [commitId, secret, 0, 5, varianceMode],
   });
   log('action', `reveal tx: ${revealTxHash}`);
 
@@ -689,6 +735,7 @@ async function commitRevealDungeon(
   log('step', `commit-reveal: starting dungeon (level=${dungeonLevel}, diff=${difficulty}, var=${varianceMode})...`);
 
   const secret = generateSecret();
+  const nonce = nextNonce();
 
   // Read commit fee (required as msg.value)
   const commitFee = await publicClient.readContract({
@@ -696,14 +743,7 @@ async function commitRevealDungeon(
     abi: GAME_WORLD_ABI,
     functionName: 'commitFee',
   });
-  log('thought', `commit fee: ${commitFee} wei`);
-
-  const nonce = await publicClient.readContract({
-    address: contracts.gameWorld,
-    abi: GAME_WORLD_ABI,
-    functionName: 'nextCommitId',
-  });
-  log('thought', `nonce: ${nonce}`);
+  log('thought', `commit fee: ${commitFee} wei | nonce: ${nonce}`);
 
   // Compute hash via view function
   const hash = await publicClient.readContract({
@@ -728,11 +768,15 @@ async function commitRevealDungeon(
   if (commitReceipt.status !== 'success') throw new Error(`commit tx reverted: ${commitTxHash}`);
   log('step', `commit confirmed at block ${commitReceipt.blockNumber}`);
 
+  // Extract commitId from ActionCommitted event (not nextCommitId — avoids race conditions)
+  const commitId = extractCommitId(commitReceipt);
+  log('thought', `commitId from event: ${commitId}`);
+
   // Save pending commit for crash recovery
   state.pendingCommit = {
     type: 'dungeon',
     secret,
-    commitId: String(nonce),
+    commitId: String(commitId),
     commitBlockNumber: Number(commitReceipt.blockNumber),
     commitTxHash,
     difficulty,
@@ -750,7 +794,7 @@ async function commitRevealDungeon(
       address: contracts.gameWorld,
       abi: GAME_WORLD_ABI,
       functionName: 'revealWindow',
-      args: [nonce],
+      args: [commitId],
     }) as readonly [bigint, bigint, boolean, boolean, boolean];
     const [, , isOpen, isExpired] = window;
     if (isExpired) {
@@ -772,7 +816,7 @@ async function commitRevealDungeon(
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
     functionName: 'revealStartDungeon',
-    args: [nonce, secret, difficulty, dungeonLevel, varianceMode],
+    args: [commitId, secret, difficulty, dungeonLevel, varianceMode],
   });
   log('action', `reveal tx: ${revealTxHash}`);
 
@@ -1129,7 +1173,7 @@ async function resolveAllRooms(
 
       const potionChoice = pickPotionChoice(profile);
       const abilityChoice = pickAbilityChoice(profile);
-      const batchSize = 8; // max batch per tx
+      const batchSize = 11; // ROOM_MAX per tx (from core progression mechanics)
       const potionChoices = Array(batchSize).fill(potionChoice);
       const abilityChoices = Array(batchSize).fill(abilityChoice);
 
