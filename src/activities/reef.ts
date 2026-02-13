@@ -1640,6 +1640,19 @@ async function executeReef(plan: DispatchPlan, log: DispatchLogger, signal: Abor
       break;
     }
 
+    // Loop guard: if the same action+target repeated 3+ times, heavily penalize it
+    if (actionHistory.length >= 3) {
+      const lastKey = actionHistory[actionHistory.length - 1];
+      const repeats = actionHistory.slice(-3).filter(a => a === lastKey).length;
+      if (repeats >= 3) {
+        for (const c of filtered) {
+          const key = `${c.action}${c.target ? `→${c.target}` : ''}`;
+          if (key === lastKey) c.score -= 10; // force something else
+        }
+        log('thought', `loop guard: "${lastKey}" repeated ${repeats}x — penalizing`);
+      }
+    }
+
     const chosen = pickAction(filtered, log);
     const body = buildActionBody(chosen, ctx, profile);
 
@@ -1800,8 +1813,27 @@ async function executeReef(plan: DispatchPlan, log: DispatchLogger, signal: Abor
       if (chosen.action === 'quest' && result) {
         // Quest list response — parse available/active quests
         if (chosen.target === 'list') {
-          const questList = result.quests || result.available || [];
-          if (Array.isArray(questList)) {
+          let questList = result.quests || result.available || [];
+          // Fallback: parse quests from narrative text when structured data is missing
+          if ((!Array.isArray(questList) || questList.length === 0) && result.narrative) {
+            const narr: string = result.narrative;
+            const questPattern = /\*\*(.+?)\*\*\s*\[(\w+)\]/g;
+            const parsed: { id: string; name: string; description: string; status: 'available' | 'active' | 'complete' }[] = [];
+            let qm;
+            while ((qm = questPattern.exec(narr)) !== null) {
+              parsed.push({
+                id: qm[2],
+                name: qm[1],
+                description: '',
+                status: /active|in.?progress/i.test(narr.slice(Math.max(0, qm.index - 40), qm.index)) ? 'active' : 'available',
+              });
+            }
+            if (parsed.length > 0) {
+              questList = parsed;
+              log('step', `parsed ${parsed.length} quest(s) from narrative`);
+            }
+          }
+          if (Array.isArray(questList) && questList.length > 0) {
             ctx.quests = questList.map((q: any) => ({
               id: q.id ?? q.quest_id ?? String(q.index ?? q),
               name: q.name ?? q.title ?? `Quest ${q.id ?? ''}`,
