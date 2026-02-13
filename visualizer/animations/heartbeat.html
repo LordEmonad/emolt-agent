@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Heartbeat Cycle</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#E04848;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="400" viewBox="-60 -60 120 120">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E04848" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="ecg"></g>
+  <g id="pulse"></g>
+  <g id="lob"></g>
+</svg>
+<div class="label">heartbeat cycle</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const ecgEl = document.getElementById('ecg');
+const pulseEl = document.getElementById('pulse');
+
+const pulseRings = [];
+
+startLoop(t => {
+  // Heartbeat rhythm: normal, then strong beat
+  const beatCycle = t % 40;
+  let beatScale = 1;
+  if (beatCycle < 3) beatScale = 1 + beatCycle*0.02;
+  else if (beatCycle < 6) beatScale = 1.06 - (beatCycle-3)*0.015;
+  else if (beatCycle === 12) beatScale = 1.03;
+  else if (beatCycle === 13) beatScale = 1.01;
+
+  // Pulse ring on beat
+  if (beatCycle === 2) pulseRings.push({ age: 0 });
+
+  el.innerHTML = `<g transform="scale(${beatScale})">` +
+    drawLobster({ t }) + '</g>';
+
+  // ECG line across bottom
+  let ecg = '<path d="';
+  for (let x = -50; x <= 50; x += 1) {
+    const px = (x + 50 + t*1.5) % 100;
+    let y = 45;
+    // ECG wave pattern
+    if (px > 35 && px < 40) y = 45 - (px-35)*3;      // P wave up
+    if (px >= 40 && px < 45) y = 30 + (px-40)*3;      // P wave down
+    if (px >= 48 && px < 50) y = 45 - (px-48)*12;     // QRS up
+    if (px >= 50 && px < 52) y = 21 + (px-50)*14;      // QRS down
+    if (px >= 52 && px < 54) y = 49 - (px-52)*2;      // QRS recover
+    if (px >= 60 && px < 68) y = 45 - Math.sin((px-60)/8*Math.PI)*6; // T wave
+
+    ecg += (x === -50 ? 'M' : 'L') + `${x},${y}`;
+  }
+  ecg += `" fill="none" stroke="#E04848" stroke-width="0.6" opacity="0.4"/>`;
+  ecgEl.innerHTML = ecg;
+
+  // Expanding pulse rings
+  let pulse = '';
+  for (let i = pulseRings.length-1; i >= 0; i--) {
+    const r = pulseRings[i];
+    r.age++;
+    if (r.age > 30) { pulseRings.splice(i,1); continue; }
+    const radius = 15 + r.age*1.2;
+    const op = (1-r.age/30)*0.15;
+    pulse += `<circle cx="0" cy="3" r="${radius}" fill="none" stroke="#E04848" stroke-width="0.5" opacity="${op}"/>`;
+  }
+  pulseEl.innerHTML = pulse;
+});
+</script>
+</body>
+</html>

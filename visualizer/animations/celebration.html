@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Celebration</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#F5D831;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="420" viewBox="-60 -80 120 160">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#F5D831" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="65" fill="url(#glow)"/>
+  <g id="confetti"></g>
+  <g id="lob"></g>
+  <g id="text"></g>
+</svg>
+<div class="label">celebration</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const confettiEl = document.getElementById('confetti');
+const textEl = document.getElementById('text');
+
+const confetti = [];
+const colors = ['#F5D831','#EF8E20','#E04848','#7c3aed','#22AACC','#6ECB3C','#A85EC0','#4A6BD4','#e84393'];
+
+// Burst confetti periodically
+function burst() {
+  for (let i = 0; i < 25; i++) {
+    const angle = Math.random()*Math.PI*2;
+    const speed = 1.5+Math.random()*3;
+    confetti.push({
+      x: 0, y: -10,
+      vx: Math.cos(angle)*speed,
+      vy: Math.sin(angle)*speed - 2,
+      age: 0,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      rot: Math.random()*360,
+      rotSpeed: (Math.random()-0.5)*10,
+      w: 1+Math.random()*2,
+      h: 1+Math.random()*3,
+      type: Math.random()>0.5 ? 'rect' : 'circle'
+    });
+  }
+}
+
+startLoop(t => {
+  // Jump celebration
+  const jumpCycle = t % 40;
+  let jumpY = 0;
+  if (jumpCycle < 8) {
+    jumpY = -Math.sin(jumpCycle/8*Math.PI)*15;
+  }
+  const squash = jumpCycle < 3 ? 1.06 : jumpCycle >= 7 && jumpCycle < 10 ? 1.04 : 1;
+
+  // Burst confetti on jump
+  if (jumpCycle === 1 && t > 5) burst();
+
+  // Claws raised up
+  el.innerHTML = `<g transform="translate(0,${jumpY})">` +
+    drawLobster({
+      t, mood: 'happy',
+      squash, stretch: 2-squash,
+      clawOpenL: 20+Math.sin(t/3)*5,
+      clawOpenR: -20-Math.sin(t/3)*5
+    }) + '</g>';
+
+  // Confetti physics
+  let confSvg = '';
+  for (let i = confetti.length-1; i >= 0; i--) {
+    const c = confetti[i];
+    c.age++;
+    c.vy += 0.06;
+    c.vx *= 0.99;
+    c.x += c.vx;
+    c.y += c.vy;
+    c.rot += c.rotSpeed;
+    if (c.y > 80) { confetti.splice(i,1); continue; }
+    const op = c.age > 60 ? Math.max(0, 1-(c.age-60)/20) : 0.8;
+    if (c.type === 'rect') {
+      confSvg += `<rect x="${c.x-c.w/2}" y="${c.y-c.h/2}" width="${c.w}" height="${c.h}" fill="${c.color}" opacity="${op}" transform="rotate(${c.rot},${c.x},${c.y})"/>`;
+    } else {
+      confSvg += `<circle cx="${c.x}" cy="${c.y}" r="${c.w*0.5}" fill="${c.color}" opacity="${op}"/>`;
+    }
+  }
+  confettiEl.innerHTML = confSvg;
+
+  // Celebration text
+  const textPhase = (t % 120) / 120;
+  if (textPhase < 0.4) {
+    const top = textPhase < 0.05 ? textPhase/0.05 : textPhase > 0.3 ? (0.4-textPhase)/0.1 : 1;
+    textEl.innerHTML = `<text x="0" y="-60" text-anchor="middle" font-family="monospace" font-size="7" font-weight="bold" fill="#F5D831" opacity="${top*0.8}">LFG!</text>`;
+  } else {
+    textEl.innerHTML = '';
+  }
+});
+</script>
+</body>
+</html>

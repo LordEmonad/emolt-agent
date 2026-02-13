@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Evolving</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#7c3aed;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="420" viewBox="-60 -80 120 150">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="65" fill="url(#glow)"/>
+  <g id="dna"></g>
+  <g id="lob"></g>
+  <g id="energy"></g>
+  <g id="level"></g>
+</svg>
+<div class="label">evolving</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const dnaEl = document.getElementById('dna');
+const energyEl = document.getElementById('energy');
+const levelEl = document.getElementById('level');
+
+const energyParts = [];
+
+startLoop(t => {
+  // Pulsing/growing effect
+  const pulse = 1 + Math.sin(t/12)*0.03;
+  const glow = Math.sin(t/8)*0.5;
+  const rise = Math.sin(t/30)*2;
+
+  el.innerHTML = `<g transform="translate(0,${rise}) scale(${pulse})">` +
+    drawLobster({ t, mood: 'happy' }) + '</g>';
+
+  // DNA helix around lobster
+  let dna = '';
+  const helixPoints = 30;
+  for (let i = 0; i < helixPoints; i++) {
+    const y = -50 + i*(100/helixPoints);
+    const phase = y*0.08 + t*Math.PI/75;  // 2 full helix rotations per 300 ticks
+    const x1 = Math.cos(phase)*20;
+    const x2 = Math.cos(phase+Math.PI)*20;
+    const z1 = Math.sin(phase);
+    const z2 = Math.sin(phase+Math.PI);
+    const op1 = 0.15 + z1*0.1;
+    const op2 = 0.15 + z2*0.1;
+    const sz = 1.2 + z1*0.3;
+    const colors = ['#7c3aed','#22AACC','#6ECB3C','#F5D831'];
+    const c = colors[i%colors.length];
+    if (z1 > 0) dna += `<circle cx="${x1}" cy="${y}" r="${sz}" fill="${c}" opacity="${op1}"/>`;
+    if (z2 > 0) dna += `<circle cx="${x2}" cy="${y}" r="${sz}" fill="${c}" opacity="${op2}"/>`;
+    // Connection bars
+    if (i % 3 === 0 && Math.abs(z1) < 0.7) {
+      dna += `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="${c}" stroke-width="0.2" opacity="${0.08+Math.abs(z1)*0.05}"/>`;
+    }
+  }
+  dnaEl.innerHTML = dna;
+
+  // Rising energy particles
+  if (t % 4 === 0) {
+    energyParts.push({
+      x: (Math.random()-0.5)*30, y: 40,
+      vy: -0.8-Math.random()*0.6, age: 0,
+      color: ['#7c3aed','#22AACC','#F5D831'][Math.floor(Math.random()*3)]
+    });
+  }
+  let energy = '';
+  for (let i = energyParts.length-1; i >= 0; i--) {
+    const p = energyParts[i];
+    p.age++;
+    p.y += p.vy;
+    p.x += Math.sin(p.age/6)*0.4;
+    if (p.age > 50) { energyParts.splice(i,1); continue; }
+    const op = (1-p.age/50)*0.4;
+    energy += `<circle cx="${p.x}" cy="${p.y}" r="0.8" fill="${p.color}" opacity="${op}"/>`;
+  }
+  energyEl.innerHTML = energy;
+
+  // Level up text
+  const lvlCycle = t%300;
+  if (lvlCycle > 240 && lvlCycle < 285) {
+    const p = (lvlCycle-240)/45;
+    const op = p < 0.2 ? p/0.2 : p > 0.8 ? (1-p)/0.2 : 1;
+    const y = -60 - p*5;
+    levelEl.innerHTML = `<text x="0" y="${y}" text-anchor="middle" font-family="monospace" font-size="5" font-weight="bold" fill="#7c3aed" opacity="${op*0.7}">LEVEL UP</text>`;
+  } else {
+    levelEl.innerHTML = '';
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Dancing</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#EF8E20;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="420" viewBox="-60 -70 120 140">
+  <defs>
+    <radialGradient id="disco" cx="50%" cy="30%" r="60%">
+      <stop offset="0%" stop-color="#EF8E20" stop-opacity="0.08"/>
+      <stop offset="50%" stop-color="#7c3aed" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="60" fill="url(#disco)"/>
+  <g id="notes"></g>
+  <g id="lob"></g>
+  <g id="floor"></g>
+</svg>
+<div class="label">dancing</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const notesEl = document.getElementById('notes');
+const floorEl = document.getElementById('floor');
+
+const notes = [];
+const noteChars = ['\u266A', '\u266B', '\u2669'];
+const colors = ['#F5D831','#EF8E20','#7c3aed','#22AACC','#E04848'];
+
+startLoop(t => {
+  // Dance moves: side-to-side + bounce + rotation
+  const sway = Math.sin(t / 6) * 8;
+  const bounce = Math.abs(Math.sin(t / 4)) * 5;
+  const tilt = Math.sin(t / 6) * 8;
+  const squash = 1 + Math.abs(Math.sin(t / 4)) * 0.06;
+
+  el.innerHTML = `<g transform="translate(${sway},${-bounce})">` +
+    drawLobster({
+      t, mood: 'happy', extraRotate: tilt,
+      squash, stretch: 2 - squash,
+      clawOpenL: Math.sin(t/3)*10,
+      clawOpenR: -Math.sin(t/3)*10
+    }) + '</g>';
+
+  // Musical notes floating up
+  if (t % 15 === 0) {
+    notes.push({
+      x: sway + (Math.random()-0.5)*20,
+      y: -20 - bounce,
+      age: 0,
+      char: noteChars[Math.floor(Math.random()*noteChars.length)],
+      color: colors[Math.floor(Math.random()*colors.length)],
+      drift: (Math.random()-0.5)*0.8
+    });
+  }
+  let noteSvg = '';
+  for (let i = notes.length-1; i >= 0; i--) {
+    const n = notes[i];
+    n.age++;
+    n.y -= 0.8;
+    n.x += n.drift + Math.sin(n.age/6)*0.3;
+    if (n.age > 50) { notes.splice(i,1); continue; }
+    const op = n.age < 5 ? n.age/5 : n.age > 40 ? (50-n.age)/10 : 0.7;
+    const rot = Math.sin(n.age/8)*15;
+    noteSvg += `<text x="${n.x}" y="${n.y}" text-anchor="middle" font-size="6" fill="${n.color}" opacity="${op}" transform="rotate(${rot},${n.x},${n.y})">${n.char}</text>`;
+  }
+  notesEl.innerHTML = noteSvg;
+
+  // Disco floor tiles
+  let floor = '';
+  const tileColors = ['#F5D831','#EF8E20','#7c3aed','#22AACC','#E04848','#6ECB3C','#A85EC0','#4A6BD4'];
+  for (let i = -4; i <= 4; i++) {
+    const ci = (Math.floor(t/8) + i + 8) % tileColors.length;
+    const op = 0.04 + Math.sin(t/6 + i*1.2)*0.03;
+    floor += `<rect x="${i*12-5}" y="38" width="10" height="3" rx="0.5" fill="${tileColors[ci]}" opacity="${op}"/>`;
+  }
+  floorEl.innerHTML = floor;
+});
+</script>
+</body>
+</html>

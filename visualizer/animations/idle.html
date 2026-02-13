@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Idle</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  svg{filter:drop-shadow(0 0 30px rgba(124,58,237,0.15))}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#7c3aed;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="400" viewBox="-60 -60 120 120">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="lob"></g>
+</svg>
+<div class="label">idle</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+startLoop(t => { el.innerHTML = drawLobster({ t }); });
+</script>
+</body>
+</html>

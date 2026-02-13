@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Waving</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#6ECB3C;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="400" viewBox="-60 -70 120 130">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#6ECB3C" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="lob"></g>
+  <g id="greeting"></g>
+</svg>
+<div class="label">waving</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const greetEl = document.getElementById('greeting');
+
+startLoop(t => {
+  // Right claw waves up and down
+  const wave = Math.sin(t / 4) * 20;
+
+  el.innerHTML = drawLobster({
+    t, mood: 'happy',
+    clawOpenR: -30 + wave
+  });
+
+  // "Hey!" text that fades in and out
+  const cycle = t % 120;
+  let greet = '';
+  if (cycle < 60) {
+    const op = cycle < 10 ? cycle/10 : cycle > 45 ? (60-cycle)/15 : 0.8;
+    const gy = -48 + Math.sin(t/8)*1.5;
+    greet += `<g opacity="${op}">`;
+    greet += `<text x="30" y="${gy}" text-anchor="middle" font-family="monospace" font-size="8" font-weight="bold" fill="#6ECB3C">hey!</text>`;
+    // Small motion lines near the waving claw
+    const lineOp = op * 0.4;
+    for (let i = 0; i < 3; i++) {
+      const ly = -10 + i*5 + Math.sin(t/3+i)*2;
+      const lx = 42 + Math.sin(t/4+i)*3;
+      greet += `<line x1="${lx}" y1="${ly}" x2="${lx+4}" y2="${ly}" stroke="#6ECB3C" stroke-width="0.5" opacity="${lineOp}" stroke-linecap="round"/>`;
+    }
+    greet += `</g>`;
+  }
+  greetEl.innerHTML = greet;
+});
+</script>
+</body>
+</html>

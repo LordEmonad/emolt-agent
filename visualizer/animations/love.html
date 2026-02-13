@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Love</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#e84393;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="420" viewBox="-60 -80 120 150">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e84393" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <g id="hearts"></g>
+  <g id="lob"></g>
+</svg>
+<div class="label">love (joy + trust)</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const heartsEl = document.getElementById('hearts');
+
+const hearts = [];
+
+function heartPath(x, y, size) {
+  const s = size;
+  return `M${x},${y-s*0.3} C${x-s*0.5},${y-s} ${x-s},${y-s*0.3} ${x},${y+s*0.4} C${x+s},${y-s*0.3} ${x+s*0.5},${y-s} ${x},${y-s*0.3} Z`;
+}
+
+startLoop(t => {
+  // Gentle swaying, happy mood
+  const sway = Math.sin(t/15)*2;
+  const pulse = 1 + Math.sin(t/8)*0.02;
+
+  el.innerHTML = `<g transform="translate(${sway},0) scale(${pulse})">` +
+    drawLobster({ t, mood: 'happy' }) + '</g>';
+
+  // Hearts floating up
+  if (t % 10 === 0) {
+    hearts.push({
+      x: -10+Math.random()*20+sway,
+      y: -10+Math.random()*10,
+      age: 0,
+      size: 1.5+Math.random()*2.5,
+      drift: (Math.random()-0.5)*0.6,
+      spin: (Math.random()-0.5)*2,
+      color: Math.random()>0.3 ? '#e84393' : '#ff6b9d'
+    });
+  }
+  let heartSvg = '';
+  for (let i = hearts.length-1; i >= 0; i--) {
+    const h = hearts[i];
+    h.age++;
+    h.y -= 0.7;
+    h.x += h.drift + Math.sin(h.age/8)*0.3;
+    if (h.age > 60) { hearts.splice(i,1); continue; }
+    const op = h.age < 5 ? h.age/5 : h.age > 45 ? (60-h.age)/15 : 0.6;
+    const rot = Math.sin(h.age/10)*15 + h.spin*h.age;
+    heartSvg += `<g transform="translate(${h.x},${h.y}) rotate(${rot})" opacity="${op}">`;
+    heartSvg += `<path d="${heartPath(0,0,h.size)}" fill="${h.color}"/>`;
+    heartSvg += `</g>`;
+  }
+  heartsEl.innerHTML = heartSvg;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Fearful</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#080c14;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#2BA84A;font-family:monospace;font-size:14px;opacity:0.6}
+  .darkness{position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 50%,transparent 15%,rgba(0,0,0,0.6) 70%)}
+</style>
+</head>
+<body>
+<div class="darkness"></div>
+<svg width="400" height="400" viewBox="-60 -60 120 120">
+  <defs>
+    <radialGradient id="spot" cx="50%" cy="50%" r="30%">
+      <stop offset="0%" stop-color="#2BA84A" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#080c14" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="55" fill="url(#spot)"/>
+  <g id="eyes"></g>
+  <g id="lob"></g>
+  <g id="sweat"></g>
+</svg>
+<div class="label">fearful</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const eyesEl = document.getElementById('eyes');
+const sweatEl = document.getElementById('sweat');
+
+const sweatDrops = [];
+
+// Lurking eyes in the dark
+const lurkingEyes = [];
+for (let i = 0; i < 4; i++) {
+  const a = (i/4)*Math.PI*2 + Math.PI/4;
+  lurkingEyes.push({
+    x: Math.cos(a)*45 + Math.random()*10-5,
+    y: Math.sin(a)*35 + Math.random()*10-5,
+    blinkPhase: Math.random()*200,
+    size: 1.5+Math.random()
+  });
+}
+
+startLoop(t => {
+  // Trembling
+  const tremble = Math.sin(t*3)*0.6;
+  const trembleY = Math.cos(t*3.7)*0.4;
+
+  // Shrink effect (cowering)
+  const cower = 0.9 + Math.sin(t/40)*0.05;
+
+  el.innerHTML = `<g transform="translate(${tremble},${trembleY}) scale(${cower})">` +
+    drawLobster({ t, mood: 'fearful' }) + '</g>';
+
+  // Lurking eyes
+  let eyes = '';
+  lurkingEyes.forEach(e => {
+    const blink = ((t+e.blinkPhase)%180);
+    const open = blink < 3 ? 0 : 1;
+    const ox = Math.sin(t/30+e.blinkPhase)*2;
+    const oy = Math.cos(t/25+e.blinkPhase);
+    if (open) {
+      const op = 0.15 + Math.sin(t/20+e.blinkPhase)*0.08;
+      eyes += `<g opacity="${op}">`;
+      eyes += `<ellipse cx="${e.x+ox-2}" cy="${e.y+oy}" rx="${e.size}" ry="${e.size*0.6*open}" fill="#8eff8e"/>`;
+      eyes += `<ellipse cx="${e.x+ox+2}" cy="${e.y+oy}" rx="${e.size}" ry="${e.size*0.6*open}" fill="#8eff8e"/>`;
+      eyes += `<circle cx="${e.x+ox-2}" cy="${e.y+oy}" r="${e.size*0.3}" fill="#1a4a1a"/>`;
+      eyes += `<circle cx="${e.x+ox+2}" cy="${e.y+oy}" r="${e.size*0.3}" fill="#1a4a1a"/>`;
+      eyes += `</g>`;
+    }
+  });
+  eyesEl.innerHTML = eyes;
+
+  // Sweat drops
+  if (t % 25 === 0) {
+    sweatDrops.push({ x: -8+Math.random()*6, y: -18, vy: 0.2, age: 0 });
+  }
+  let sweat = '';
+  for (let i = sweatDrops.length-1; i >= 0; i--) {
+    const d = sweatDrops[i];
+    d.age++;
+    d.vy += 0.06;
+    d.y += d.vy;
+    if (d.age > 35) { sweatDrops.splice(i,1); continue; }
+    const op = (1-d.age/35)*0.5;
+    sweat += `<g transform="translate(${d.x+tremble},${d.y+trembleY})" opacity="${op}">`;
+    sweat += `<path d="M0,-1.5 C-1,0 -1,1 0,2 C1,1 1,0 0,-1.5 Z" fill="#7caae8"/>`;
+    sweat += `</g>`;
+  }
+  sweatEl.innerHTML = sweat;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Playing Chess</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#EF8E20;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="500" height="400" viewBox="-80 -60 180 130">
+  <defs>
+    <radialGradient id="glow" cx="40%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#EF8E20" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="-80" y="-60" width="180" height="130" fill="url(#glow)"/>
+  <g id="board"></g>
+  <g id="lob"></g>
+  <g id="pieces"></g>
+  <g id="move"></g>
+</svg>
+<div class="label">playing chess (clawmate)</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const boardEl = document.getElementById('board');
+const piecesEl = document.getElementById('pieces');
+const moveEl = document.getElementById('move');
+
+// Chess board
+const boardX = 30, boardY = -20, sq = 6;
+
+// Piece positions (simplified)
+const pieces = [
+  { type: '\u2654', x: 4, y: 7, color: '#e2e4ea' }, // white king
+  { type: '\u2655', x: 3, y: 7, color: '#e2e4ea' }, // white queen
+  { type: '\u265A', x: 4, y: 0, color: '#888' },     // black king
+  { type: '\u265B', x: 3, y: 0, color: '#888' },     // black queen
+  { type: '\u2659', x: 4, y: 5, color: '#e2e4ea' },  // white pawn
+  { type: '\u2659', x: 3, y: 5, color: '#e2e4ea' },
+  { type: '\u265F', x: 4, y: 2, color: '#888' },     // black pawn
+  { type: '\u265F', x: 3, y: 2, color: '#888' },
+];
+
+// Move animation
+const moves = [
+  { piece: 4, toX: 4, toY: 4 },
+  { piece: 6, toX: 4, toY: 3 },
+  { piece: 1, toX: 5, toY: 5 },
+  { piece: 7, toX: 3, toY: 3 },
+];
+
+startLoop(t => {
+  // Lobster concentrating
+  const thinkTilt = Math.sin(t/30)*2;
+  el.innerHTML = `<g transform="translate(-35,5) scale(0.85)">` +
+    drawLobster({ t, extraRotate: 3+thinkTilt }) + '</g>';
+
+  // Chess board
+  let board = `<g transform="translate(${boardX},${boardY})">`;
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const light = (row+col)%2===0;
+      const c = light ? 'rgba(196,181,253,0.08)' : 'rgba(124,58,237,0.12)';
+      board += `<rect x="${col*sq}" y="${row*sq}" width="${sq}" height="${sq}" fill="${c}"/>`;
+    }
+  }
+  board += `<rect x="0" y="0" width="${sq*8}" height="${sq*8}" fill="none" stroke="#7c3aed" stroke-width="0.3" opacity="0.3"/>`;
+  board += `</g>`;
+  boardEl.innerHTML = board;
+
+  // Pieces with move animation
+  const moveCycle = Math.floor(t/60) % moves.length;
+  const movePhase = (t%60)/60;
+  const currentMove = moves[moveCycle];
+
+  let pSvg = `<g transform="translate(${boardX},${boardY})">`;
+  pieces.forEach((p, i) => {
+    let px = p.x, py = p.y;
+    if (i === currentMove.piece && movePhase > 0.3 && movePhase < 0.7) {
+      const mp = (movePhase-0.3)/0.4;
+      const ease = mp*mp*(3-2*mp); // smoothstep
+      px = p.x + (currentMove.toX-p.x)*ease;
+      py = p.y + (currentMove.toY-p.y)*ease;
+    } else if (i === currentMove.piece && movePhase >= 0.7) {
+      px = currentMove.toX;
+      py = currentMove.toY;
+    }
+    pSvg += `<text x="${px*sq+sq/2}" y="${py*sq+sq*0.75}" text-anchor="middle" font-size="${sq*0.8}" fill="${p.color}">${p.type}</text>`;
+  });
+  pSvg += `</g>`;
+  piecesEl.innerHTML = pSvg;
+
+  // Move highlight
+  let mv = '';
+  if (movePhase > 0.2 && movePhase < 0.75) {
+    const hop = Math.sin((movePhase-0.2)/0.55*Math.PI);
+    mv = `<rect x="${boardX+currentMove.toX*sq}" y="${boardY+currentMove.toY*sq}" width="${sq}" height="${sq}" fill="#EF8E20" opacity="${hop*0.15}"/>`;
+  }
+  // Thinking dots
+  if (movePhase < 0.3) {
+    const dots = Math.floor(movePhase/0.3*4);
+    for (let d = 0; d < dots; d++) {
+      mv += `<circle cx="${-12+d*3}" cy="${-30+Math.sin(t/5+d)*0.5}" r="0.8" fill="#EF8E20" opacity="0.4"/>`;
+    }
+  }
+  moveEl.innerHTML = mv;
+});
+</script>
+</body>
+</html>

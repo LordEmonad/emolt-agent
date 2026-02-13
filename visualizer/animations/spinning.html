@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Spinning</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#22AACC;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="400" viewBox="-60 -60 120 120">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22AACC" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="trail"></g>
+  <g id="lob"></g>
+  <g id="dizzy"></g>
+</svg>
+<div class="label">spinning</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const trailEl = document.getElementById('trail');
+const dizzyEl = document.getElementById('dizzy');
+
+const trails = [];
+
+startLoop(t => {
+  const angle = (t % 90) * 4;  // 90*4=360° exactly one full rotation per loop
+  const scaleX = Math.cos(t/15*Math.PI);
+
+  // Store trail positions
+  if (t % 2 === 0) {
+    trails.push({ scaleX, angle, age: 0, t });
+  }
+
+  el.innerHTML = `<g transform="rotate(${angle%360})">` +
+    drawLobster({ t, stretch: Math.abs(scaleX)*0.4+0.6, mood: 'surprised' }) + '</g>';
+
+  // After-image trail
+  let trail = '';
+  for (let i = trails.length-1; i >= 0; i--) {
+    const tr = trails[i];
+    tr.age++;
+    if (tr.age > 12) { trails.splice(i,1); continue; }
+    const op = (1-tr.age/12)*0.12;
+    trail += `<g transform="rotate(${tr.angle%360})" opacity="${op}">` +
+      drawLobster({ t: tr.t, stretch: Math.abs(tr.scaleX)*0.4+0.6 }) + '</g>';
+  }
+  trailEl.innerHTML = trail;
+
+  // Dizzy stars orbiting
+  let dizzy = '';
+  const dizzyCount = 5;
+  for (let i = 0; i < dizzyCount; i++) {
+    const da = (i/dizzyCount)*Math.PI*2 + (t%90)*0.1;
+    const dr = 38 + Math.sin(t/10+i)*3;
+    const dx = Math.cos(da)*dr;
+    const dy = Math.sin(da)*dr*0.4 - 15;
+    const dop = 0.3+Math.sin(t/5+i)*0.2;
+    // Star shape
+    dizzy += `<g transform="translate(${dx},${dy}) rotate(${(t%90)*3+i*72})" opacity="${dop}">`;
+    dizzy += `<polygon points="0,-2.5 0.7,-0.8 2.4,-0.8 1.1,0.3 1.5,2 0,1 -1.5,2 -1.1,0.3 -2.4,-0.8 -0.7,-0.8" fill="#F5D831"/>`;
+    dizzy += `</g>`;
+  }
+  dizzyEl.innerHTML = dizzy;
+});
+</script>
+</body>
+</html>

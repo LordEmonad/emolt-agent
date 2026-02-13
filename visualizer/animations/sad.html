@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Sad</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0a0e18;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#4A6BD4;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="450" viewBox="-60 -70 120 150">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#4A6BD4" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0a0e18" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rain" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4A6BD4" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#4A6BD4" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <g id="rain"></g>
+  <g id="lob"></g>
+  <g id="tears"></g>
+  <g id="puddle"></g>
+</svg>
+<div class="label">sad</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const rainEl = document.getElementById('rain');
+const tearEl = document.getElementById('tears');
+const puddleEl = document.getElementById('puddle');
+
+// Rain drops
+const drops = [];
+for (let i = 0; i < 40; i++) {
+  drops.push({ x: -60 + Math.random()*120, y: -70 + Math.random()*150, speed: 1.5+Math.random()*2, len: 3+Math.random()*5 });
+}
+
+// Tear drops
+const tears = [];
+
+startLoop(t => {
+  el.innerHTML = drawLobster({ t, mood: 'sad', extraBob: Math.sin(t/30)*0.5 });
+
+  // Rain
+  let rain = '';
+  drops.forEach(d => {
+    d.y += d.speed;
+    if (d.y > 80) { d.y = -70; d.x = -60 + Math.random()*120; }
+    rain += `<line x1="${d.x}" y1="${d.y}" x2="${d.x-0.5}" y2="${d.y+d.len}" stroke="#4A6BD4" stroke-width="0.4" opacity="0.25"/>`;
+  });
+  rainEl.innerHTML = rain;
+
+  // Tears falling from face
+  if (t % 20 === 0) {
+    tears.push({ x: 10 + Math.random()*2, y: -2, vy: 0.3, age: 0 });
+  }
+  let tearSvg = '';
+  for (let i = tears.length-1; i >= 0; i--) {
+    const tr = tears[i];
+    tr.age++;
+    tr.vy += 0.08;
+    tr.y += tr.vy;
+    tr.x += Math.sin(tr.age/5)*0.15;
+    if (tr.y > 50) { tears.splice(i,1); continue; }
+    const op = Math.max(0, 0.6 - tr.age/60);
+    tearSvg += `<ellipse cx="${tr.x}" cy="${tr.y}" rx="0.8" ry="${1+tr.vy*0.3}" fill="#7caae8" opacity="${op}"/>`;
+  }
+  tearEl.innerHTML = tearSvg;
+
+  // Puddle
+  const pw = 8 + Math.sin(t/30)*1;
+  puddleEl.innerHTML = `<ellipse cx="3" cy="40" rx="${pw}" ry="1.5" fill="#4A6BD4" opacity="${0.08+Math.sin(t/15)*0.03}"/>`;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Angry</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#120a0a;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#E04848;font-family:monospace;font-size:14px;opacity:0.6}
+  .vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 40%,rgba(224,72,72,0.08) 100%)}
+</style>
+</head>
+<body>
+<div class="vignette"></div>
+<svg width="400" height="400" viewBox="-60 -70 120 140">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#E04848" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#120a0a" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shake">
+      <feTurbulence type="turbulence" baseFrequency="0" numOctaves="1" result="turb" seed="1"/>
+      <feDisplacementMap in="SourceGraphic" in2="turb" scale="0" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+  <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="steam"></g>
+  <g id="lob"></g>
+  <g id="sparks"></g>
+</svg>
+<div class="label">angry</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const steamEl = document.getElementById('steam');
+const sparksEl = document.getElementById('sparks');
+
+const steamParts = [];
+const sparks = [];
+
+startLoop(t => {
+  // Shake effect
+  const shake = Math.sin(t*2.5) * 1.2 * (0.5 + Math.sin(t/20)*0.5);
+  const shakeY = Math.cos(t*3.1) * 0.8 * (0.5 + Math.sin(t/20)*0.5);
+
+  // Claw snapping (periodic aggressive open/close)
+  const snap = Math.sin(t/6) > 0.8 ? 15 : 0;
+
+  el.innerHTML = `<g transform="translate(${shake},${shakeY})">` +
+    drawLobster({ t, mood: 'angry', clawOpenL: -snap, clawOpenR: snap }) + '</g>';
+
+  // Steam rising from head
+  if (t % 6 === 0) {
+    steamParts.push({ x: -3+Math.random()*10, y: -30, age: 0, vx: (Math.random()-0.5)*0.3 });
+    steamParts.push({ x: 5+Math.random()*6, y: -28, age: 0, vx: (Math.random()-0.5)*0.3 });
+  }
+  let steam = '';
+  for (let i = steamParts.length-1; i >= 0; i--) {
+    const p = steamParts[i];
+    p.age++;
+    p.y -= 0.6;
+    p.x += p.vx + Math.sin(p.age/8)*0.2;
+    if (p.age > 40) { steamParts.splice(i,1); continue; }
+    const op = (1-p.age/40)*0.35;
+    const r = 1.5 + p.age*0.12;
+    steam += `<circle cx="${p.x+shake}" cy="${p.y+shakeY}" r="${r}" fill="#E04848" opacity="${op}"/>`;
+  }
+  steamEl.innerHTML = steam;
+
+  // Angry sparks
+  if (t % 12 === 0) {
+    for (let j = 0; j < 3; j++) {
+      const a = Math.random()*Math.PI*2;
+      sparks.push({ x: Math.cos(a)*15, y: Math.sin(a)*15-5, vx: Math.cos(a)*2, vy: Math.sin(a)*2, age: 0 });
+    }
+  }
+  let sparkSvg = '';
+  for (let i = sparks.length-1; i >= 0; i--) {
+    const s = sparks[i];
+    s.age++;
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vx *= 0.95;
+    s.vy *= 0.95;
+    if (s.age > 15) { sparks.splice(i,1); continue; }
+    const op = (1-s.age/15)*0.7;
+    sparkSvg += `<circle cx="${s.x+shake}" cy="${s.y+shakeY}" r="${0.8-s.age*0.04}" fill="#ff6644" opacity="${op}"/>`;
+  }
+  sparksEl.innerHTML = sparkSvg;
+});
+</script>
+</body>
+</html>

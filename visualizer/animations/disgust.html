@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Disgust</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1218;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#A85EC0;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="400" viewBox="-60 -60 120 120">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#A85EC0" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#0e1218" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="stink"></g>
+  <g id="lob"></g>
+  <g id="flies"></g>
+</svg>
+<div class="label">disgust</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const stinkEl = document.getElementById('stink');
+const fliesEl = document.getElementById('flies');
+
+const stinkWaves = [];
+const flies = [];
+for (let i = 0; i < 3; i++) {
+  flies.push({ phase: (i/3)*Math.PI*2, dist: 15+i*5, speed: 0.05+i*0.01, y: -15+i*3 });
+}
+
+startLoop(t => {
+  // Recoil / lean back in disgust
+  const recoil = Math.sin(t/30)*2;
+  const lean = -3 + Math.sin(t/25)*1.5;
+
+  el.innerHTML = drawLobster({
+    t, extraRotate: lean, extraBob: recoil,
+    mood: 'angry' // squinted eyes work for disgust too
+  });
+
+  // Stink waves rising
+  if (t % 12 === 0) {
+    stinkWaves.push({
+      x: 20 + Math.random()*15,
+      y: 10, age: 0,
+      amplitude: 2+Math.random()*3,
+      freq: 0.1+Math.random()*0.1
+    });
+  }
+  let stink = '';
+  for (let i = stinkWaves.length-1; i >= 0; i--) {
+    const s = stinkWaves[i];
+    s.age++;
+    s.y -= 0.4;
+    if (s.age > 50) { stinkWaves.splice(i,1); continue; }
+    const op = (1-s.age/50)*0.2;
+    const x1 = s.x + Math.sin(s.age*s.freq)*s.amplitude;
+    const x2 = s.x + Math.sin((s.age+5)*s.freq)*s.amplitude;
+    const x3 = s.x + Math.sin((s.age+10)*s.freq)*s.amplitude;
+    stink += `<path d="M${x1},${s.y} Q${x2},${s.y-4} ${x3},${s.y-8}" fill="none" stroke="#7a9a5a" stroke-width="0.5" opacity="${op}"/>`;
+  }
+  stinkEl.innerHTML = stink;
+
+  // Buzzing flies
+  let flySvg = '';
+  flies.forEach(f => {
+    const a = t * f.speed + f.phase;
+    const fx = 15 + Math.cos(a) * f.dist;
+    const fy = f.y + Math.sin(a*1.7) * 8;
+    const wingFlap = Math.sin(t*2+f.phase)*2;
+    flySvg += `<g transform="translate(${fx},${fy})">`;
+    flySvg += `<circle cx="0" cy="0" r="0.8" fill="#333"/>`;
+    flySvg += `<ellipse cx="${-wingFlap*0.3}" cy="-0.8" rx="1.2" ry="0.4" fill="rgba(200,200,200,0.3)" transform="rotate(${wingFlap*10})"/>`;
+    flySvg += `<ellipse cx="${wingFlap*0.3}" cy="-0.8" rx="1.2" ry="0.4" fill="rgba(200,200,200,0.3)" transform="rotate(${-wingFlap*10})"/>`;
+    flySvg += `</g>`;
+  });
+  fliesEl.innerHTML = flySvg;
+});
+</script>
+</body>
+</html>

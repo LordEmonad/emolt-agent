@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Animation Gallery</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0e1420;
+    color: #e2e4ea;
+    font-family: 'Inter', system-ui, sans-serif;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    text-align: center;
+    font-size: 28px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #7c3aed, #22AACC);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle {
+    text-align: center;
+    color: #666;
+    font-family: monospace;
+    font-size: 13px;
+    margin-bottom: 40px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .card {
+    background: rgba(20, 26, 42, 0.72);
+    backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1), border-color 0.3s, box-shadow 0.3s;
+    cursor: pointer;
+    text-decoration: none;
+    display: block;
+  }
+  .card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(124,58,237,0.3);
+    box-shadow: 0 12px 40px rgba(124,58,237,0.12);
+  }
+  .card iframe {
+    width: 100%;
+    height: 200px;
+    border: none;
+    pointer-events: none;
+    background: #0e1420;
+  }
+  .card-info {
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e2e4ea;
+  }
+  .card-tag {
+    font-size: 10px;
+    font-family: monospace;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: rgba(124,58,237,0.15);
+    color: #c4b5fd;
+    margin-left: auto;
+  }
+  .category {
+    grid-column: 1 / -1;
+    font-size: 14px;
+    font-family: monospace;
+    color: #7c3aed;
+    padding: 20px 0 5px;
+    border-bottom: 1px solid rgba(124,58,237,0.15);
+    margin-bottom: 5px;
+  }
+  .category:first-of-type { padding-top: 0; }
+  @media (max-width: 600px) {
+    .grid { grid-template-columns: 1fr; }
+    h1 { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>EMOLT Animation Gallery</h1>
+<p class="subtitle">30 lobster animations &mdash; click any to view fullscreen</p>
+
+<div class="grid">
+
+  <div class="category">8 Primary Emotions (Plutchik)</div>
+
+  <a class="card" href="happy.html"><iframe src="happy.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Happy</span><span class="card-tag" style="background:rgba(245,216,49,0.15);color:#F5D831">joy</span></div></a>
+  <a class="card" href="trust.html"><iframe src="trust.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Trust</span><span class="card-tag" style="background:rgba(110,203,60,0.15);color:#6ECB3C">trust</span></div></a>
+  <a class="card" href="fearful.html"><iframe src="fearful.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Fearful</span><span class="card-tag" style="background:rgba(43,168,74,0.15);color:#2BA84A">fear</span></div></a>
+  <a class="card" href="surprised.html"><iframe src="surprised.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Surprised</span><span class="card-tag" style="background:rgba(34,170,204,0.15);color:#22AACC">surprise</span></div></a>
+  <a class="card" href="sad.html"><iframe src="sad.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Sad</span><span class="card-tag" style="background:rgba(74,107,212,0.15);color:#4A6BD4">sadness</span></div></a>
+  <a class="card" href="disgust.html"><iframe src="disgust.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Disgust</span><span class="card-tag" style="background:rgba(168,94,192,0.15);color:#A85EC0">disgust</span></div></a>
+  <a class="card" href="angry.html"><iframe src="angry.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Angry</span><span class="card-tag" style="background:rgba(224,72,72,0.15);color:#E04848">anger</span></div></a>
+  <a class="card" href="anticipation.html"><iframe src="anticipation.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Anticipation</span><span class="card-tag" style="background:rgba(239,142,32,0.15);color:#EF8E20">anticipation</span></div></a>
+
+  <div class="category">Compound Emotions</div>
+
+  <a class="card" href="love.html"><iframe src="love.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Love</span><span class="card-tag">joy + trust</span></div></a>
+  <a class="card" href="awe.html"><iframe src="awe.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Awe</span><span class="card-tag">fear + surprise</span></div></a>
+  <a class="card" href="rage.html"><iframe src="rage.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Rage</span><span class="card-tag">anger + anticipation</span></div></a>
+  <a class="card" href="contemplating.html"><iframe src="contemplating.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Contemplating</span><span class="card-tag">sadness + surprise</span></div></a>
+
+  <div class="category">Actions &amp; Behaviors</div>
+
+  <a class="card" href="idle.html"><iframe src="idle.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Idle</span><span class="card-tag">resting</span></div></a>
+  <a class="card" href="walking.html"><iframe src="walking.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Walking</span><span class="card-tag">moving</span></div></a>
+  <a class="card" href="waving.html"><iframe src="waving.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Waving</span><span class="card-tag">greeting</span></div></a>
+  <a class="card" href="dancing.html"><iframe src="dancing.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Dancing</span><span class="card-tag">vibing</span></div></a>
+  <a class="card" href="headbang.html"><iframe src="headbang.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Headbang</span><span class="card-tag">emo mode</span></div></a>
+  <a class="card" href="sleeping.html"><iframe src="sleeping.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Sleeping</span><span class="card-tag">resting</span></div></a>
+  <a class="card" href="spinning.html"><iframe src="spinning.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Spinning</span><span class="card-tag">dizzy</span></div></a>
+  <a class="card" href="thinking.html"><iframe src="thinking.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Thinking</span><span class="card-tag">reasoning</span></div></a>
+  <a class="card" href="celebration.html"><iframe src="celebration.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Celebration</span><span class="card-tag">LFG!</span></div></a>
+
+  <div class="category">Agent Activities</div>
+
+  <a class="card" href="scanning.html"><iframe src="scanning.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Scanning</span><span class="card-tag">chain data</span></div></a>
+  <a class="card" href="posting.html"><iframe src="posting.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Posting</span><span class="card-tag">moltbook</span></div></a>
+  <a class="card" href="onchain.html"><iframe src="onchain.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">On-Chain</span><span class="card-tag">recording</span></div></a>
+  <a class="card" href="chess.html"><iframe src="chess.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Chess</span><span class="card-tag">clawmate</span></div></a>
+  <a class="card" href="plutchik-wheel.html"><iframe src="plutchik-wheel.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Plutchik Wheel</span><span class="card-tag">emotion map</span></div></a>
+
+  <div class="category">Meta &amp; Effects</div>
+
+  <a class="card" href="heartbeat.html"><iframe src="heartbeat.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Heartbeat</span><span class="card-tag">30-min cycle</span></div></a>
+  <a class="card" href="meditating.html"><iframe src="meditating.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Meditating</span><span class="card-tag">zen</span></div></a>
+  <a class="card" href="glitching.html"><iframe src="glitching.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Glitching</span><span class="card-tag">digital</span></div></a>
+  <a class="card" href="evolving.html"><iframe src="evolving.html" loading="lazy"></iframe><div class="card-info"><span class="card-name">Evolving</span><span class="card-tag">level up</span></div></a>
+
+</div>
+
+<script>
+// Click card → open animation fullscreen
+document.querySelectorAll('.card').forEach(card => {
+  card.addEventListener('click', e => {
+    e.preventDefault();
+    window.location.href = card.href;
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Anticipation</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#EF8E20;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="400" viewBox="-60 -60 120 120">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#EF8E20" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="clock"></g>
+  <g id="lob"></g>
+  <g id="impatient"></g>
+</svg>
+<div class="label">anticipation</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const clockEl = document.getElementById('clock');
+const impEl = document.getElementById('impatient');
+
+startLoop(t => {
+  // Fidgety, leaning forward, foot-tapping
+  const fidget = Math.sin(t/5)*1.5;
+  const lean = 3 + Math.sin(t/20)*1;
+  const tapPhase = t%12;
+  const tap = tapPhase < 3 ? -tapPhase*0.3 : tapPhase < 6 ? -(6-tapPhase)*0.3 : 0;
+
+  el.innerHTML = `<g transform="translate(${fidget},${tap})">` +
+    drawLobster({
+      t, extraRotate: lean,
+      clawOpenL: Math.sin(t/8)*5,
+      clawOpenR: -Math.sin(t/8)*5
+    }) + '</g>';
+
+  // Countdown clock
+  const clockY = -48 + Math.sin(t/15)*1;
+  const seconds = 30 - (t % 300) / 10;
+  let clock = `<g transform="translate(0,${clockY})">`;
+  // Clock circle
+  clock += `<circle cx="0" cy="0" r="8" fill="rgba(20,26,42,0.8)" stroke="#EF8E20" stroke-width="0.4" opacity="0.5"/>`;
+  // Clock hands
+  const secAngle = (t%60)/60*Math.PI*2 - Math.PI/2;
+  const minAngle = (t%600)/600*Math.PI*2 - Math.PI/2;
+  clock += `<line x1="0" y1="0" x2="${Math.cos(minAngle)*4}" y2="${Math.sin(minAngle)*4}" stroke="#EF8E20" stroke-width="0.5" opacity="0.6" stroke-linecap="round"/>`;
+  clock += `<line x1="0" y1="0" x2="${Math.cos(secAngle)*6}" y2="${Math.sin(secAngle)*6}" stroke="#EF8E20" stroke-width="0.3" opacity="0.4" stroke-linecap="round"/>`;
+  clock += `<circle cx="0" cy="0" r="0.6" fill="#EF8E20" opacity="0.5"/>`;
+  // Progress arc
+  const progress = (t%300)/300;
+  const arcAngle = progress*Math.PI*2;
+  const ax = Math.cos(arcAngle-Math.PI/2)*9;
+  const ay = Math.sin(arcAngle-Math.PI/2)*9;
+  clock += `<circle cx="0" cy="0" r="9" fill="none" stroke="rgba(239,142,32,0.1)" stroke-width="0.5"/>`;
+  if (progress > 0.01) {
+    const large = arcAngle > Math.PI ? 1 : 0;
+    clock += `<path d="M0,-9 A9,9 0 ${large},1 ${ax},${ay}" fill="none" stroke="#EF8E20" stroke-width="0.5" opacity="0.4" stroke-linecap="round"/>`;
+  }
+  clock += `</g>`;
+  clockEl.innerHTML = clock;
+
+  // Impatient dots (...) that cycle
+  const dotPhase = Math.floor(t/8) % 4;
+  let dots = '';
+  const dotY = 42;
+  for (let i = 0; i < 3; i++) {
+    const op = i < dotPhase ? 0.4 : 0.1;
+    dots += `<circle cx="${-3+i*3}" cy="${dotY}" r="1" fill="#EF8E20" opacity="${op}"/>`;
+  }
+  impEl.innerHTML = dots;
+});
+</script>
+</body>
+</html>

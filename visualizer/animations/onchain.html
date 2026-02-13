@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Recording On-Chain</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#7c3aed;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="400" height="420" viewBox="-60 -80 120 160">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="chain" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#4A6BD4"/>
+    </linearGradient>
+  </defs>
+  <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <g id="blocks"></g>
+  <g id="lob"></g>
+  <g id="beam"></g>
+  <g id="data"></g>
+</svg>
+<div class="label">recording on-chain</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const blocksEl = document.getElementById('blocks');
+const beamEl = document.getElementById('beam');
+const dataEl = document.getElementById('data');
+
+const dataParticles = [];
+const emotions = ['joy','trust','fear','surprise','sadness','disgust','anger','anticipation'];
+const emotionColors = ['#F5D831','#6ECB3C','#2BA84A','#22AACC','#4A6BD4','#A85EC0','#E04848','#EF8E20'];
+
+startLoop(t => {
+  el.innerHTML = `<g transform="translate(0,-8)">` +
+    drawLobster({ t }) + '</g>';
+
+  // Blockchain blocks floating below
+  let blocks = '';
+  for (let i = 0; i < 5; i++) {
+    const bx = -30 + i*15 + Math.sin(t/30+i)*2;
+    const by = 50 + Math.sin(t/20+i*2)*2;
+    const op = 0.15 + Math.sin(t/15+i)*0.08;
+    const pulse = (t%60===i*12) ? 0.3 : 0;
+    blocks += `<g transform="translate(${bx},${by})">`;
+    blocks += `<rect x="-5" y="-4" width="10" height="8" rx="1.5" fill="rgba(124,58,237,${op+pulse})" stroke="#7c3aed" stroke-width="0.3" opacity="${0.4+pulse}"/>`;
+    blocks += `<text x="0" y="1" text-anchor="middle" font-family="monospace" font-size="2.5" fill="#c4b5fd" opacity="${0.4+pulse}">#${(1000+i+Math.floor(t/60)*5).toString()}</text>`;
+    // Chain links
+    if (i < 4) blocks += `<line x1="6" y1="0" x2="9" y2="0" stroke="#7c3aed" stroke-width="0.3" opacity="0.2"/>`;
+    blocks += `</g>`;
+  }
+  blocksEl.innerHTML = blocks;
+
+  // Beam from lobster to blockchain
+  const beamPhase = (t%80)/80;
+  const beamActive = beamPhase > 0.3 && beamPhase < 0.7;
+  let beam = '';
+  if (beamActive) {
+    const bp = (beamPhase-0.3)/0.4;
+    const op = Math.sin(bp*Math.PI)*0.3;
+    beam += `<line x1="0" y1="25" x2="0" y2="46" stroke="#7c3aed" stroke-width="1.5" opacity="${op}" stroke-linecap="round"/>`;
+    beam += `<circle cx="0" cy="${25+21*bp}" r="2" fill="#7c3aed" opacity="${op*1.5}"/>`;
+
+    // Emit data particles during beam
+    if (t % 3 === 0) {
+      const ei = Math.floor(Math.random()*8);
+      dataParticles.push({
+        x: (Math.random()-0.5)*6, y: 25+21*bp,
+        vx: (Math.random()-0.5)*0.8, vy: 0.3+Math.random()*0.3,
+        age: 0, color: emotionColors[ei]
+      });
+    }
+  }
+  beamEl.innerHTML = beam;
+
+  // Data flow particles
+  let data = '';
+  for (let i = dataParticles.length-1; i >= 0; i--) {
+    const p = dataParticles[i];
+    p.age++;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.95;
+    if (p.age > 25) { dataParticles.splice(i,1); continue; }
+    const op = (1-p.age/25)*0.6;
+    data += `<circle cx="${p.x}" cy="${p.y}" r="0.8" fill="${p.color}" opacity="${op}"/>`;
+  }
+  dataEl.innerHTML = data;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Scanning Chain Data</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#22AACC;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="500" height="400" viewBox="-80 -60 180 130">
+  <defs>
+    <radialGradient id="glow" cx="35%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22AACC" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="scanGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22AACC" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#22AACC" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="-80" y="-60" width="180" height="130" fill="url(#glow)"/>
+  <g id="data"></g>
+  <g id="lob"></g>
+  <g id="scan"></g>
+  <g id="hud"></g>
+</svg>
+<div class="label">scanning chain data</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const dataEl = document.getElementById('data');
+const scanEl = document.getElementById('scan');
+const hudEl = document.getElementById('hud');
+
+// Scrolling data columns
+const columns = [];
+for (let c = 0; c < 5; c++) {
+  const col = [];
+  for (let r = 0; r < 12; r++) {
+    col.push({
+      text: Math.random() > 0.5 ? '0x' + Math.floor(Math.random()*0xFFFF).toString(16).padStart(4,'0') :
+            Math.floor(Math.random()*1000).toFixed(2),
+      color: ['#22AACC','#7c3aed','#6ECB3C','#EF8E20','#F5D831'][c]
+    });
+  }
+  columns.push(col);
+}
+
+startLoop(t => {
+  // Lobster focused, antenna pointing at data
+  el.innerHTML = `<g transform="translate(-30,5)">` +
+    drawLobster({ t, extraRotate: 2 }) + '</g>';
+
+  // Scrolling data streams
+  let data = '';
+  columns.forEach((col, c) => {
+    const x = 30 + c*15;
+    const scrollY = (t * 0.5 + c*20) % (col.length*6);
+    col.forEach((item, r) => {
+      const y = -50 + r*6 - scrollY % 6 + (r < scrollY/6 ? col.length*6 : 0);
+      if (y > -55 && y < 65) {
+        const op = 0.15 + (y > -10 && y < 20 ? 0.15 : 0);
+        data += `<text x="${x}" y="${y}" font-family="monospace" font-size="2.5" fill="${item.color}" opacity="${op}">${item.text}</text>`;
+      }
+    });
+  });
+  dataEl.innerHTML = data;
+
+  // Scan line
+  const scanY = -50 + (t % 100);
+  const scanOp = scanY > -40 && scanY < 50 ? 0.15 : 0;
+  scanEl.innerHTML = scanOp > 0 ?
+    `<line x1="20" y1="${scanY}" x2="100" y2="${scanY}" stroke="#22AACC" stroke-width="0.3" opacity="${scanOp}"/>` +
+    `<rect x="20" y="${scanY}" width="80" height="3" fill="url(#scanGrad)" opacity="${scanOp*0.5}"/>` : '';
+
+  // HUD overlay
+  const detected = Math.floor(t/30) % 4;
+  const labels = ['gas: 0.042 MON','whale: 500K tx','tvl: +2.3%','vol: 1.2M'];
+  let hud = '';
+  // Antenna-to-data connection line
+  const linePhase = (t%40)/40;
+  if (linePhase < 0.5) {
+    const lx = -12 + linePhase*2*55;
+    hud += `<circle cx="${lx}" cy="${-25+linePhase*10}" r="1" fill="#22AACC" opacity="0.4"/>`;
+  }
+  // Detection label
+  if (t % 120 > 30 && t % 120 < 90) {
+    const hop = t%120 < 40 ? (t%120-30)/10 : t%120 > 80 ? (90-t%120)/10 : 1;
+    hud += `<g opacity="${hop*0.6}" transform="translate(60,-35)">`;
+    hud += `<rect x="-18" y="-4" width="36" height="8" rx="1" fill="rgba(20,26,42,0.8)" stroke="#22AACC" stroke-width="0.3"/>`;
+    hud += `<text x="0" y="1" text-anchor="middle" font-family="monospace" font-size="2.5" fill="#22AACC">${labels[detected]}</text>`;
+    hud += `</g>`;
+  }
+  hudEl.innerHTML = hud;
+});
+</script>
+</body>
+</html>

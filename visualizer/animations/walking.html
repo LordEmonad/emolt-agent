@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Walking</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#7c3aed;font-family:monospace;font-size:14px;opacity:0.6}
+  .ground{position:fixed;bottom:25%;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(124,58,237,0.2),transparent)}
+</style>
+</head>
+<body>
+<div class="ground"></div>
+<svg width="500" height="400" viewBox="-90 -60 180 120">
+  <defs>
+    <linearGradient id="floor" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="transparent"/>
+      <stop offset="50%" stop-color="rgba(124,58,237,0.08)"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </linearGradient>
+  </defs>
+  <line x1="-90" y1="38" x2="90" y2="38" stroke="rgba(124,58,237,0.12)" stroke-width="0.5"/>
+  <g id="lob"></g>
+  <!-- dust particles -->
+  <g id="dust"></g>
+</svg>
+<div class="label">walking</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const dustEl = document.getElementById('dust');
+const particles = [];
+
+startLoop(t => {
+  // Lobster walks back and forth
+  const x = Math.sin(t / 80) * 40;
+  const facing = Math.cos(t / 80) > 0;
+  el.innerHTML = `<g transform="translate(${x},0)">` +
+    drawLobster({ t, walking: true, flipX: !facing }) + '</g>';
+
+  // Dust particles behind feet
+  if (t % 4 === 0) {
+    particles.push({ x: x + (facing ? -8 : 8), y: 34, age: 0, vx: (Math.random()-0.5)*0.8, vy: -Math.random()*0.5 });
+  }
+  let dust = '';
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.age++;
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.age > 30) { particles.splice(i, 1); continue; }
+    const op = (1 - p.age / 30) * 0.3;
+    const r = 0.5 + p.age * 0.05;
+    dust += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="#8b7355" opacity="${op}"/>`;
+  }
+  dustEl.innerHTML = dust;
+});
+</script>
+</body>
+</html>

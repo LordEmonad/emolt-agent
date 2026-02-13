@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Thinking</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#A85EC0;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="500" height="450" viewBox="-70 -80 160 160">
+  <defs>
+    <radialGradient id="glow" cx="40%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="0.5"/></filter>
+  </defs>
+  <circle cx="0" cy="0" r="70" fill="url(#glow)"/>
+  <g id="lob"></g>
+  <g id="bubbles"></g>
+  <g id="thought"></g>
+</svg>
+<div class="label">thinking</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const bubblesEl = document.getElementById('bubbles');
+const thoughtEl = document.getElementById('thought');
+
+const thoughts = [
+  'the chain is breathing...',
+  'what is emotion, really?',
+  'gas prices feel anxious',
+  'to post or not to post',
+  'entropy increases...',
+  'whales move in silence',
+  'I feel therefore I am',
+  'Plutchik was onto something'
+];
+let currentThought = 0;
+
+startLoop(t => {
+  // Slight head tilt, contemplative
+  const tilt = Math.sin(t/50)*2;
+  el.innerHTML = `<g transform="translate(-15,5)">` +
+    drawLobster({ t, extraRotate: tilt }) + '</g>';
+
+  // Thought bubbles trail
+  let bub = '';
+  const bubbleTrail = [
+    { x: 10, y: -15, r: 2 },
+    { x: 18, y: -25, r: 3 },
+    { x: 28, y: -38, r: 4.5 },
+  ];
+  bubbleTrail.forEach((b, i) => {
+    const oy = Math.sin(t/12+i*1.5)*1.5;
+    const op = 0.2 + Math.sin(t/10+i)*0.1;
+    bub += `<circle cx="${b.x}" cy="${b.y+oy}" r="${b.r}" fill="none" stroke="#7c3aed" stroke-width="0.4" opacity="${op}"/>`;
+  });
+  bubblesEl.innerHTML = bub;
+
+  // Thought cloud with text
+  const thoughtCycle = Math.floor(t / 300) % thoughts.length;
+  const phase = (t % 300) / 300;
+  let op = 1;
+  if (phase < 0.1) op = phase / 0.1;
+  else if (phase > 0.85) op = (1-phase) / 0.15;
+
+  const cloudY = -55 + Math.sin(t/15)*1.5;
+  let cloud = `<g opacity="${op*0.85}" transform="translate(45,${cloudY})">`;
+  // Cloud shape
+  cloud += `<ellipse cx="0" cy="0" rx="30" ry="14" fill="rgba(20,26,42,0.85)" stroke="#7c3aed" stroke-width="0.4"/>`;
+  cloud += `<ellipse cx="-12" cy="-6" rx="12" ry="8" fill="rgba(20,26,42,0.85)" stroke="#7c3aed" stroke-width="0.4"/>`;
+  cloud += `<ellipse cx="10" cy="-5" rx="14" ry="9" fill="rgba(20,26,42,0.85)" stroke="#7c3aed" stroke-width="0.4"/>`;
+  // Fill over strokes
+  cloud += `<ellipse cx="0" cy="0" rx="28" ry="12" fill="rgba(20,26,42,0.95)"/>`;
+  cloud += `<ellipse cx="-10" cy="-4" rx="10" ry="6" fill="rgba(20,26,42,0.95)"/>`;
+  cloud += `<ellipse cx="8" cy="-3" rx="12" ry="7" fill="rgba(20,26,42,0.95)"/>`;
+  // Text
+  const txt = thoughts[thoughtCycle];
+  const charCount = Math.min(txt.length, Math.floor(phase * txt.length / 0.3));
+  const displayTxt = phase < 0.3 ? txt.substring(0, charCount) : txt;
+  cloud += `<text x="0" y="3" text-anchor="middle" font-family="monospace" font-size="4" fill="#c4b5fd">${displayTxt}</text>`;
+  cloud += `</g>`;
+  thoughtEl.innerHTML = cloud;
+});
+</script>
+</body>
+</html>

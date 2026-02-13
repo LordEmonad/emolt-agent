@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Headbang</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0a0a12;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#7c3aed;font-family:monospace;font-size:14px;opacity:0.6}
+  .vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 50%,rgba(10,10,18,0.7) 100%)}
+</style>
+</head>
+<body>
+<div class="vignette"></div>
+<svg width="400" height="420" viewBox="-60 -70 120 140">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#0a0a12" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <g id="streaks"></g>
+  <g id="lob"></g>
+  <g id="hairfx"></g>
+</svg>
+<div class="label">headbang</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const streaksEl = document.getElementById('streaks');
+const hairfxEl = document.getElementById('hairfx');
+
+const sparks = [];
+
+startLoop(t => {
+  // Headbanging: aggressive forward-back tilt
+  const bangSpeed = 5;
+  const bangAngle = Math.sin(t / bangSpeed) * 18;
+  const headDip = Math.max(0, Math.sin(t / bangSpeed)) * 4;
+  const squash = 1 + Math.sin(t / bangSpeed) * 0.04;
+
+  el.innerHTML = drawLobster({
+    t, extraRotate: bangAngle, extraBob: headDip,
+    squash, stretch: 2 - squash,
+    clawOpenL: Math.sin(t/bangSpeed)*8,
+    clawOpenR: -Math.sin(t/bangSpeed)*8
+  });
+
+  // Hair motion streaks
+  if (Math.abs(Math.cos(t/bangSpeed)) > 0.7) {
+    sparks.push({
+      x: -5+Math.random()*10,
+      y: -20+Math.random()*5,
+      vx: (Math.random()-0.5)*2,
+      vy: -0.5-Math.random(),
+      age: 0
+    });
+  }
+  let sparkSvg = '';
+  for (let i = sparks.length-1; i >= 0; i--) {
+    const s = sparks[i];
+    s.age++;
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vy += 0.05;
+    if (s.age > 20) { sparks.splice(i,1); continue; }
+    const op = (1-s.age/20)*0.5;
+    sparkSvg += `<circle cx="${s.x}" cy="${s.y}" r="0.6" fill="#7c3aed" opacity="${op}"/>`;
+  }
+  hairfxEl.innerHTML = sparkSvg;
+
+  // Energy streaks in background
+  let streaks = '';
+  for (let i = 0; i < 6; i++) {
+    const angle = (i/6)*Math.PI*2 + t*0.05;
+    const r1 = 35 + Math.sin(t/8+i)*5;
+    const r2 = r1 + 8 + Math.sin(t/6+i)*3;
+    const x1 = Math.cos(angle)*r1;
+    const y1 = Math.sin(angle)*r1;
+    const x2 = Math.cos(angle)*r2;
+    const y2 = Math.sin(angle)*r2;
+    const op = 0.1 + Math.sin(t/4+i)*0.08;
+    streaks += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#7c3aed" stroke-width="1" opacity="${op}" stroke-linecap="round"/>`;
+  }
+  streaksEl.innerHTML = streaks;
+});
+</script>
+</body>
+</html>

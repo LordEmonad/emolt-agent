@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Sleeping</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#080b14;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#4A6BD4;font-family:monospace;font-size:14px;opacity:0.4}
+</style>
+</head>
+<body>
+<svg width="400" height="400" viewBox="-60 -60 120 120">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4A6BD4" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#080b14" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="stars"></g>
+  <g id="lob"></g>
+  <g id="zzz"></g>
+  <g id="bubble"></g>
+</svg>
+<div class="label">sleeping</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const zzzEl = document.getElementById('zzz');
+const bubbleEl = document.getElementById('bubble');
+const starsEl = document.getElementById('stars');
+
+const zParticles = [];
+
+// Twinkling stars
+const stars = [];
+for (let i = 0; i < 15; i++) {
+  stars.push({
+    x: -55+Math.random()*110,
+    y: -55+Math.random()*50,
+    size: 0.3+Math.random()*0.8,
+    phase: Math.random()*Math.PI*2,
+    speed: 0.02+Math.random()*0.03
+  });
+}
+
+startLoop(t => {
+  // Very slow breathing, slightly tilted (resting)
+  const breathe = Math.sin(t/30)*1.5;
+  // Override tick to be very slow for sleepy feel
+  const sleepyTick = Math.floor(t * 0.3);
+
+  el.innerHTML = `<g transform="translate(0,2) rotate(5)">` +
+    drawLobster({ t: sleepyTick, mood: 'sad', extraBob: breathe }) + '</g>';
+
+  // Z particles rising
+  if (t % 30 === 0) {
+    zParticles.push({ x: 15, y: -25, age: 0, size: 4 });
+  }
+  let zzz = '';
+  for (let i = zParticles.length-1; i >= 0; i--) {
+    const z = zParticles[i];
+    z.age++;
+    z.y -= 0.4;
+    z.x += Math.sin(z.age/10)*0.3 + 0.15;
+    z.size += 0.03;
+    if (z.age > 60) { zParticles.splice(i,1); continue; }
+    const op = z.age < 8 ? z.age/8 : z.age > 45 ? (60-z.age)/15 : 0.5;
+    zzz += `<text x="${z.x}" y="${z.y}" text-anchor="middle" font-family="monospace" font-size="${z.size}" font-weight="bold" fill="#7c3aed" opacity="${op}">Z</text>`;
+  }
+  zzzEl.innerHTML = zzz;
+
+  // Sleep bubble
+  const br = 6 + Math.sin(t/20)*1.5;
+  bubbleEl.innerHTML = `<ellipse cx="14" cy="${3+Math.sin(t/20)*0.5}" rx="${br}" ry="${br*0.6}" fill="none" stroke="rgba(124,186,232,0.15)" stroke-width="0.3"/>`;
+
+  // Stars
+  let starSvg = '';
+  stars.forEach(s => {
+    const twinkle = 0.15 + Math.sin(t*s.speed+s.phase)*0.15;
+    starSvg += `<circle cx="${s.x}" cy="${s.y}" r="${s.size}" fill="#c4b5fd" opacity="${twinkle}"/>`;
+  });
+  starsEl.innerHTML = starSvg;
+});
+</script>
+</body>
+</html>

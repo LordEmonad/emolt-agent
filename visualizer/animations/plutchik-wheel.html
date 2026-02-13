@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Plutchik Wheel</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#7c3aed;font-family:monospace;font-size:14px;opacity:0.6}
+</style>
+</head>
+<body>
+<svg width="420" height="420" viewBox="-100 -100 200 200">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="sectorGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.5"/>
+    </filter>
+  </defs>
+  <circle cx="0" cy="0" r="95" fill="url(#glow)"/>
+  <g id="wheelBg"></g>
+  <g id="wheel"></g>
+  <g id="connector"></g>
+  <g id="particles"></g>
+  <g id="lob"></g>
+</svg>
+<div class="label">plutchik emotion wheel</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const wheelEl = document.getElementById('wheel');
+const wheelBgEl = document.getElementById('wheelBg');
+const connEl = document.getElementById('connector');
+const particlesEl = document.getElementById('particles');
+
+// 3-ring Plutchik: intense (inner), base (mid), mild (outer)
+const emotions = [
+  { name: 'joy',          intense: 'ecstasy',    mild: 'serenity',     color: '#F5D831', angle: 0,   mood: 'happy' },
+  { name: 'trust',        intense: 'admiration',  mild: 'acceptance',   color: '#6ECB3C', angle: 45,  mood: 'neutral' },
+  { name: 'fear',         intense: 'terror',      mild: 'apprehension', color: '#2BA84A', angle: 90,  mood: 'fearful' },
+  { name: 'surprise',     intense: 'amazement',   mild: 'distraction',  color: '#22AACC', angle: 135, mood: 'surprised' },
+  { name: 'sadness',      intense: 'grief',       mild: 'pensiveness',  color: '#4A6BD4', angle: 180, mood: 'sad' },
+  { name: 'disgust',      intense: 'loathing',    mild: 'boredom',      color: '#A85EC0', angle: 225, mood: 'neutral' },
+  { name: 'anger',        intense: 'rage',        mild: 'annoyance',    color: '#E04848', angle: 270, mood: 'angry' },
+  { name: 'anticipation', intense: 'vigilance',   mild: 'interest',     color: '#EF8E20', angle: 315, mood: 'neutral' }
+];
+
+const floatingParts = [];
+
+// Build a pie-slice path from center to outer arc
+function pieSector(cx, cy, r1, r2, a1deg, a2deg) {
+  const a1 = a1deg * Math.PI / 180;
+  const a2 = a2deg * Math.PI / 180;
+  if (r1 === 0) {
+    // Full pie slice from center
+    const ox1 = cx + Math.cos(a1) * r2, oy1 = cy + Math.sin(a1) * r2;
+    const ox2 = cx + Math.cos(a2) * r2, oy2 = cy + Math.sin(a2) * r2;
+    return `M${cx},${cy} L${ox1},${oy1} A${r2},${r2} 0 0,1 ${ox2},${oy2} Z`;
+  }
+  // Ring sector (annulus)
+  const ox1 = cx + Math.cos(a1) * r2, oy1 = cy + Math.sin(a1) * r2;
+  const ox2 = cx + Math.cos(a2) * r2, oy2 = cy + Math.sin(a2) * r2;
+  const ix1 = cx + Math.cos(a1) * r1, iy1 = cy + Math.sin(a1) * r1;
+  const ix2 = cx + Math.cos(a2) * r1, iy2 = cy + Math.sin(a2) * r1;
+  return `M${ix1},${iy1} L${ox1},${oy1} A${r2},${r2} 0 0,1 ${ox2},${oy2} L${ix2},${iy2} A${r1},${r1} 0 0,0 ${ix1},${iy1}`;
+}
+
+startLoop(t => {
+  const active = Math.floor(t / 40) % 8;
+  const activeEm = emotions[active];
+
+  // ── Lobster reacts to active emotion ──
+  el.innerHTML = `<g transform="translate(-52,8) scale(0.7)">` +
+    drawLobster({ t, mood: activeEm.mood }) + '</g>';
+
+  // ── Wheel ──
+  const cx = 28, cy = 0;
+  const rInner = 13;  // intense ring: 0 → rInner
+  const rMid   = 27;  // base ring: rInner → rMid
+  const rOuter = 38;  // mild ring: rMid → rOuter
+  let wheel = '';
+  let bgWheel = '';
+
+  // Ambient glow behind wheel
+  bgWheel += `<circle cx="${cx}" cy="${cy}" r="${rOuter + 14}" fill="${activeEm.color}" opacity="${0.04 + Math.sin(t/12)*0.02}" filter="url(#softGlow)"/>`;
+
+  emotions.forEach((em, i) => {
+    const isActive = i === active;
+    const a1 = em.angle - 22.5;
+    const a2 = em.angle + 22.5;
+
+    // Dynamic value modulates opacity
+    const val = 0.5 + Math.sin(t / 18 + i * 0.9) * 0.2 + (isActive ? 0.2 : 0);
+
+    // ── Inner ring (intense) — brightest, from center ──
+    const innerOp = isActive
+      ? 0.85 + Math.sin(t / 6) * 0.1
+      : 0.35 + val * 0.2;
+    const innerPath = pieSector(cx, cy, 0, rInner, a1, a2);
+    if (isActive) {
+      wheel += `<path d="${innerPath}" fill="${em.color}" opacity="${innerOp * 0.5}" filter="url(#sectorGlow)"/>`;
+    }
+    wheel += `<path d="${innerPath}" fill="${em.color}" opacity="${innerOp}"/>`;
+
+    // ── Middle ring (base emotion) ──
+    const midOp = isActive
+      ? 0.65 + Math.sin(t / 6) * 0.1
+      : 0.22 + val * 0.15;
+    const midPath = pieSector(cx, cy, rInner + 0.3, rMid, a1, a2);
+    if (isActive) {
+      wheel += `<path d="${midPath}" fill="${em.color}" opacity="${midOp * 0.35}" filter="url(#sectorGlow)"/>`;
+    }
+    wheel += `<path d="${midPath}" fill="${em.color}" opacity="${midOp}"/>`;
+
+    // ── Outer ring (mild) ──
+    const outerOp = isActive
+      ? 0.45 + Math.sin(t / 6) * 0.08
+      : 0.12 + val * 0.1;
+    const outerR = isActive ? rOuter + 1.5 + Math.sin(t / 6) * 0.8 : rOuter;
+    const outerPath = pieSector(cx, cy, rMid + 0.3, outerR, a1, a2);
+    wheel += `<path d="${outerPath}" fill="${em.color}" opacity="${outerOp}"/>`;
+
+    // Sector divider lines
+    const la1 = a1 * Math.PI / 180;
+    wheel += `<line x1="${cx}" y1="${cy}" x2="${cx + Math.cos(la1) * outerR}" y2="${cy + Math.sin(la1) * outerR}" stroke="#0e1420" stroke-width="0.6" opacity="0.5"/>`;
+
+    // ── Labels ──
+    const la = em.angle * Math.PI / 180;
+
+    // Outer label (base name)
+    const lr = outerR + (isActive ? 9 : 6.5);
+    const lx = cx + Math.cos(la) * lr;
+    const ly = cy + Math.sin(la) * lr;
+    wheel += `<text x="${lx}" y="${ly + 1.2}" text-anchor="middle" font-family="monospace" font-size="${isActive ? 4.5 : 3}" font-weight="${isActive ? 'bold' : 'normal'}" fill="${em.color}" opacity="${isActive ? 1 : 0.4}">${em.name}</text>`;
+
+    // Inner label (intense name) — only when active
+    if (isActive) {
+      const ilr = rInner * 0.55;
+      const ilx = cx + Math.cos(la) * ilr;
+      const ily = cy + Math.sin(la) * ilr;
+      wheel += `<text x="${ilx}" y="${ily + 1}" text-anchor="middle" font-family="monospace" font-size="2.8" font-weight="bold" fill="#fff" opacity="0.7">${em.intense}</text>`;
+    }
+  });
+
+  // Concentric ring borders
+  [rInner, rMid, rOuter].forEach(r => {
+    wheel += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(14,20,32,0.4)" stroke-width="0.5"/>`;
+  });
+
+  // Center dot
+  wheel += `<circle cx="${cx}" cy="${cy}" r="2.5" fill="${activeEm.color}" opacity="${0.3 + Math.sin(t/8)*0.15}"/>`;
+  wheel += `<circle cx="${cx}" cy="${cy}" r="1" fill="#fff" opacity="${0.2 + Math.sin(t/8)*0.1}"/>`;
+
+  wheelBgEl.innerHTML = bgWheel;
+  wheelEl.innerHTML = wheel;
+
+  // ── Connector: antenna → active sector ──
+  const activeAngle = activeEm.angle * Math.PI / 180;
+  const targetX = cx + Math.cos(activeAngle) * (rMid * 0.6);
+  const targetY = cy + Math.sin(activeAngle) * (rMid * 0.6);
+  const antX = -27, antY = -22;
+  const midX = (antX + targetX) / 2;
+  const midY = Math.min(antY, targetY) - 12;
+
+  let conn = '';
+  conn += `<path d="M${antX},${antY} Q${midX},${midY} ${targetX},${targetY}" fill="none" stroke="${activeEm.color}" stroke-width="1.5" opacity="0.06" filter="url(#softGlow)"/>`;
+  conn += `<path d="M${antX},${antY} Q${midX},${midY} ${targetX},${targetY}" fill="none" stroke="${activeEm.color}" stroke-width="0.5" opacity="0.25" stroke-dasharray="2 2" stroke-dashoffset="${-t * 0.5}"/>`;
+
+  for (let d = 0; d < 3; d++) {
+    const phase = ((t % 40) / 40 + d / 3) % 1;
+    const px = (1-phase)*(1-phase)*antX + 2*(1-phase)*phase*midX + phase*phase*targetX;
+    const py = (1-phase)*(1-phase)*antY + 2*(1-phase)*phase*midY + phase*phase*targetY;
+    const dotOp = Math.sin(phase * Math.PI) * 0.6;
+    conn += `<circle cx="${px}" cy="${py}" r="1.2" fill="${activeEm.color}" opacity="${dotOp}"/>`;
+    conn += `<circle cx="${px}" cy="${py}" r="2.5" fill="${activeEm.color}" opacity="${dotOp * 0.2}" filter="url(#softGlow)"/>`;
+  }
+  connEl.innerHTML = conn;
+
+  // ── Floating particles ──
+  if (t % 8 === 0) {
+    const pa = Math.random() * Math.PI * 2;
+    const pd = rMid * 0.4 + Math.random() * rOuter * 0.7;
+    floatingParts.push({
+      x: cx + Math.cos(pa) * pd,
+      y: cy + Math.sin(pa) * pd,
+      vx: (Math.random() - 0.5) * 0.15,
+      vy: -0.2 - Math.random() * 0.3,
+      age: 0,
+      color: activeEm.color,
+      size: 0.5 + Math.random() * 1
+    });
+  }
+  let pSvg = '';
+  for (let i = floatingParts.length - 1; i >= 0; i--) {
+    const p = floatingParts[i];
+    p.age++;
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.age > 40) { floatingParts.splice(i, 1); continue; }
+    const op = p.age < 5 ? p.age / 5 : p.age > 30 ? (40 - p.age) / 10 : 0.5;
+    pSvg += `<circle cx="${p.x}" cy="${p.y}" r="${p.size}" fill="${p.color}" opacity="${op}"/>`;
+  }
+  particlesEl.innerHTML = pSvg;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT — Glitching</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0e1420;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#22AACC;font-family:monospace;font-size:14px;opacity:0.6}
+  .scanlines{position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.05) 2px,rgba(0,0,0,0.05) 4px);z-index:10}
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<svg width="400" height="400" viewBox="-60 -60 120 120">
+  <defs>
+    <clipPath id="clip"><rect x="-60" y="-60" width="120" height="120"/></clipPath>
+  </defs>
+  <g id="glitch-r" clip-path="url(#clip)"></g>
+  <g id="glitch-b" clip-path="url(#clip)"></g>
+  <g id="lob" clip-path="url(#clip)"></g>
+  <g id="bars"></g>
+  <g id="noise"></g>
+</svg>
+<div class="label">glitching</div>
+<script src="lobster.js"></script>
+<script>
+const el = document.getElementById('lob');
+const glitchR = document.getElementById('glitch-r');
+const glitchB = document.getElementById('glitch-b');
+const barsEl = document.getElementById('bars');
+const noiseEl = document.getElementById('noise');
+
+startLoop(t => {
+  // Determine if we're in a glitch burst
+  const glitchCycle = t % 90;
+  const inGlitch = glitchCycle > 70 && glitchCycle < 85;
+  const intensity = inGlitch ? (Math.sin((glitchCycle-70)/15*Math.PI)*1) : 0;
+
+  // Offset for chromatic aberration
+  const offR = inGlitch ? (Math.random()-0.5)*4*intensity : 0;
+  const offB = inGlitch ? (Math.random()-0.5)*4*intensity : 0;
+  const offY = inGlitch ? (Math.random()-0.5)*2*intensity : 0;
+
+  const base = drawLobster({ t });
+
+  // Main lobster
+  el.innerHTML = `<g transform="translate(${inGlitch?(Math.random()-0.5)*2:0},${offY})">${base}</g>`;
+
+  // Red channel offset
+  glitchR.innerHTML = inGlitch ?
+    `<g transform="translate(${offR},${offY*0.5})" opacity="0.3" style="mix-blend-mode:screen">
+      <g>${base.replace(/#cc3333/g,'#ff3333').replace(/#e04545/g,'#ff6666')}</g>
+    </g>` : '';
+
+  // Blue channel offset
+  glitchB.innerHTML = inGlitch ?
+    `<g transform="translate(${offB},${-offY*0.5})" opacity="0.25" style="mix-blend-mode:screen">
+      <g>${base.replace(/#cc3333/g,'#3333ff').replace(/#e04545/g,'#6666ff')}</g>
+    </g>` : '';
+
+  // Glitch bars
+  let bars = '';
+  if (inGlitch) {
+    for (let i = 0; i < 3; i++) {
+      const by = -60+Math.random()*120;
+      const bh = 1+Math.random()*4;
+      const bx = (Math.random()-0.5)*10;
+      bars += `<rect x="${-60+bx}" y="${by}" width="120" height="${bh}" fill="rgba(124,58,237,${0.1*intensity})" />`;
+    }
+  }
+  barsEl.innerHTML = bars;
+
+  // Digital noise
+  let noise = '';
+  if (inGlitch && Math.random()>0.5) {
+    for (let i = 0; i < 10; i++) {
+      const nx = -50+Math.random()*100;
+      const ny = -50+Math.random()*100;
+      noise += `<rect x="${nx}" y="${ny}" width="${1+Math.random()*3}" height="0.5" fill="#7c3aed" opacity="${0.2*intensity}"/>`;
+    }
+  }
+  noiseEl.innerHTML = noise;
+});
+</script>
+</body>
+</html>
