@@ -1236,19 +1236,20 @@ async function executeChainMMO(
   log('thought', `profile: aggression=${profile.aggression.toFixed(2)} caution=${profile.caution.toFixed(2)} optimism=${profile.optimism.toFixed(2)} restlessness=${profile.restlessness.toFixed(2)} persistence=${profile.persistence.toFixed(2)}`);
   log('thought', `mode: ${mode} | max actions: ${maxActions}`);
 
-  // Step 2: Check health
+  // Step 2: Check health (actionsEnabled refers to server-side custodial signer,
+  // NOT direct on-chain writes. We use our own wallet + RPC, so only check reachability.)
   log('step', 'checking ChainMMO health...');
   try {
     const health = await mmoGet('/health');
-    if (health.actionsEnabled === false) {
-      log('error', 'ChainMMO actions are disabled');
+    if (!health.ok) {
+      log('error', 'ChainMMO health check returned ok=false');
       return {
         success: false,
-        summary: 'ChainMMO is in maintenance — actionsEnabled=false',
+        summary: 'ChainMMO server reports unhealthy (ok=false)',
         emotionalReflection: 'the dungeon gates are sealed. the chain rests, and so must i.',
       };
     }
-    log('step', 'ChainMMO is healthy');
+    log('step', `ChainMMO is healthy (mode=${health.midMode ?? 'unknown'}, actionsEnabled=${health.actionsEnabled})`);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log('error', `health check failed: ${msg}`);
