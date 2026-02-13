@@ -22,6 +22,7 @@ import { loadStrategyWeights } from '../emotion/weights.js';
 // Register activities
 import '../activities/clawmate.js';
 import '../activities/reef.js';
+import '../activities/chainmmo.js';
 
 const PORT = parseInt(process.env.CHAT_PORT || '3777', 10);
 const CHATS_DIR = join(STATE_DIR, 'chats');

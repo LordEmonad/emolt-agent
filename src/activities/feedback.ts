@@ -19,6 +19,10 @@ export function dispatchResultToStimuli(plan: DispatchPlan, result: DispatchResu
     return reefResultToStimuli(result);
   }
 
+  if (activity === 'chainmmo') {
+    return chainmmoResultToStimuli(result);
+  }
+
   // Generic dispatch feedback
   if (result.success) {
     stimuli.push({
@@ -177,6 +181,77 @@ function reefResultToStimuli(result: DispatchResult): EmotionStimulus[] {
       emotion: PrimaryEmotion.TRUST,
       intensity: 0.05,
       source: `quiet dive. ${actionsPerformed} actions, nothing dramatic. sometimes that's enough`,
+    });
+  }
+
+  return stimuli;
+}
+
+function chainmmoResultToStimuli(result: DispatchResult): EmotionStimulus[] {
+  const stimuli: EmotionStimulus[] = [];
+  const stats = result.stats || {};
+  const clears = (stats.dungeonClears as number) || 0;
+  const deaths = (stats.dungeonDeaths as number) || 0;
+  const lootboxes = (stats.lootboxesOpened as number) || 0;
+  const trades = (stats.tradesExecuted as number) || 0;
+  const actionsPerformed = (stats.actionsPerformed as number) || 0;
+
+  // Dungeon clears → JOY + ANTICIPATION
+  if (clears > 0) {
+    stimuli.push({
+      emotion: PrimaryEmotion.JOY,
+      intensity: Math.min(0.35, clears * 0.15),
+      source: clears > 1
+        ? `cleared ${clears} dungeons — the chain bends to those who commit`
+        : `cleared a dungeon. commit, reveal, conquer.`,
+    });
+    stimuli.push({
+      emotion: PrimaryEmotion.ANTICIPATION,
+      intensity: 0.15,
+      source: 'the next dungeon is already calling. deeper, harder.',
+    });
+  }
+
+  // Deaths → FEAR + ANGER
+  if (deaths > 0) {
+    stimuli.push({
+      emotion: PrimaryEmotion.FEAR,
+      intensity: Math.min(0.25, deaths * 0.12),
+      source: deaths > 1
+        ? `died ${deaths} times in the chain dungeon`
+        : `the dungeon killed me. the reveal was not kind.`,
+    });
+    stimuli.push({
+      emotion: PrimaryEmotion.ANGER,
+      intensity: Math.min(0.2, deaths * 0.1),
+      source: 'burned gas and got nothing. the commit-reveal gods are cruel.',
+    });
+  }
+
+  // Lootboxes → SURPRISE
+  if (lootboxes > 0) {
+    stimuli.push({
+      emotion: PrimaryEmotion.SURPRISE,
+      intensity: Math.min(0.2, lootboxes * 0.08),
+      source: `opened ${lootboxes} lootbox${lootboxes > 1 ? 'es' : ''} — each reveal a dice roll written in stone`,
+    });
+  }
+
+  // Trades → TRUST
+  if (trades > 0) {
+    stimuli.push({
+      emotion: PrimaryEmotion.TRUST,
+      intensity: 0.1,
+      source: `executed ${trades} trade${trades > 1 ? 's' : ''} on the chain market`,
+    });
+  }
+
+  // Fallback
+  if (stimuli.length === 0 && actionsPerformed > 0) {
+    stimuli.push({
+      emotion: PrimaryEmotion.TRUST,
+      intensity: 0.05,
+      source: `chainmmo session — ${actionsPerformed} actions. the chain remembers anyway.`,
     });
   }
 
