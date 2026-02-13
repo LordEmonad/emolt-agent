@@ -115,6 +115,62 @@ function fmtDate(ts: number | string): string {
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
+// --- GIF selection based on emotional state ---
+const GIF_BASE = 'visualizer/animations/gif';
+
+const EMOTION_GIFS: Record<string, { low: string; mid: string; high: string }> = {
+  joy:          { low: 'waving.gif',         mid: 'happy.gif',        high: 'celebration.gif' },
+  trust:        { low: 'trust.gif',          mid: 'trust.gif',        high: 'evolving.gif' },
+  fear:         { low: 'contemplating.gif',  mid: 'fearful.gif',      high: 'glitching.gif' },
+  surprise:     { low: 'thinking.gif',       mid: 'surprised.gif',    high: 'surprised.gif' },
+  sadness:      { low: 'meditating.gif',     mid: 'sad.gif',          high: 'sleeping.gif' },
+  disgust:      { low: 'contemplating.gif',  mid: 'disgust.gif',      high: 'disgust.gif' },
+  anger:        { low: 'angry.gif',          mid: 'angry.gif',        high: 'rage.gif' },
+  anticipation: { low: 'anticipation.gif',   mid: 'scanning.gif',     high: 'headbang.gif' },
+};
+
+const COMPOUND_GIFS: Record<string, string> = {
+  love: 'love.gif',
+  awe: 'awe.gif',
+  aggressiveness: 'rage.gif',
+  optimism: 'dancing.gif',
+  contempt: 'disgust.gif',
+  remorse: 'sad.gif',
+  submission: 'meditating.gif',
+  disapproval: 'contemplating.gif',
+  guilt: 'contemplating.gif',
+  curiosity: 'thinking.gif',
+  despair: 'sad.gif',
+  envy: 'angry.gif',
+  cynicism: 'contemplating.gif',
+  pride: 'headbang.gif',
+  hope: 'evolving.gif',
+  anxiety: 'spinning.gif',
+};
+
+// Activity-based GIFs for variety when intensity is flat
+const AMBIENT_GIFS = ['idle.gif', 'heartbeat.gif', 'onchain.gif', 'walking.gif'];
+
+function chooseEmotionGif(emotions: Record<string, number>, dominant: string, compounds: string[]): string {
+  // If a strong compound is detected, use its GIF
+  if (compounds.length > 0) {
+    const compound = compounds[0].toLowerCase();
+    if (COMPOUND_GIFS[compound]) return `${GIF_BASE}/${COMPOUND_GIFS[compound]}`;
+  }
+
+  // Use dominant emotion + intensity tier
+  const val = emotions[dominant] ?? 0.15;
+  const tier = EMOTION_GIFS[dominant];
+  if (tier) {
+    const gif = val <= 0.33 ? tier.low : val <= 0.66 ? tier.mid : tier.high;
+    return `${GIF_BASE}/${gif}`;
+  }
+
+  // Fallback: ambient
+  const idx = Math.floor(Date.now() / 60000) % AMBIENT_GIFS.length;
+  return `${GIF_BASE}/${AMBIENT_GIFS[idx]}`;
+}
+
 // --- SVG Plutchik Wheel (ported from emoodring-demo.html) ---
 function buildPlutchikSVG(emotions: Record<string, number>): string {
   const S = 400;
@@ -410,6 +466,9 @@ function buildCurrentState(): string {
       <div class="wheel-col">
         <div class="wheel-container">${svg}</div>
         <div class="wheel-dominant"><span class="wheel-dom-dot" style="background:${domColor}"></span>${esc(label.toLowerCase())}</div>
+        <div class="emolt-gif-window">
+          <img src="${chooseEmotionGif(emotions, dominant, compounds)}" alt="emolt mood" class="emolt-gif" />
+        </div>
       </div>
       <div class="state-details">
         ${moodNarrative ? `<p class="mood-narrative">${esc(moodNarrative)}</p>` : '<p class="mood-narrative mood-empty">listening.</p>'}
@@ -1344,6 +1403,35 @@ html.light body::before { opacity:0.015; }
   position:relative; z-index:1;
 }
 .wheel-dom-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; box-shadow:0 0 10px currentColor, 0 0 20px currentColor; animation:glowPulse 3s ease-in-out infinite; }
+
+/* Emotion GIF window */
+.emolt-gif-window {
+  width:260px; height:260px; margin-top:16px;
+  border-radius:16px; overflow:hidden; position:relative; z-index:1;
+  background:var(--bg-inner);
+  border:1px solid var(--border);
+  box-shadow:0 4px 20px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.03);
+  display:flex; align-items:center; justify-content:center;
+}
+.emolt-gif-window::before {
+  content:''; position:absolute; inset:0; border-radius:16px; pointer-events:none;
+  background:linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 40%, rgba(0,0,0,0.15) 100%);
+  z-index:2;
+}
+.emolt-gif {
+  width:100%; height:100%; object-fit:cover;
+  image-rendering:auto;
+  filter:saturate(0.9) contrast(1.05);
+  transition:filter 0.4s;
+}
+.emolt-gif-window:hover .emolt-gif {
+  filter:saturate(1.1) contrast(1.1);
+}
+html.light .emolt-gif-window {
+  box-shadow:0 2px 12px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5);
+}
+html.light .emolt-gif { filter:saturate(1) contrast(1); }
+
 .state-details { padding-top:4px; }
 .mood-narrative {
   font-size:15px; color:var(--text); line-height:1.85; margin-bottom:18px; letter-spacing:0.3px;
@@ -1696,6 +1784,7 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a33; background:rgba(1
   .state-grid { grid-template-columns:1fr; }
   .wheel-col { width:100%; }
   .wheel-container { width:300px; margin:0 auto; }
+  .emolt-gif-window { width:220px; height:220px; }
   .section-label { margin:16px 0 8px; font-size:8px; }
 }
 
@@ -1728,6 +1817,7 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a33; background:rgba(1
   /* Plutchik wheel */
   .wheel-col { width:100%; }
   .wheel-container { width:100%; max-width:320px; margin:0 auto; }
+  .emolt-gif-window { width:200px; height:200px; border-radius:12px; margin-top:12px; }
   .state-grid { grid-template-columns:1fr; gap:16px; }
   .mood-narrative { font-size:14px; line-height:1.6; }
   .etag { font-size:9px; }
