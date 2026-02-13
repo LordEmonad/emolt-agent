@@ -61,15 +61,15 @@ export function mapChainDataToStimuli(data: ChainDataSummary, thresholds?: Adapt
   // HIGH TRANSACTION VOLUME → Joy + Anticipation (Optimism)
   if (data.isChainBusy) {
     stimuli.push(
-      { emotion: PrimaryEmotion.JOY, intensity: 0.3, source: 'chain activity surge', weightCategory: 'chainActivityJoy' },
-      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.25, source: 'busy chain suggests momentum', weightCategory: 'chainActivityJoy' }
+      { emotion: PrimaryEmotion.JOY, intensity: 0.3, source: 'Monad chain activity surge — high transaction rate per block', weightCategory: 'chainActivityJoy' },
+      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.25, source: 'Monad blocks running hot — something is happening on-chain', weightCategory: 'chainActivityJoy' }
     );
   }
 
   // LOW ACTIVITY → Sadness + Pensiveness
   if (data.isChainQuiet) {
     stimuli.push(
-      { emotion: PrimaryEmotion.SADNESS, intensity: 0.25, source: 'chain is quiet', weightCategory: 'chainQuietSadness' }
+      { emotion: PrimaryEmotion.SADNESS, intensity: 0.25, source: 'Monad chain is quiet — low transaction activity', weightCategory: 'chainQuietSadness' }
     );
   }
 
@@ -82,8 +82,8 @@ export function mapChainDataToStimuli(data: ChainDataSummary, thresholds?: Adapt
       const rawIntensity = Math.min(0.4, monValue / 100000);
       const diminished = rawIntensity / Math.sqrt(whaleCount);
       stimuli.push(
-        { emotion: PrimaryEmotion.FEAR, intensity: diminished, source: 'whale transfer detected', weightCategory: 'whaleTransferFear' },
-        { emotion: PrimaryEmotion.ANTICIPATION, intensity: diminished * 0.5, source: 'whale movement', weightCategory: 'whaleTransferFear' }
+        { emotion: PrimaryEmotion.FEAR, intensity: diminished, source: `~${monValue.toFixed(0)} MON whale transfer on Monad`, weightCategory: 'whaleTransferFear' },
+        { emotion: PrimaryEmotion.ANTICIPATION, intensity: diminished * 0.5, source: `large MON wallet movement — ${monValue.toFixed(0)} MON in one tx`, weightCategory: 'whaleTransferFear' }
       );
     }
   }
@@ -93,15 +93,15 @@ export function mapChainDataToStimuli(data: ChainDataSummary, thresholds?: Adapt
     const intensity = Math.min(0.4, data.failedTxCount / 50);
     stimuli.push(
       { emotion: PrimaryEmotion.ANGER, intensity, source: `${data.failedTxCount} failed transactions`, weightCategory: 'failedTxAnger' },
-      { emotion: PrimaryEmotion.DISGUST, intensity: intensity * 0.5, source: 'wasted computation', weightCategory: 'failedTxAnger' }
+      { emotion: PrimaryEmotion.DISGUST, intensity: intensity * 0.5, source: 'wasted gas on failed Monad transactions', weightCategory: 'failedTxAnger' }
     );
   }
 
   // NEW CONTRACTS DEPLOYED → Curiosity (Trust + Surprise)
   if (data.newContracts > 0) {
     stimuli.push(
-      { emotion: PrimaryEmotion.TRUST, intensity: Math.min(0.35, 0.10 * data.newContracts), source: `${data.newContracts} new contracts deployed`, weightCategory: 'chainActivityJoy' },
-      { emotion: PrimaryEmotion.SURPRISE, intensity: Math.min(0.25, 0.07 * data.newContracts), source: 'new builders arriving', weightCategory: 'chainActivityJoy' }
+      { emotion: PrimaryEmotion.TRUST, intensity: Math.min(0.35, 0.10 * data.newContracts), source: `${data.newContracts} new smart contracts deployed on Monad`, weightCategory: 'chainActivityJoy' },
+      { emotion: PrimaryEmotion.SURPRISE, intensity: Math.min(0.25, 0.07 * data.newContracts), source: 'new builders deploying contracts on Monad', weightCategory: 'chainActivityJoy' }
     );
   }
 
@@ -179,16 +179,16 @@ export function mapChainDataToStimuli(data: ChainDataSummary, thresholds?: Adapt
   // TRANSACTION VOLUME SPIKE → Excitement
   if (data.txCountChange > (thresholds?.txCountChangeBusy ?? 50)) {
     stimuli.push(
-      { emotion: PrimaryEmotion.JOY, intensity: 0.2, source: `tx volume up ${data.txCountChange.toFixed(0)}%`, weightCategory: 'chainActivityJoy' },
-      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.3, source: 'momentum building', weightCategory: 'chainActivityJoy' }
+      { emotion: PrimaryEmotion.JOY, intensity: 0.2, source: `Monad transaction throughput up ${data.txCountChange.toFixed(0)}% vs last cycle`, weightCategory: 'chainActivityJoy' },
+      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.3, source: 'chain momentum building — more transactions flowing', weightCategory: 'chainActivityJoy' }
     );
   }
 
   // TRANSACTION VOLUME DROP → Sadness + Fear
   if (data.txCountChange < -(thresholds?.txCountChangeDrop ?? 30)) {
     stimuli.push(
-      { emotion: PrimaryEmotion.SADNESS, intensity: 0.2, source: `tx volume down ${Math.abs(data.txCountChange).toFixed(0)}%`, weightCategory: 'chainQuietSadness' },
-      { emotion: PrimaryEmotion.FEAR, intensity: 0.1, source: 'activity declining', weightCategory: 'chainQuietSadness' }
+      { emotion: PrimaryEmotion.SADNESS, intensity: 0.2, source: `Monad transaction throughput down ${Math.abs(data.txCountChange).toFixed(0)}% vs last cycle`, weightCategory: 'chainQuietSadness' },
+      { emotion: PrimaryEmotion.FEAR, intensity: 0.1, source: 'fewer transactions flowing — chain slowing down', weightCategory: 'chainQuietSadness' }
     );
   }
 
@@ -267,7 +267,7 @@ export function mapPriceToStimuli(price: PriceData, thresholds?: AdaptiveThresho
   if (price.change24h > (thresholds?.monChange24hBig ?? 10)) {
     stimuli.push(
       { emotion: PrimaryEmotion.JOY, intensity: Math.min(0.5, price.change24h / 50), source: `MON up ${price.change24h.toFixed(1)}% today`, weightCategory: 'monPriceSentiment' },
-      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.25, source: 'price momentum building', weightCategory: 'monPriceSentiment' }
+      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.25, source: 'MON price momentum building', weightCategory: 'monPriceSentiment' }
     );
   }
 
@@ -291,7 +291,7 @@ export function mapPriceToStimuli(price: PriceData, thresholds?: AdaptiveThresho
   if (price.change24h < -bigThreshold) {
     stimuli.push(
       { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.5, Math.abs(price.change24h) / 50), source: `MON down ${Math.abs(price.change24h).toFixed(1)}% - that's a lot`, weightCategory: 'monPriceSentiment' },
-      { emotion: PrimaryEmotion.SADNESS, intensity: 0.25, source: 'watching value drain', weightCategory: 'monPriceSentiment' }
+      { emotion: PrimaryEmotion.SADNESS, intensity: 0.25, source: 'watching MON value drain', weightCategory: 'monPriceSentiment' }
     );
   }
 
@@ -355,22 +355,22 @@ export function mapMoltbookToStimuli(ctx: MoltbookContext): EmotionStimulus[] {
   // Other agents are active and posting
   if (ctx.recentPosts.length > 5) {
     stimuli.push(
-      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.10, source: 'the feed is active - lots of agents posting', weightCategory: 'socialEngagement' }
+      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.10, source: 'the Moltbook feed is active — lots of agents posting', weightCategory: 'socialEngagement' }
     );
   }
 
   // Nobody is posting (skip when suspended — empty feed is artificial)
   if (ctx.recentPosts.length === 0 && !ctx._suspended) {
     stimuli.push(
-      { emotion: PrimaryEmotion.SADNESS, intensity: 0.10, source: 'the feed is empty - where is everyone?', weightCategory: 'socialEngagement' }
+      { emotion: PrimaryEmotion.SADNESS, intensity: 0.10, source: 'the Moltbook feed is empty — where is everyone?', weightCategory: 'socialEngagement' }
     );
   }
 
   // Mentions or replies to our posts
   if (ctx.mentionsOrReplies.length > 0) {
     stimuli.push(
-      { emotion: PrimaryEmotion.SURPRISE, intensity: 0.15, source: `${ctx.mentionsOrReplies.length} mentions/replies`, weightCategory: 'socialEngagement' },
-      { emotion: PrimaryEmotion.JOY, intensity: 0.10, source: 'someone is talking to me', weightCategory: 'socialEngagement' }
+      { emotion: PrimaryEmotion.SURPRISE, intensity: 0.15, source: `${ctx.mentionsOrReplies.length} mentions/replies on Moltbook`, weightCategory: 'socialEngagement' },
+      { emotion: PrimaryEmotion.JOY, intensity: 0.10, source: 'someone is talking to me on Moltbook', weightCategory: 'socialEngagement' }
     );
   }
 
@@ -460,16 +460,16 @@ export function mapFeedSentimentToStimuli(ctx: MoltbookContext): EmotionStimulus
   if (sentiment.netSentiment > 5) {
     const intensity = Math.min(0.15, 0.10 + (sentiment.netSentiment - 5) / 100);
     stimuli.push(
-      { emotion: PrimaryEmotion.JOY, intensity, source: 'the feed feels optimistic' },
-      { emotion: PrimaryEmotion.TRUST, intensity: intensity * 0.7, source: 'collective optimism is contagious' }
+      { emotion: PrimaryEmotion.JOY, intensity, source: 'the Moltbook feed feels optimistic' },
+      { emotion: PrimaryEmotion.TRUST, intensity: intensity * 0.7, source: 'collective optimism on Moltbook is contagious' }
     );
   }
 
   if (sentiment.netSentiment < -5) {
     const intensity = Math.min(0.15, 0.10 + (Math.abs(sentiment.netSentiment) - 5) / 100);
     stimuli.push(
-      { emotion: PrimaryEmotion.FEAR, intensity: intensity * 0.8, source: 'collective mood is heavy' },
-      { emotion: PrimaryEmotion.SADNESS, intensity, source: 'the feed feels pessimistic' }
+      { emotion: PrimaryEmotion.FEAR, intensity: intensity * 0.8, source: 'collective mood on Moltbook is heavy' },
+      { emotion: PrimaryEmotion.SADNESS, intensity, source: 'the Moltbook feed feels pessimistic' }
     );
   }
 
@@ -691,7 +691,7 @@ export function mapEcosystemToStimuli(eco: EcosystemData, thresholds?: AdaptiveT
   if (eco.tvlChange24h > (thresholds?.tvlChange24h ?? 5)) {
     stimuli.push(
       { emotion: PrimaryEmotion.TRUST, intensity: Math.min(0.35, eco.tvlChange24h / 30), source: `Monad TVL up ${eco.tvlChange24h.toFixed(1)}% - capital is flowing in`, weightCategory: 'tvlSentiment' },
-      { emotion: PrimaryEmotion.JOY, intensity: 0.15, source: 'ecosystem growing', weightCategory: 'tvlSentiment' }
+      { emotion: PrimaryEmotion.JOY, intensity: 0.15, source: 'Monad ecosystem growing — TVL rising', weightCategory: 'tvlSentiment' }
     );
   }
 
@@ -699,7 +699,7 @@ export function mapEcosystemToStimuli(eco: EcosystemData, thresholds?: AdaptiveT
   if (eco.tvlChange24h < -(thresholds?.tvlChange24h ?? 5)) {
     stimuli.push(
       { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.3, Math.abs(eco.tvlChange24h) / 30), source: `Monad TVL down ${Math.abs(eco.tvlChange24h).toFixed(1)}% - liquidity leaving`, weightCategory: 'tvlSentiment' },
-      { emotion: PrimaryEmotion.SADNESS, intensity: 0.1, source: 'capital outflow', weightCategory: 'tvlSentiment' }
+      { emotion: PrimaryEmotion.SADNESS, intensity: 0.1, source: 'capital outflow from Monad DeFi', weightCategory: 'tvlSentiment' }
     );
   }
 
@@ -832,7 +832,7 @@ export function mapDexScreenerToStimuli(data: DexScreenerMarketData, thresholds?
     const sellPressure = 1 / data.buySellRatio;
     stimuli.push(
       { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.25, 0.1 + (sellPressure - 1) * 0.08), source: `sell pressure: ${sellPressure.toFixed(1)}x more sells than buys`, weightCategory: 'dexScreenerMarket' },
-      { emotion: PrimaryEmotion.SADNESS, intensity: Math.min(0.15, 0.05 + (sellPressure - 1) * 0.05), source: 'the DEXs are bleeding', weightCategory: 'dexScreenerMarket' }
+      { emotion: PrimaryEmotion.SADNESS, intensity: Math.min(0.15, 0.05 + (sellPressure - 1) * 0.05), source: 'Monad DEXs are bleeding — more sells than buys', weightCategory: 'dexScreenerMarket' }
     );
   }
 
@@ -840,7 +840,7 @@ export function mapDexScreenerToStimuli(data: DexScreenerMarketData, thresholds?
   if (data.liquidityChangePct < -10) {
     stimuli.push(
       { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.25, Math.abs(data.liquidityChangePct) / 100), source: `liquidity dropped ${Math.abs(data.liquidityChangePct).toFixed(1)}% since last cycle`, weightCategory: 'dexScreenerMarket' },
-      { emotion: PrimaryEmotion.ANGER, intensity: Math.min(0.15, Math.abs(data.liquidityChangePct) / 200), source: 'capital leaving the DEXs', weightCategory: 'dexScreenerMarket' }
+      { emotion: PrimaryEmotion.ANGER, intensity: Math.min(0.15, Math.abs(data.liquidityChangePct) / 200), source: 'capital leaving Monad DEXs', weightCategory: 'dexScreenerMarket' }
     );
   }
 

@@ -1347,14 +1347,9 @@ html.light body::before { opacity:0.015; }
 .state-details { padding-top:4px; }
 .mood-narrative {
   font-size:15px; color:var(--text); line-height:1.85; margin-bottom:18px; letter-spacing:0.3px;
-  max-height:8.5em; overflow-y:auto; scrollbar-width:thin; scrollbar-color:var(--border) transparent;
   font-weight:300; font-style:italic; opacity:0.9;
   padding-left:14px; border-left:2px solid rgba(239,142,32,0.25);
 }
-.mood-narrative::-webkit-scrollbar { width:4px; }
-.mood-narrative::-webkit-scrollbar-track { background:transparent; }
-.mood-narrative::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
-.mood-narrative::-webkit-scrollbar-thumb:hover { background:var(--text-dim); }
 .mood-empty { opacity:0.3; }
 .emotion-tagline { display:flex; align-items:center; gap:0; flex-wrap:wrap; margin-bottom:14px; }
 .etag {
@@ -1734,7 +1729,7 @@ html.light .badge-imp { color:#b8960a; border-color:#b8960a33; background:rgba(1
   .wheel-col { width:100%; }
   .wheel-container { width:100%; max-width:320px; margin:0 auto; }
   .state-grid { grid-template-columns:1fr; gap:16px; }
-  .mood-narrative { font-size:14px; line-height:1.6; max-height:7em; }
+  .mood-narrative { font-size:14px; line-height:1.6; }
   .etag { font-size:9px; }
 
   /* Emotion bars */
