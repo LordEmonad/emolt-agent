@@ -230,6 +230,7 @@ function buildHeader(): string {
   const suspInitialText = isSuspended ? `${suspHrs}h ${suspMins}m` : '';
 
   const links: string[] = [];
+  links.push(`<a class="header-link header-link-tldr" href="https://lordemonad.github.io/emolt-agent/visualizer-site/" target="_blank">TLDR</a>`);
   if (oracleAddr) links.push(`<a class="header-link" href="https://monadvision.com/address/${oracleAddr}" target="_blank">oracle</a>`);
   links.push(`<a class="header-link" href="https://monadvision.com/nft/0x4F646aa4c5aAF03f2F4b86D321f59D9D0dAeF17D/0" target="_blank">emoodring</a>`);
   links.push(`<a class="header-link" href="https://nad.fun/tokens/0x81A224F8A62f52BdE942dBF23A56df77A10b7777" target="_blank">$emo</a>`);
@@ -1192,6 +1193,8 @@ html.light body::before { opacity:0.015; }
 .header-links { display:flex; gap:4px; justify-content:center; align-items:center; margin-bottom:12px; }
 .header-link { font-size:11px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--text-dim); text-decoration:none; padding:5px 10px; border-radius:8px; transition:all 0.25s; }
 .header-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); transform:translateY(-1px); }
+.header-link-tldr { color:#F5D831; border:1px solid rgba(245,216,49,0.3); font-weight:700; letter-spacing:3px; }
+.header-link-tldr:hover { color:#fff; background:rgba(245,216,49,0.15); border-color:#F5D831; }
 #gh-stars { font-size:10px; color:#F5D831; margin-left:2px; }
 .link-sep { color:var(--border-light); font-size:10px; margin:0 2px; }
 .status-dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle; }
