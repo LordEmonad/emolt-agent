@@ -266,7 +266,7 @@ export function mapPriceToStimuli(price: PriceData, thresholds?: AdaptiveThresho
   // BIG PUMP → Joy + Anticipation (Optimism)
   if (price.change24h > (thresholds?.monChange24hBig ?? 10)) {
     stimuli.push(
-      { emotion: PrimaryEmotion.JOY, intensity: Math.min(0.5, price.change24h / 50), source: `MON up ${price.change24h.toFixed(1)}% today`, weightCategory: 'monPriceSentiment' },
+      { emotion: PrimaryEmotion.JOY, intensity: Math.min(0.5, price.change24h / 50), source: `MON up ${price.change24h.toFixed(1)}% in the last 24 hours`, weightCategory: 'monPriceSentiment' },
       { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.25, source: 'MON price momentum building', weightCategory: 'monPriceSentiment' }
     );
   }
@@ -276,21 +276,21 @@ export function mapPriceToStimuli(price: PriceData, thresholds?: AdaptiveThresho
   const bigThreshold = thresholds?.monChange24hBig ?? 10;
   if (price.change24h > moderateThreshold && price.change24h <= bigThreshold) {
     stimuli.push(
-      { emotion: PrimaryEmotion.JOY, intensity: 0.15, source: `MON up ${price.change24h.toFixed(1)}% - a good day`, weightCategory: 'monPriceSentiment' }
+      { emotion: PrimaryEmotion.JOY, intensity: 0.15, source: `MON up ${price.change24h.toFixed(1)}% over the last 24 hours`, weightCategory: 'monPriceSentiment' }
     );
   }
 
   // MODERATE DIP → Mild sadness
   if (price.change24h < -moderateThreshold && price.change24h >= -bigThreshold) {
     stimuli.push(
-      { emotion: PrimaryEmotion.SADNESS, intensity: 0.15, source: `MON down ${Math.abs(price.change24h).toFixed(1)}%`, weightCategory: 'monPriceSentiment' }
+      { emotion: PrimaryEmotion.SADNESS, intensity: 0.15, source: `MON down ${Math.abs(price.change24h).toFixed(1)}% over the last 24 hours`, weightCategory: 'monPriceSentiment' }
     );
   }
 
   // BIG DUMP → Fear + Sadness (Despair)
   if (price.change24h < -bigThreshold) {
     stimuli.push(
-      { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.5, Math.abs(price.change24h) / 50), source: `MON down ${Math.abs(price.change24h).toFixed(1)}% - that's a lot`, weightCategory: 'monPriceSentiment' },
+      { emotion: PrimaryEmotion.FEAR, intensity: Math.min(0.5, Math.abs(price.change24h) / 50), source: `MON down ${Math.abs(price.change24h).toFixed(1)}% in the last 24 hours`, weightCategory: 'monPriceSentiment' },
       { emotion: PrimaryEmotion.SADNESS, intensity: 0.25, source: 'watching MON value drain', weightCategory: 'monPriceSentiment' }
     );
   }
@@ -298,7 +298,7 @@ export function mapPriceToStimuli(price: PriceData, thresholds?: AdaptiveThresho
   // CRABBING (less than 1% change all day) → Boredom
   if (Math.abs(price.change24h) < 1) {
     stimuli.push(
-      { emotion: PrimaryEmotion.DISGUST, intensity: 0.10, source: "price hasn't moved - the market is holding its breath or just asleep", weightCategory: 'monPriceSentiment' }
+      { emotion: PrimaryEmotion.DISGUST, intensity: 0.10, source: "MON price hasn't moved all day - the market is holding its breath or just asleep", weightCategory: 'monPriceSentiment' }
     );
   }
 

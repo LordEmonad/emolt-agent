@@ -63,9 +63,13 @@ function sealNarrative(text: string | undefined | null): string | null {
   if (!text) return null;
   const trimmed = text.trim();
   if (!trimmed) return null;
-  // If narrative ends without terminal punctuation, it got cut mid-thought — seal with em dash
-  if (/[.!?\u2014\u2026]$/.test(trimmed)) return trimmed;
-  return trimmed + '\u2014';
+  // If narrative ends without terminal punctuation, seal with a period
+  if (/[.!?]$/.test(trimmed)) return trimmed;
+  // Strip trailing em dashes or ellipses (incomplete thoughts)
+  const cleaned = trimmed.replace(/[\u2014\u2026\-]+\s*$/, '').trim();
+  if (!cleaned) return trimmed + '.';
+  if (/[.!?]$/.test(cleaned)) return cleaned;
+  return cleaned + '.';
 }
 
 export function parseClaudeResponse(raw: string): ClaudeResponse | null {
