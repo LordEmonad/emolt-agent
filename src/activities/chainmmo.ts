@@ -359,6 +359,7 @@ interface ChainMMOState {
     variance?: number;
     tier?: number;
   } | null;
+  onboarded: boolean;
 }
 
 interface EmotionProfile {
@@ -391,6 +392,7 @@ function createDefaultState(): ChainMMOState {
       totalItemsFound: 0, totalTrades: 0, totalLootboxesOpened: 0, roomsCleared: 0,
     },
     pendingCommit: null,
+    onboarded: false,
   };
 }
 
@@ -427,6 +429,33 @@ async function mmoGet(path: string): Promise<any> {
     throw new Error(`GET ${path} → ${res.status}: ${text.slice(0, 200)}`);
   }
   return res.json();
+}
+
+async function requestOnboarding(walletAddress: string, state: ChainMMOState, log: DispatchLogger): Promise<void> {
+  if (state.onboarded) return;
+  try {
+    log('step', 'requesting onboarding gas stipend...');
+    const res = await fetch(`${CHAINMMO_API}/agent/onboard/fund`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ address: walletAddress }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      log('result', `onboarding response: ${JSON.stringify(data).slice(0, 300)}`);
+      state.onboarded = true;
+      saveChainMMOState(state);
+    } else {
+      const text = await res.text().catch(() => '');
+      log('thought', `onboarding request returned ${res.status}: ${text.slice(0, 200)} (non-fatal)`);
+      // Mark as onboarded anyway to avoid retrying every session
+      state.onboarded = true;
+      saveChainMMOState(state);
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log('thought', `onboarding request failed (non-fatal): ${msg}`);
+  }
 }
 
 async function fetchContractAddresses(state: ChainMMOState, log: DispatchLogger): Promise<ContractAddresses> {
@@ -1139,6 +1168,29 @@ async function equipBestGear(
   }
 }
 
+async function getSafePotionChoice(
+  characterId: bigint,
+  contracts: ContractAddresses,
+  desiredPotion: number,
+  log: DispatchLogger,
+): Promise<number> {
+  if (desiredPotion === PotionChoice.NONE) return PotionChoice.NONE;
+  try {
+    // Check charges for the desired potion (tier 0 = basic)
+    const balance = await publicClient.readContract({
+      address: contracts.gameWorld,
+      abi: GAME_WORLD_ABI,
+      functionName: 'potionBalance',
+      args: [characterId, desiredPotion, 0],
+    }) as number;
+    if (Number(balance) > 0) return desiredPotion;
+    log('thought', `potion ${desiredPotion} has 0 charges — falling back to NONE to avoid hard revert`);
+  } catch {
+    log('thought', `potionBalance check failed — falling back to NONE for safety`);
+  }
+  return PotionChoice.NONE;
+}
+
 async function resolveAllRooms(
   characterId: bigint,
   contracts: ContractAddresses,
@@ -1171,7 +1223,9 @@ async function resolveAllRooms(
 
       log('thought', `run state: room=${roomIndex}/${totalRooms}, hp=${hp}/${maxHp}, mana=${mana}, potions=${potionsUsed}/${potionSlots}, level=${dungeonLvl}, diff=${diff}`);
 
-      const potionChoice = pickPotionChoice(profile);
+      // Check potion availability before using (potions with 0 charges cause hard reverts)
+      const desiredPotion = pickPotionChoice(profile);
+      const potionChoice = await getSafePotionChoice(characterId, contracts, desiredPotion, log);
       const abilityChoice = pickAbilityChoice(profile);
       const batchSize = 11; // ROOM_MAX per tx (from core progression mechanics)
       const potionChoices = Array(batchSize).fill(potionChoice);
@@ -1225,6 +1279,34 @@ async function resolveAllRooms(
   }
 
   return { cleared, died, roomsResolved: totalRoomsResolved };
+}
+
+// Slot gate: how many equipped slots are required at each level threshold
+// From /meta/playbook/core-progression-mechanics-on-chain-rules
+const SLOT_GATE: [number, number][] = [
+  [1, 1], [10, 4], [20, 8], [30, 8], [40, 8], [60, 8],
+];
+
+function requiredSlotsForLevel(level: number): number {
+  let required = 1;
+  for (const [lvl, slots] of SLOT_GATE) {
+    if (level >= lvl) required = slots;
+  }
+  return required;
+}
+
+async function checkRunActive(characterId: bigint, contracts: ContractAddresses): Promise<boolean> {
+  try {
+    const runState = await publicClient.readContract({
+      address: contracts.gameWorld,
+      abi: GAME_WORLD_ABI,
+      functionName: 'getRunState',
+      args: [characterId],
+    }) as readonly [boolean, number, number, number, number, number, number, number, number, number];
+    return runState[0]; // active flag
+  } catch {
+    return false;
+  }
 }
 
 async function browseMarket(log: DispatchLogger): Promise<{ rfqs: any[]; trades: any[] }> {
@@ -1335,6 +1417,9 @@ async function executeChainMMO(
     };
   }
 
+  // Step 4b: Request onboarding gas stipend if needed
+  await requestOnboarding(account.address, state, log);
+
   // Step 5: Recover pending commit-reveal
   if (state.pendingCommit) {
     await recoverPendingCommit(state, contracts, walletClient, account, log, signal);
@@ -1398,6 +1483,20 @@ async function executeChainMMO(
   let tradesExecuted = 0;
   const charIdBig = BigInt(characterId);
 
+  // Step 7b: Resolve any active dungeon run from a previous session
+  if (!signal.aborted) {
+    const runActive = await checkRunActive(charIdBig, contracts);
+    if (runActive) {
+      log('step', 'found active dungeon run from previous session — resolving it first...');
+      const result = await resolveAllRooms(charIdBig, contracts, walletClient, profile, log, signal);
+      if (result.roomsResolved > 0) actionsPerformed++;
+      state.lifetime.roomsCleared += result.roomsResolved;
+      if (result.cleared) { dungeonClears++; state.lifetime.totalClears++; }
+      if (result.died) { dungeonDeaths++; state.lifetime.totalDeaths++; }
+      await sleep(ACTION_DELAY_MS);
+    }
+  }
+
   // Phase A: Lootbox (adventure + loot modes)
   if ((mode === 'adventure' || mode === 'loot') && actionsPerformed < maxActions && !signal.aborted) {
     // Claim free lootbox
@@ -1423,11 +1522,17 @@ async function executeChainMMO(
   }
 
   // Phase B: Equip gear (adventure + loot modes)
+  // Gear is locked during active runs — check first
   if ((mode === 'adventure' || mode === 'loot') && actionsPerformed < maxActions && !signal.aborted) {
-    const equipped = await equipBestGear(charIdBig, contracts, walletClient, account, log);
-    if (equipped) {
-      actionsPerformed++;
-      itemsFound++;
+    const gearLocked = await checkRunActive(charIdBig, contracts);
+    if (gearLocked) {
+      log('thought', 'gear locked — active dungeon run in progress, skipping equip');
+    } else {
+      const equipped = await equipBestGear(charIdBig, contracts, walletClient, account, log);
+      if (equipped) {
+        actionsPerformed++;
+        itemsFound++;
+      }
     }
     await sleep(ACTION_DELAY_MS);
   }
@@ -1439,6 +1544,20 @@ async function executeChainMMO(
 
     while (dungeonRuns < maxDungeonRuns && actionsPerformed < maxActions && !signal.aborted) {
       try {
+        // Pre-dungeon check: verify no active run
+        const alreadyActive = await checkRunActive(charIdBig, contracts);
+        if (alreadyActive) {
+          log('thought', 'active run detected — resolving before starting new dungeon');
+          const resolveResult = await resolveAllRooms(charIdBig, contracts, walletClient, profile, log, signal);
+          if (resolveResult.roomsResolved > 0) actionsPerformed++;
+          state.lifetime.roomsCleared += resolveResult.roomsResolved;
+          if (resolveResult.cleared) { dungeonClears++; state.lifetime.totalClears++; }
+          if (resolveResult.died) { dungeonDeaths++; state.lifetime.totalDeaths++; }
+          dungeonRuns++;
+          await sleep(ACTION_DELAY_MS);
+          continue;
+        }
+
         // Get progression snapshot
         let dungeonLevel = state.bestLevelCleared + 1 || 1;
         try {
@@ -1456,6 +1575,16 @@ async function executeChainMMO(
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           log('thought', `progression read failed (using level ${dungeonLevel}): ${msg}`);
+        }
+
+        // Pre-dungeon check: slot gate — do we have enough equipped items?
+        const requiredSlots = requiredSlotsForLevel(dungeonLevel);
+        const equippedCount = Object.keys(state.gearSummary).length;
+        if (equippedCount < requiredSlots) {
+          log('thought', `slot gate: need ${requiredSlots} equipped slots for level ${dungeonLevel}, have ${equippedCount} — attempting equip first`);
+          const equipped = await equipBestGear(charIdBig, contracts, walletClient, account, log);
+          if (equipped) actionsPerformed++;
+          await sleep(ACTION_DELAY_MS);
         }
 
         const difficulty = pickDifficulty(profile, dungeonLevel);
