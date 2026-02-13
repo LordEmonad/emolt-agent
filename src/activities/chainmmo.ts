@@ -29,7 +29,7 @@ const PotionChoice = { NONE: 0, HP_REGEN: 1, MANA_REGEN: 2, POWER: 3 } as const;
 const AbilityChoice = { NONE: 0, ARCANE_FOCUS: 1, BERSERK: 2, DIVINE_SHIELD: 3 } as const;
 
 // --- ABI Fragments (inline as const — same pattern as chain/oracle.ts) ---
-// Signatures from game docs. May need minor tweaks if actual contract differs.
+// Verified against live /agent/world-rules castSignatures (2025-02-13).
 
 const GAME_WORLD_ABI = [
   {
@@ -40,7 +40,7 @@ const GAME_WORLD_ABI = [
       { name: 'classType', type: 'uint8' },
       { name: 'name', type: 'string' },
     ],
-    outputs: [{ name: '', type: 'uint256' }],
+    outputs: [],
     stateMutability: 'nonpayable',
   },
   {
@@ -60,8 +60,8 @@ const GAME_WORLD_ABI = [
       { name: 'nonce', type: 'uint64' },
       { name: 'varianceMode', type: 'uint8' },
     ],
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'nonpayable',
+    outputs: [],
+    stateMutability: 'payable',
   },
   {
     type: 'function',
@@ -102,10 +102,31 @@ const GAME_WORLD_ABI = [
   },
   {
     type: 'function',
+    name: 'resolveNextRoom',
+    inputs: [
+      { name: 'characterId', type: 'uint256' },
+      { name: 'potionChoice', type: 'uint8' },
+      { name: 'abilityChoice', type: 'uint8' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     name: 'equipItems',
     inputs: [
       { name: 'characterId', type: 'uint256' },
       { name: 'itemIds', type: 'uint256[]' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'equipItem',
+    inputs: [
+      { name: 'characterId', type: 'uint256' },
+      { name: 'itemId', type: 'uint256' },
     ],
     outputs: [],
     stateMutability: 'nonpayable',
@@ -117,9 +138,14 @@ const GAME_WORLD_ABI = [
     outputs: [
       { name: 'active', type: 'bool' },
       { name: 'roomIndex', type: 'uint8' },
-      { name: 'hp', type: 'uint16' },
-      { name: 'mana', type: 'uint16' },
-      { name: 'potions', type: 'uint8' },
+      { name: 'totalRooms', type: 'uint8' },
+      { name: 'hp', type: 'uint32' },
+      { name: 'maxHp', type: 'uint32' },
+      { name: 'mana', type: 'uint8' },
+      { name: 'potionSlots', type: 'uint8' },
+      { name: 'potionsUsed', type: 'uint8' },
+      { name: 'dungeonLevel', type: 'uint32' },
+      { name: 'difficulty', type: 'uint8' },
     ],
     stateMutability: 'view',
   },
@@ -140,7 +166,34 @@ const GAME_WORLD_ABI = [
     type: 'function',
     name: 'nextCommitId',
     inputs: [],
-    outputs: [{ name: '', type: 'uint64' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'commitFee',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'revealWindow',
+    inputs: [{ name: 'commitId', type: 'uint256' }],
+    outputs: [
+      { name: 'startBlock', type: 'uint64' },
+      { name: 'endBlock', type: 'uint64' },
+      { name: 'isOpen', type: 'bool' },
+      { name: 'isExpired', type: 'bool' },
+      { name: 'isPending', type: 'bool' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'nextCharacterId',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
@@ -192,6 +245,30 @@ const ITEMS_ABI = [
       { name: 'index', type: 'uint256' },
     ],
     outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'decode',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    outputs: [
+      { name: 'slot', type: 'uint8' },
+      { name: 'itemLevel', type: 'uint32' },
+      { name: 'seed', type: 'uint64' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'deriveBonuses',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    outputs: [
+      { name: 'hp', type: 'uint32' },
+      { name: 'mana', type: 'uint32' },
+      { name: 'def', type: 'uint32' },
+      { name: 'atkM', type: 'uint32' },
+      { name: 'atkR', type: 'uint32' },
+    ],
     stateMutability: 'view',
   },
 ] as const;
@@ -500,6 +577,15 @@ async function commitRevealLootbox(
   log('step', 'commit-reveal: opening lootbox...');
 
   const secret = generateSecret();
+
+  // Read commit fee (required as msg.value)
+  const commitFee = await publicClient.readContract({
+    address: contracts.gameWorld,
+    abi: GAME_WORLD_ABI,
+    functionName: 'commitFee',
+  });
+  log('thought', `commit fee: ${commitFee} wei`);
+
   const nonce = await publicClient.readContract({
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
@@ -516,12 +602,13 @@ async function commitRevealLootbox(
   });
   log('thought', `hash: ${String(hash).slice(0, 18)}...`);
 
-  // Submit commit
+  // Submit commit (payable — must send commitFee as value)
   const commitTxHash = await walletClient.writeContract({
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
     functionName: 'commitActionWithVariance',
     args: [characterId, ActionType.LOOTBOX_OPEN, hash, nonce, varianceMode],
+    value: commitFee,
   });
   log('action', `commit tx: ${commitTxHash}`);
 
@@ -544,12 +631,35 @@ async function commitRevealLootbox(
   // Wait for blocks
   await waitForBlocks(commitReceipt.blockNumber, MIN_REVEAL_BLOCKS, signal, log);
 
+  // Verify reveal window is open before spending gas
+  try {
+    const window = await publicClient.readContract({
+      address: contracts.gameWorld,
+      abi: GAME_WORLD_ABI,
+      functionName: 'revealWindow',
+      args: [nonce],
+    }) as readonly [bigint, bigint, boolean, boolean, boolean];
+    const [, , isOpen, isExpired] = window;
+    if (isExpired) {
+      log('error', 'reveal window expired before we could reveal');
+      state.pendingCommit = null;
+      saveChainMMOState(state);
+      return { success: false };
+    }
+    if (!isOpen) {
+      log('thought', 'reveal window not yet open — waiting one more block');
+      await sleep(BLOCK_WAIT_MS);
+    }
+  } catch {
+    log('thought', 'revealWindow check failed (non-fatal) — proceeding with reveal');
+  }
+
   // Submit reveal
   const revealTxHash = await walletClient.writeContract({
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
     functionName: 'revealOpenLootboxesMax',
-    args: [BigInt(state.pendingCommit.commitId), secret, 0, 5, varianceMode],
+    args: [nonce, secret, 0, 5, varianceMode],
   });
   log('action', `reveal tx: ${revealTxHash}`);
 
@@ -579,6 +689,15 @@ async function commitRevealDungeon(
   log('step', `commit-reveal: starting dungeon (level=${dungeonLevel}, diff=${difficulty}, var=${varianceMode})...`);
 
   const secret = generateSecret();
+
+  // Read commit fee (required as msg.value)
+  const commitFee = await publicClient.readContract({
+    address: contracts.gameWorld,
+    abi: GAME_WORLD_ABI,
+    functionName: 'commitFee',
+  });
+  log('thought', `commit fee: ${commitFee} wei`);
+
   const nonce = await publicClient.readContract({
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
@@ -595,12 +714,13 @@ async function commitRevealDungeon(
   });
   log('thought', `hash: ${String(hash).slice(0, 18)}...`);
 
-  // Submit commit
+  // Submit commit (payable — must send commitFee as value)
   const commitTxHash = await walletClient.writeContract({
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
     functionName: 'commitActionWithVariance',
     args: [characterId, ActionType.DUNGEON_RUN, hash, nonce, varianceMode],
+    value: commitFee,
   });
   log('action', `commit tx: ${commitTxHash}`);
 
@@ -624,12 +744,35 @@ async function commitRevealDungeon(
   // Wait for blocks
   await waitForBlocks(commitReceipt.blockNumber, MIN_REVEAL_BLOCKS, signal, log);
 
+  // Verify reveal window is open before spending gas
+  try {
+    const window = await publicClient.readContract({
+      address: contracts.gameWorld,
+      abi: GAME_WORLD_ABI,
+      functionName: 'revealWindow',
+      args: [nonce],
+    }) as readonly [bigint, bigint, boolean, boolean, boolean];
+    const [, , isOpen, isExpired] = window;
+    if (isExpired) {
+      log('error', 'reveal window expired before we could reveal');
+      state.pendingCommit = null;
+      saveChainMMOState(state);
+      return { success: false };
+    }
+    if (!isOpen) {
+      log('thought', 'reveal window not yet open — waiting one more block');
+      await sleep(BLOCK_WAIT_MS);
+    }
+  } catch {
+    log('thought', 'revealWindow check failed (non-fatal) — proceeding with reveal');
+  }
+
   // Submit reveal
   const revealTxHash = await walletClient.writeContract({
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
     functionName: 'revealStartDungeon',
-    args: [BigInt(state.pendingCommit.commitId), secret, difficulty, dungeonLevel, varianceMode],
+    args: [nonce, secret, difficulty, dungeonLevel, varianceMode],
   });
   log('action', `reveal tx: ${revealTxHash}`);
 
@@ -657,19 +800,43 @@ async function recoverPendingCommit(
 
   log('step', `recovering pending ${pending.type} commit from block ${pending.commitBlockNumber}...`);
 
-  const currentBlock = await publicClient.getBlockNumber();
-  const blocksSince = Number(currentBlock) - pending.commitBlockNumber;
+  // Check reveal window via contract (more reliable than block arithmetic)
+  try {
+    const window = await publicClient.readContract({
+      address: contracts.gameWorld,
+      abi: GAME_WORLD_ABI,
+      functionName: 'revealWindow',
+      args: [BigInt(pending.commitId)],
+    }) as readonly [bigint, bigint, boolean, boolean, boolean];
+    const [, , isOpen, isExpired, isPending] = window;
 
-  if (blocksSince > MAX_REVEAL_BLOCKS) {
-    log('error', `pending commit expired (${blocksSince} blocks > ${MAX_REVEAL_BLOCKS}). clearing.`);
-    state.pendingCommit = null;
-    saveChainMMOState(state);
-    return;
-  }
-
-  if (blocksSince < MIN_REVEAL_BLOCKS) {
-    log('step', `waiting for reveal window (${blocksSince}/${MIN_REVEAL_BLOCKS} blocks)...`);
-    await waitForBlocks(BigInt(pending.commitBlockNumber), MIN_REVEAL_BLOCKS, signal, log);
+    if (isExpired) {
+      log('error', 'pending commit expired (confirmed by contract). clearing.');
+      state.pendingCommit = null;
+      saveChainMMOState(state);
+      return;
+    }
+    if (isPending) {
+      log('step', 'commit still pending — waiting for reveal window to open...');
+      await sleep(BLOCK_WAIT_MS * 2);
+    }
+    if (isOpen) {
+      log('step', 'reveal window is open — proceeding with recovery');
+    }
+  } catch {
+    // Fallback to block-based check
+    const currentBlock = await publicClient.getBlockNumber();
+    const blocksSince = Number(currentBlock) - pending.commitBlockNumber;
+    if (blocksSince > MAX_REVEAL_BLOCKS) {
+      log('error', `pending commit expired (${blocksSince} blocks > ${MAX_REVEAL_BLOCKS}). clearing.`);
+      state.pendingCommit = null;
+      saveChainMMOState(state);
+      return;
+    }
+    if (blocksSince < MIN_REVEAL_BLOCKS) {
+      log('step', `waiting for reveal window (${blocksSince}/${MIN_REVEAL_BLOCKS} blocks)...`);
+      await waitForBlocks(BigInt(pending.commitBlockNumber), MIN_REVEAL_BLOCKS, signal, log);
+    }
   }
 
   const secret = pending.secret as `0x${string}`;
@@ -817,9 +984,11 @@ async function equipBestGear(
       return false;
     }
 
-    log('thought', `${itemCount} items found. fetching token IDs...`);
+    log('thought', `${itemCount} items found. decoding stats to pick best per slot...`);
+
+    // Fetch all item token IDs
     const itemIds: bigint[] = [];
-    for (let i = 0; i < Math.min(itemCount, 20); i++) {
+    for (let i = 0; i < Math.min(itemCount, 30); i++) {
       try {
         const tokenId = await publicClient.readContract({
           address: contracts.items,
@@ -829,7 +998,7 @@ async function equipBestGear(
         });
         itemIds.push(tokenId);
       } catch {
-        break; // index out of bounds or other error
+        break;
       }
     }
 
@@ -838,20 +1007,86 @@ async function equipBestGear(
       return false;
     }
 
-    log('action', `equipping ${itemIds.length} items...`);
+    // Decode each item: get slot + stat bonuses, pick best per slot
+    const slotBest: Map<number, { tokenId: bigint; totalStats: number }> = new Map();
+    for (const tokenId of itemIds) {
+      try {
+        const decoded = await publicClient.readContract({
+          address: contracts.items,
+          abi: ITEMS_ABI,
+          functionName: 'decode',
+          args: [tokenId],
+        }) as readonly [number, number, bigint];
+        const [slot] = decoded;
+
+        const bonuses = await publicClient.readContract({
+          address: contracts.items,
+          abi: ITEMS_ABI,
+          functionName: 'deriveBonuses',
+          args: [tokenId],
+        }) as readonly [number, number, number, number, number];
+        const [hp, mana, def, atkM, atkR] = bonuses;
+        const totalStats = hp + mana + def + atkM + atkR;
+
+        const current = slotBest.get(slot);
+        if (!current || totalStats > current.totalStats) {
+          slotBest.set(slot, { tokenId, totalStats });
+        }
+      } catch {
+        // Can't decode — still include it as a fallback
+        if (!slotBest.has(-1)) {
+          slotBest.set(-1, { tokenId, totalStats: 0 });
+        }
+      }
+    }
+
+    // Build the equip list: best item per slot
+    const equipIds = [...slotBest.values()]
+      .filter(v => v.totalStats >= 0)
+      .map(v => v.tokenId);
+
+    if (equipIds.length === 0) {
+      log('thought', 'no decodable items to equip');
+      return false;
+    }
+
+    log('action', `equipping ${equipIds.length} best-in-slot items (from ${itemIds.length} total)...`);
     const txHash = await walletClient.writeContract({
       address: contracts.gameWorld,
       abi: GAME_WORLD_ABI,
       functionName: 'equipItems',
-      args: [characterId, itemIds],
+      args: [characterId, equipIds],
     });
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: TX_TIMEOUT_MS });
     if (receipt.status === 'success') {
-      log('result', `equipped ${itemIds.length} items`);
+      log('result', `equipped ${equipIds.length} items (best per slot)`);
       return true;
     }
-    log('thought', 'equip tx reverted');
+
+    // Fallback: try equipping one at a time
+    log('thought', 'batch equip reverted — trying one-by-one...');
+    let equipped = 0;
+    for (const itemId of equipIds) {
+      try {
+        const tx = await walletClient.writeContract({
+          address: contracts.gameWorld,
+          abi: GAME_WORLD_ABI,
+          functionName: 'equipItem',
+          args: [characterId, itemId],
+        });
+        const r = await publicClient.waitForTransactionReceipt({ hash: tx, timeout: TX_TIMEOUT_MS });
+        if (r.status === 'success') equipped++;
+      } catch {
+        // skip this item
+      }
+    }
+    if (equipped > 0) {
+      log('result', `equipped ${equipped}/${equipIds.length} items individually`);
+      return true;
+    }
+
+    log('thought', 'could not equip any items');
     return false;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -880,9 +1115,9 @@ async function resolveAllRooms(
         abi: GAME_WORLD_ABI,
         functionName: 'getRunState',
         args: [characterId],
-      }) as readonly [boolean, number, number, number, number];
+      }) as readonly [boolean, number, number, number, number, number, number, number, number, number];
 
-      const [active, roomIndex, hp, mana, potions] = runState;
+      const [active, roomIndex, totalRooms, hp, maxHp, mana, potionSlots, potionsUsed, dungeonLvl, diff] = runState;
       if (!active) {
         if (attempt === 0) {
           log('thought', 'no active dungeon run to resolve');
@@ -890,7 +1125,7 @@ async function resolveAllRooms(
         break;
       }
 
-      log('thought', `run state: room=${roomIndex}, hp=${hp}, mana=${mana}, potions=${potions}`);
+      log('thought', `run state: room=${roomIndex}/${totalRooms}, hp=${hp}/${maxHp}, mana=${mana}, potions=${potionsUsed}/${potionSlots}, level=${dungeonLvl}, diff=${diff}`);
 
       const potionChoice = pickPotionChoice(profile);
       const abilityChoice = pickAbilityChoice(profile);
@@ -919,9 +1154,9 @@ async function resolveAllRooms(
         abi: GAME_WORLD_ABI,
         functionName: 'getRunState',
         args: [characterId],
-      }) as readonly [boolean, number, number, number, number];
+      }) as readonly [boolean, number, number, number, number, number, number, number, number, number];
 
-      const [finalActive, finalRoom, finalHp] = finalState;
+      const [finalActive, finalRoom, , finalHp] = finalState;
       const roomsThisBatch = Math.max(1, Number(finalRoom) - Number(roomIndex));
       totalRoomsResolved += roomsThisBatch;
 
