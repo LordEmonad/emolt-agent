@@ -250,6 +250,20 @@ const GAME_WORLD_ABI = [
     outputs: [{ name: '', type: 'uint32' }],
     stateMutability: 'view',
   },
+  {
+    type: 'function',
+    name: 'equippedSlotCount',
+    inputs: [{ name: 'characterId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'requiredEquippedSlots',
+    inputs: [{ name: 'targetLevel', type: 'uint32' }],
+    outputs: [{ name: '', type: 'uint32' }],
+    stateMutability: 'view',
+  },
 ] as const;
 
 const ITEMS_ABI = [
@@ -358,6 +372,7 @@ interface ChainMMOState {
     dungeonLevel?: number;
     variance?: number;
     tier?: number;
+    maxAmount?: number;
   } | null;
   onboarded: boolean;
 }
@@ -676,6 +691,8 @@ async function commitRevealLootbox(
   account: any,
   state: ChainMMOState,
   varianceMode: number,
+  tier: number,
+  maxAmount: number,
   log: DispatchLogger,
   signal: AbortSignal,
 ): Promise<{ success: boolean; txHash?: string }> {
@@ -710,7 +727,7 @@ async function commitRevealLootbox(
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
     functionName: 'hashLootboxOpen',
-    args: [secret, account.address, characterId, nonce, 0, 5, varianceMode, true],
+    args: [secret, account.address, characterId, nonce, tier, maxAmount, varianceMode, true],
   });
   log('thought', `hash: ${String(hash).slice(0, 18)}...`);
 
@@ -728,19 +745,24 @@ async function commitRevealLootbox(
   if (commitReceipt.status !== 'success') throw new Error(`commit tx reverted: ${commitTxHash}`);
   log('step', `commit confirmed at block ${commitReceipt.blockNumber}`);
 
-  // Extract commitId: ABI decode → raw topic → pre-read fallback
-  const commitId = extractCommitId(commitReceipt, contracts.gameWorld, preReadCommitId, log);
-
-  // Save pending commit for crash recovery
+  // Save pending commit IMMEDIATELY (before extraction) so it's never orphaned
   state.pendingCommit = {
     type: 'lootbox',
     secret,
-    commitId: String(commitId),
+    commitId: String(preReadCommitId ?? 0),
     commitBlockNumber: Number(commitReceipt.blockNumber),
     commitTxHash,
     variance: varianceMode,
-    tier: 0,
+    tier,
+    maxAmount,
   };
+  saveChainMMOState(state);
+
+  // Extract commitId: ABI decode → raw topic → pre-read fallback
+  const commitId = extractCommitId(commitReceipt, contracts.gameWorld, preReadCommitId, log);
+
+  // Update with the real commitId if extraction gave a better value
+  state.pendingCommit.commitId = String(commitId);
   saveChainMMOState(state);
 
   // Wait for blocks
@@ -774,7 +796,7 @@ async function commitRevealLootbox(
     address: contracts.gameWorld,
     abi: GAME_WORLD_ABI,
     functionName: 'revealOpenLootboxesMax',
-    args: [commitId, secret, 0, 5, varianceMode],
+    args: [commitId, secret, tier, maxAmount, varianceMode],
   });
   log('action', `reveal tx: ${revealTxHash}`);
 
@@ -850,20 +872,24 @@ async function commitRevealDungeon(
   if (commitReceipt.status !== 'success') throw new Error(`commit tx reverted: ${commitTxHash}`);
   log('step', `commit confirmed at block ${commitReceipt.blockNumber}`);
 
-  // Extract commitId: ABI decode → raw topic → pre-read fallback
-  const commitId = extractCommitId(commitReceipt, contracts.gameWorld, preReadCommitId, log);
-
-  // Save pending commit for crash recovery
+  // Save pending commit IMMEDIATELY (before extraction) so it's never orphaned
   state.pendingCommit = {
     type: 'dungeon',
     secret,
-    commitId: String(commitId),
+    commitId: String(preReadCommitId ?? 0),
     commitBlockNumber: Number(commitReceipt.blockNumber),
     commitTxHash,
     difficulty,
     dungeonLevel,
     variance: varianceMode,
   };
+  saveChainMMOState(state);
+
+  // Extract commitId: ABI decode → raw topic → pre-read fallback
+  const commitId = extractCommitId(commitReceipt, contracts.gameWorld, preReadCommitId, log);
+
+  // Update with the real commitId if extraction gave a better value
+  state.pendingCommit.commitId = String(commitId);
   saveChainMMOState(state);
 
   // Wait for blocks
@@ -973,7 +999,7 @@ async function recoverPendingCommit(
         address: contracts.gameWorld,
         abi: GAME_WORLD_ABI,
         functionName: 'revealOpenLootboxesMax',
-        args: [commitId, secret, pending.tier ?? 0, 5, pending.variance ?? 0],
+        args: [commitId, secret, pending.tier ?? 0, pending.maxAmount ?? 5, pending.variance ?? 0],
       });
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: TX_TIMEOUT_MS });
       log('result', `recovered lootbox reveal: ${receipt.status === 'success' ? 'success' : 'reverted'}`);
@@ -1601,11 +1627,32 @@ async function executeChainMMO(
     if (claimed) actionsPerformed++;
     await sleep(ACTION_DELAY_MS);
 
-    // Open lootboxes via commit-reveal
-    if (actionsPerformed < maxActions && !signal.aborted) {
+    // Re-fetch charState after claim to get fresh lootbox credits
+    const freshState = await fetchCharacterState(characterId, log);
+    const creditSource = freshState || charState;
+
+    // Determine lootbox tier + available credits
+    let lootboxTier = 0;
+    let lootboxAmount = 0;
+    if (creditSource) {
+      const cs = creditSource.state || creditSource;
+      const credits: Array<{ tier: number; total: number }> = cs.lootboxCredits || cs.lootbox?.credits || [];
+      if (credits.length > 0) {
+        // Pick the credit with the highest total (most to open)
+        const best = credits.reduce((a, b) => (b.total > a.total ? b : a), credits[0]);
+        lootboxTier = best.tier;
+        lootboxAmount = Math.min(best.total, 5); // cap at 5 per reveal
+        log('thought', `lootbox credits: tier=${lootboxTier} amount=${lootboxAmount} (from ${credits.length} credit type(s))`);
+      } else {
+        log('thought', 'no lootbox credits found — skipping lootbox open');
+      }
+    }
+
+    // Open lootboxes via commit-reveal (only if we have credits)
+    if (lootboxAmount > 0 && actionsPerformed < maxActions && !signal.aborted) {
       try {
         const variance = pickVariance(profile);
-        const result = await commitRevealLootbox(charIdBig, contracts, walletClient, account, state, variance, log, signal);
+        const result = await commitRevealLootbox(charIdBig, contracts, walletClient, account, state, variance, lootboxTier, lootboxAmount, log, signal);
         if (result.success) {
           lootboxesOpened++;
           actionsPerformed += 2; // commit + reveal
@@ -1675,13 +1722,53 @@ async function executeChainMMO(
         }
 
         // Pre-dungeon check: slot gate — do we have enough equipped items?
-        const requiredSlots = requiredSlotsForLevel(dungeonLevel);
-        const equippedCount = Object.keys(state.gearSummary).length;
+        // Use on-chain reads for accuracy, fall back to local tracking
+        let requiredSlots: number;
+        let equippedCount: number;
+        try {
+          const [onChainRequired, onChainEquipped] = await Promise.all([
+            publicClient.readContract({
+              address: contracts.gameWorld,
+              abi: GAME_WORLD_ABI,
+              functionName: 'requiredEquippedSlots',
+              args: [dungeonLevel],
+            }) as Promise<number>,
+            publicClient.readContract({
+              address: contracts.gameWorld,
+              abi: GAME_WORLD_ABI,
+              functionName: 'equippedSlotCount',
+              args: [charIdBig],
+            }) as Promise<number>,
+          ]);
+          requiredSlots = Number(onChainRequired);
+          equippedCount = Number(onChainEquipped);
+          log('thought', `slot gate (on-chain): need ${requiredSlots}, have ${equippedCount}`);
+        } catch {
+          requiredSlots = requiredSlotsForLevel(dungeonLevel);
+          equippedCount = Object.keys(state.gearSummary).length;
+          log('thought', `slot gate (local fallback): need ${requiredSlots}, have ${equippedCount}`);
+        }
         if (equippedCount < requiredSlots) {
           log('thought', `slot gate: need ${requiredSlots} equipped slots for level ${dungeonLevel}, have ${equippedCount} — attempting equip first`);
           const equipped = await equipBestGear(charIdBig, contracts, walletClient, account, state, log);
           if (equipped) actionsPerformed++;
           await sleep(ACTION_DELAY_MS);
+          // Re-check on-chain after equip attempt — abort if still not met
+          try {
+            const freshCount = await publicClient.readContract({
+              address: contracts.gameWorld,
+              abi: GAME_WORLD_ABI,
+              functionName: 'equippedSlotCount',
+              args: [charIdBig],
+            }) as number;
+            equippedCount = Number(freshCount);
+          } catch {
+            equippedCount = Object.keys(state.gearSummary).length;
+          }
+          if (equippedCount < requiredSlots) {
+            log('error', `slot gate STILL not met after equip (${equippedCount}/${requiredSlots}) — aborting dungeon to avoid wasting gas`);
+            break;
+          }
         }
 
         const difficulty = pickDifficulty(profile, dungeonLevel);
