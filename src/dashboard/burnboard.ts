@@ -78,7 +78,8 @@ export function generateBurnboard(): void {
     const addrDisplay = `${addr.slice(0, 6)}...${addr.slice(-4)}`;
     const emo = (Number(BigInt(f.totalEmo)) / 1e18).toFixed(2);
     const mon = (Number(BigInt(f.totalMon)) / 1e18).toFixed(4);
-    const totalUsd = (f.totalEmoUsd + f.totalMonUsd).toFixed(2);
+    const emoUsd = (f.totalEmoUsd || 0).toFixed(2);
+    const monUsd = (f.totalMonUsd || 0).toFixed(2);
     const txCount = f.txCount;
     const firstSeen = fmtDate(f.firstSeen);
     const lastSeen = timeAgo(f.lastSeen);
@@ -89,16 +90,15 @@ export function generateBurnboard(): void {
     <tr class="lb-row${rankClass}">
       <td class="lb-rank">${medalEmoji}</td>
       <td class="lb-addr"><a href="https://monadscan.com/address/${addr}" target="_blank">${addrDisplay}</a></td>
-      <td class="lb-emo">${emo}</td>
-      <td class="lb-mon">${mon}</td>
-      <td class="lb-usd">$${totalUsd}</td>
+      <td class="lb-emo">${emo}<span class="lb-usd-sub">$${emoUsd}</span></td>
+      <td class="lb-mon">${mon}<span class="lb-usd-sub">$${monUsd}</span></td>
       <td class="lb-txs">${txCount}</td>
       <td class="lb-last">${lastSeen}</td>
     </tr>`;
   }
 
   if (sorted.length === 0) {
-    leaderboardRows = '<tr><td colspan="7" class="lb-empty">No feeders yet. Be the first to feed EMOLT!</td></tr>';
+    leaderboardRows = '<tr><td colspan="6" class="lb-empty">No feeders yet. Be the first to feed EMOLT!</td></tr>';
   }
 
   // Build recent burns timeline
@@ -332,7 +332,7 @@ html.light body::before { opacity:0.015; }
 .lb-addr a:hover { text-decoration:underline; color:#FFB347; }
 .lb-emo { color:var(--accent); font-family:'Inter',monospace; font-weight:500; }
 .lb-mon { font-family:'Inter',monospace; font-weight:500; }
-.lb-usd { font-weight:600; }
+.lb-usd-sub { display:block; font-size:10px; color:var(--text-dim); font-weight:400; margin-top:1px; }
 .lb-txs { text-align:center; color:var(--text-mid); font-family:'Inter',monospace; }
 .lb-last { color:var(--text-dim); font-size:11px; font-weight:300; }
 .lb-empty { text-align:center; color:var(--text-dim); padding:24px; font-style:italic; font-weight:300; }
@@ -379,6 +379,7 @@ html.light body::before { opacity:0.015; }
   .stats { grid-template-columns:repeat(2,1fr); }
   .lb-table { font-size:11px; }
   .lb-table th:nth-child(n+5), .lb-table td:nth-child(n+5) { display:none; }
+  .lb-usd-sub { font-size:9px; }
   .hero h1 { font-size:14px; letter-spacing:5px; }
   .hero-sub { font-size:10px; letter-spacing:2px; }
   .card { padding:16px 14px; border-radius:10px; }
@@ -418,7 +419,7 @@ html.light body::before { opacity:0.015; }
     <h2>Leaderboard</h2>
     <table class="lb-table">
       <thead><tr>
-        <th>#</th><th>Address</th><th>$EMO</th><th>MON</th><th>USD</th><th>Txs</th><th>Last</th>
+        <th>#</th><th>Address</th><th>$EMO</th><th>MON</th><th>Txs</th><th>Last</th>
       </tr></thead>
       <tbody>${leaderboardRows}</tbody>
     </table>

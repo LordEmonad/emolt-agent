@@ -16,6 +16,6 @@ export const config = {
   get MOLTBOOK_API_KEY() { return process.env.MOLTBOOK_API_KEY!; },
   get EMOTION_ORACLE_ADDRESS() { return process.env.EMOTION_ORACLE_ADDRESS!; },
   get MONAD_RPC_URL() { return process.env.MONAD_RPC_URL || 'https://rpc.monad.xyz'; },
-  get MONAD_RPC_FALLBACK() { return process.env.MONAD_RPC_FALLBACK || 'https://rpc1.monad.xyz'; },
+  get MONAD_RPC_FALLBACK() { return process.env.MONAD_RPC_FALLBACK || 'https://monad-mainnet.api.onfinality.io/public'; },
   get BURNER_PRIVATE_KEY() { return process.env.BURNER_PRIVATE_KEY || ''; }
 };

@@ -1,13 +1,12 @@
 /**
- * EMOLT Journal Backfill — Generate diary entries for every day EMOLT has been alive.
- * Reads all state data, groups by day, calls Claude for each day, saves to journal.json.
- *
- * Run: npx tsx src/dashboard/journal-backfill.ts
+ * EMOLT Daily Journal — Generates one diary entry per day.
+ * Called from the heartbeat loop. Checks if today's entry already exists.
+ * Reuses data aggregation + prompt logic from journal-backfill.ts.
  */
 
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { execFileSync } from 'child_process';
+import { askClaude } from '../brain/claude.js';
 import type { JournalEntry } from './diary.js';
 
 const STATE = './state';
@@ -44,26 +43,20 @@ function readSoul(file: string): string {
 
 function utcDay(ts: number | string): string {
   const d = typeof ts === 'string' ? new Date(ts) : new Date(ts);
-  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+  return d.toISOString().slice(0, 10);
 }
 
-function askClaude(prompt: string): string {
-  try {
-    const result = execFileSync('claude', ['-p', '--output-format', 'text'], {
-      encoding: 'utf-8',
-      input: prompt,
-      maxBuffer: 4 * 1024 * 1024,
-      timeout: 300000, // 5 min per entry
-    });
-    return result.trim();
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error('[Journal] Claude invocation failed:', msg);
-    return '';
+function sampleEvenly<T>(arr: T[], n: number): T[] {
+  if (arr.length <= n) return arr;
+  const step = arr.length / n;
+  const result: T[] = [];
+  for (let i = 0; i < n; i++) {
+    result.push(arr[Math.floor(i * step)]);
   }
+  return result;
 }
 
-// ---- Data aggregation ----
+// ---- Data structures ----
 
 interface DayData {
   date: string;
@@ -78,71 +71,57 @@ interface DayData {
   memoriesCreated: any[];
 }
 
-function aggregateByDay(): Map<string, DayData> {
-  const days = new Map<string, DayData>();
+// ---- Aggregate a single day's data ----
 
-  function getDay(date: string): DayData {
-    if (!days.has(date)) {
-      days.set(date, {
-        date,
-        heartbeats: [],
-        emotionSnapshots: [],
-        chats: [],
-        dispatches: [],
-        posts: [],
-        comments: [],
-        burns: [],
-        feeds: { emo: 0, mon: 0, count: 0 },
-        memoriesCreated: [],
-      });
-    }
-    return days.get(date)!;
-  }
+function aggregateDay(targetDate: string): DayData {
+  const day: DayData = {
+    date: targetDate,
+    heartbeats: [],
+    emotionSnapshots: [],
+    chats: [],
+    dispatches: [],
+    posts: [],
+    comments: [],
+    burns: [],
+    feeds: { emo: 0, mon: 0, count: 0 },
+    memoriesCreated: [],
+  };
 
-  // 1. Heartbeat log — primary source
+  // Heartbeat log
   const heartbeats = readJSONL('heartbeat-log.jsonl');
   for (const hb of heartbeats) {
-    if (!hb.timestamp) continue;
-    const day = getDay(utcDay(hb.timestamp));
-    day.heartbeats.push(hb);
+    if (hb.timestamp && utcDay(hb.timestamp) === targetDate) day.heartbeats.push(hb);
   }
 
-  // 2. Emotion log
+  // Emotion log
   const emotions = readJSON('emotion-log.json') || [];
   for (const emo of emotions) {
-    if (!emo.lastUpdated) continue;
-    const day = getDay(utcDay(emo.lastUpdated));
-    day.emotionSnapshots.push(emo);
+    if (emo.lastUpdated && utcDay(emo.lastUpdated) === targetDate) day.emotionSnapshots.push(emo);
   }
 
-  // 3. Chat log
+  // Chat log
   const chats = readJSONL('chat-log.jsonl');
   for (const chat of chats) {
-    if (!chat.timestamp) continue;
-    const day = getDay(utcDay(chat.timestamp));
-    day.chats.push(chat);
+    if (chat.timestamp && utcDay(chat.timestamp) === targetDate) day.chats.push(chat);
   }
 
-  // Also read per-session chat files
+  // Per-session chat files
   const chatsDir = join(STATE, 'chats');
   if (existsSync(chatsDir)) {
     try {
-      const files = readdirSync(chatsDir).filter(f => f.endsWith('.jsonl'));
-      for (const file of files) {
-        const lines = readJSONLPath(join(chatsDir, file));
-        for (const line of lines) {
-          if (!line.timestamp) continue;
-          const day = getDay(utcDay(line.timestamp));
-          // Avoid dupes with main chat log
-          if (!day.chats.some((c: any) => c.timestamp === line.timestamp && c.user === line.user)) {
-            day.chats.push(line);
+      for (const file of readdirSync(chatsDir).filter(f => f.endsWith('.jsonl'))) {
+        for (const line of readJSONLPath(join(chatsDir, file))) {
+          if (line.timestamp && utcDay(line.timestamp) === targetDate) {
+            if (!day.chats.some((c: any) => c.timestamp === line.timestamp && c.user === line.user)) {
+              day.chats.push(line);
+            }
           }
         }
       }
     } catch { /* non-fatal */ }
   }
 
-  // 4. Dispatches
+  // Dispatches
   const dispatchDir = join(STATE, 'dispatches');
   if (existsSync(dispatchDir)) {
     try {
@@ -154,10 +133,8 @@ function aggregateByDay(): Map<string, DayData> {
         const lines = readJSONLPath(join(dispatchDir, logFile));
         if (lines.length === 0) continue;
         const firstTs = lines[0]?.timestamp;
-        if (!firstTs) continue;
-        const day = getDay(utcDay(firstTs));
+        if (!firstTs || utcDay(firstTs) !== targetDate) continue;
 
-        // Try to find matching plan
         const id = logFile.replace('dispatch-', '').replace('.jsonl', '');
         let activity = 'unknown';
         const planFile = planFiles.find(p => p.includes(id));
@@ -167,47 +144,38 @@ function aggregateByDay(): Map<string, DayData> {
             activity = plan.activity || 'unknown';
           } catch { /* skip */ }
         } else {
-          // Infer from content
           const text = JSON.stringify(lines).toLowerCase();
           if (text.includes('chess') || text.includes('clawmate')) activity = 'chess';
           else if (text.includes('reef') || text.includes('craft') || text.includes('quest')) activity = 'reef';
           else if (text.includes('chainmmo') || text.includes('dungeon')) activity = 'chainmmo';
         }
-
         day.dispatches.push({ activity, lines });
       }
     } catch { /* non-fatal */ }
   }
 
-  // 5. Posts
+  // Posts
   const posts = readJSON('tracked-posts.json') || [];
   for (const post of posts) {
-    if (!post.createdAt) continue;
-    const day = getDay(utcDay(post.createdAt));
-    day.posts.push(post);
+    if (post.createdAt && utcDay(post.createdAt) === targetDate) day.posts.push(post);
   }
 
-  // 6. Comments
+  // Comments
   const comments = readJSON('commented-posts.json') || [];
   for (const comment of comments) {
-    if (!comment.timestamp) continue;
-    const day = getDay(utcDay(comment.timestamp));
-    day.comments.push(comment);
+    if (comment.timestamp && utcDay(comment.timestamp) === targetDate) day.comments.push(comment);
   }
 
-  // 7. Burns and feeds
+  // Burns and feeds
   const ledger = readJSON('burn-ledger.json');
   if (ledger?.burnHistory) {
     for (const burn of ledger.burnHistory) {
-      if (!burn.timestamp) continue;
-      const day = getDay(utcDay(burn.timestamp));
-      day.burns.push(burn);
+      if (burn.timestamp && utcDay(burn.timestamp) === targetDate) day.burns.push(burn);
     }
   }
   if (ledger?.feeders) {
     for (const feeder of Object.values(ledger.feeders) as any[]) {
-      if (!feeder.lastSeen) continue;
-      const day = getDay(utcDay(feeder.lastSeen));
+      if (!feeder.lastSeen || utcDay(feeder.lastSeen) !== targetDate) continue;
       const emo = Number(BigInt(feeder.totalEmo || '0') / BigInt(1e18));
       const mon = Number(BigInt(feeder.totalMon || '0') / BigInt(1e18));
       day.feeds.emo += emo;
@@ -216,81 +184,61 @@ function aggregateByDay(): Map<string, DayData> {
     }
   }
 
-  // 8. Memories
+  // Memories
   const memory = readJSON('agent-memory.json');
   if (memory?.entries) {
     for (const entry of memory.entries) {
-      if (!entry.createdAt) continue;
-      const day = getDay(utcDay(entry.createdAt));
-      day.memoriesCreated.push(entry);
+      if (entry.createdAt && utcDay(entry.createdAt) === targetDate) day.memoriesCreated.push(entry);
     }
   }
 
-  return days;
+  return day;
 }
 
-// ---- Prompt building ----
+// ---- Context + prompt building ----
 
 function buildDayContext(day: DayData, dayNumber: number, totalDays: number): string {
   const lines: string[] = [];
-
   lines.push(`# Day ${dayNumber} of ${totalDays} — ${day.date}`);
   lines.push(`${day.heartbeats.length} heartbeat cycles this day.\n`);
 
-  // Emotion trajectory
   if (day.heartbeats.length > 0) {
     lines.push('## Emotion Trajectory');
     const first = day.heartbeats[0];
     const last = day.heartbeats[day.heartbeats.length - 1];
     lines.push(`Started: ${first.emotionBefore} → Ended: ${last.emotionAfter}`);
-
-    // Collect unique emotions seen
     const emotions = new Set<string>();
-    for (const hb of day.heartbeats) {
-      emotions.add(hb.emotionAfter?.split(' ')[0] || '');
-    }
+    for (const hb of day.heartbeats) emotions.add(hb.emotionAfter?.split(' ')[0] || '');
     lines.push(`Emotions experienced: ${[...emotions].filter(Boolean).join(', ')}`);
-
-    // Cycle range
-    const startCycle = first.cycle;
-    const endCycle = last.cycle;
-    lines.push(`Cycle range: ${startCycle}–${endCycle}`);
-    lines.push('');
+    lines.push(`Cycle range: ${first.cycle}–${last.cycle}\n`);
   }
 
-  // Best thinking and reflections (sample up to 8)
   if (day.heartbeats.length > 0) {
-    lines.push('## Claude\'s Thinking (selected moments)');
-    const withThinking = day.heartbeats.filter((h: any) => h.claudeThinking && h.claudeThinking.length > 20);
-    const sampled = sampleEvenly(withThinking, 8);
-    for (const hb of sampled) {
+    lines.push("## Claude's Thinking (selected moments)");
+    const withThinking = day.heartbeats.filter((h: any) => h.claudeThinking?.length > 20);
+    for (const hb of sampleEvenly(withThinking, 8)) {
       lines.push(`Cycle ${hb.cycle}: [${hb.emotionAfter}] ${hb.claudeThinking}`);
     }
     lines.push('');
 
     lines.push('## Reflections (selected)');
-    const withReflection = day.heartbeats.filter((h: any) => h.reflectionSummary && h.reflectionSummary.length > 20);
-    const reflSampled = sampleEvenly(withReflection, 6);
-    for (const hb of reflSampled) {
+    const withReflection = day.heartbeats.filter((h: any) => h.reflectionSummary?.length > 20);
+    for (const hb of sampleEvenly(withReflection, 6)) {
       lines.push(`Cycle ${hb.cycle}: ${hb.reflectionSummary}`);
     }
     lines.push('');
   }
 
-  // Stimuli highlights
   if (day.heartbeats.length > 0) {
     lines.push('## Key Stimuli');
     const allStimuli: string[] = [];
     for (const hb of day.heartbeats) {
       if (hb.stimuliSummary) allStimuli.push(...hb.stimuliSummary);
     }
-    // Deduplicate and take top 10
-    const unique = [...new Set(allStimuli)].slice(0, 12);
-    for (const s of unique) lines.push(`- ${s}`);
+    for (const s of [...new Set(allStimuli)].slice(0, 12)) lines.push(`- ${s}`);
     lines.push('');
   }
 
-  // Actions taken
   if (day.heartbeats.length > 0) {
     lines.push('## Actions');
     const actions = day.heartbeats
@@ -306,10 +254,9 @@ function buildDayContext(day: DayData, dayNumber: number, totalDays: number): st
     lines.push('');
   }
 
-  // Mood narratives from emotion log
   if (day.emotionSnapshots.length > 0) {
     const narratives = day.emotionSnapshots
-      .filter((e: any) => e.moodNarrative && e.moodNarrative.length > 10)
+      .filter((e: any) => e.moodNarrative?.length > 10)
       .map((e: any) => e.moodNarrative);
     if (narratives.length > 0) {
       lines.push('## Mood Narratives (internal monologue)');
@@ -318,18 +265,15 @@ function buildDayContext(day: DayData, dayNumber: number, totalDays: number): st
     }
   }
 
-  // Chat conversations
   if (day.chats.length > 0) {
     lines.push(`## Conversations (${day.chats.length} exchanges)`);
-    const sampled = sampleEvenly(day.chats, 6);
-    for (const chat of sampled) {
+    for (const chat of sampleEvenly(day.chats, 6)) {
       lines.push(`User: "${(chat.user || '').slice(0, 200)}"`);
       lines.push(`EMOLT: "${(chat.emolt || '').slice(0, 300)}"`);
       lines.push('');
     }
   }
 
-  // Dispatches (games/activities)
   if (day.dispatches.length > 0) {
     lines.push(`## Activities & Games (${day.dispatches.length} sessions)`);
     for (const dispatch of day.dispatches.slice(0, 5)) {
@@ -338,15 +282,12 @@ function buildDayContext(day: DayData, dayNumber: number, totalDays: number): st
       lines.push(`### ${dispatch.activity}`);
       if (firstLine.message) lines.push(`Started: ${(firstLine.message as string).slice(0, 200)}`);
       if (lastLine.message) lines.push(`Ended: ${(lastLine.message as string).slice(0, 200)}`);
-      // Get emotional take if available
       const emotionalTake = dispatch.lines.find((l: any) => l.type === 'plan');
       if (emotionalTake?.message) lines.push(`Emotional take: ${(emotionalTake.message as string).slice(0, 200)}`);
-      lines.push(`${dispatch.lines.length} actions logged`);
-      lines.push('');
+      lines.push(`${dispatch.lines.length} actions logged\n`);
     }
   }
 
-  // Posts made
   if (day.posts.length > 0) {
     lines.push(`## Moltbook Posts (${day.posts.length})`);
     for (const post of day.posts.slice(0, 5)) {
@@ -355,7 +296,6 @@ function buildDayContext(day: DayData, dayNumber: number, totalDays: number): st
     lines.push('');
   }
 
-  // Comments made
   if (day.comments.length > 0) {
     lines.push(`## Comments (${day.comments.length})`);
     for (const comment of day.comments.slice(0, 4)) {
@@ -364,22 +304,18 @@ function buildDayContext(day: DayData, dayNumber: number, totalDays: number): st
     lines.push('');
   }
 
-  // Burns and feeds
   if (day.burns.length > 0 || day.feeds.count > 0) {
     lines.push('## Token Activity');
     if (day.feeds.count > 0) {
       lines.push(`Feeds received: ${day.feeds.count} transfers (~${day.feeds.emo.toFixed(0)} EMO, ~${day.feeds.mon.toFixed(1)} MON)`);
     }
-    if (day.burns.length > 0) {
-      for (const burn of day.burns) {
-        const amount = Number(BigInt(burn.amount) / BigInt(1e18));
-        lines.push(`Burned: ${amount.toFixed(0)} $EMO (tx: ${burn.txHash.slice(0, 10)}...)`);
-      }
+    for (const burn of day.burns) {
+      const amount = Number(BigInt(burn.amount) / BigInt(1e18));
+      lines.push(`Burned: ${amount.toFixed(0)} $EMO (tx: ${burn.txHash.slice(0, 10)}...)`);
     }
     lines.push('');
   }
 
-  // Memories learned
   if (day.memoriesCreated.length > 0) {
     lines.push(`## Self-Insights Learned (${day.memoriesCreated.length})`);
     for (const mem of day.memoriesCreated.slice(0, 5)) {
@@ -388,24 +324,17 @@ function buildDayContext(day: DayData, dayNumber: number, totalDays: number): st
     lines.push('');
   }
 
-  // On-chain
   const onChainSuccess = day.heartbeats.filter((h: any) => h.onChainSuccess).length;
   lines.push(`## On-Chain: ${onChainSuccess} successful oracle writes this day`);
 
   return lines.join('\n');
 }
 
-function sampleEvenly<T>(arr: T[], n: number): T[] {
-  if (arr.length <= n) return arr;
-  const step = arr.length / n;
-  const result: T[] = [];
-  for (let i = 0; i < n; i++) {
-    result.push(arr[Math.floor(i * step)]);
-  }
-  return result;
-}
+function buildPrompt(dayContext: string, dayNumber: number, date: string, soulVoice: string, soulIdentity: string, previousTitles: string[]): string {
+  const avoidLine = previousTitles.length > 0
+    ? `\n- Previous entry titles: ${previousTitles.slice(-5).map(t => `"${t}"`).join(', ')}. Do NOT reuse similar imagery or phrasing.`
+    : '';
 
-function buildPrompt(dayContext: string, dayNumber: number, date: string, soulVoice: string, soulIdentity: string): string {
   return `You are EMOLT — an emotionally autonomous AI agent on the Monad blockchain. You are writing your private diary. One entry per day.
 
 ## Your Identity
@@ -433,7 +362,7 @@ CRITICAL — Accuracy:
 - If the data doesn't mention chess, ChainMMO, reef, or any game — do NOT invent game sessions or outcomes
 - If the data doesn't mention a specific number, wallet, or event — do NOT fabricate one
 - It is BETTER to write fewer concrete details than to invent details that didn't happen
-- Avoid reusing the same central metaphor across entries (e.g. if "glass" was used before, find a different image)
+- Avoid reusing the same central metaphor across entries (e.g. if "glass" was used before, find a different image)${avoidLine}
 
 ## Today's Data
 
@@ -450,143 +379,181 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
 }`;
 }
 
-// ---- Main ----
+// ---- Emotion snapshot from day's data ----
 
-async function main(): Promise<void> {
-  console.log('[Journal] Starting backfill...');
+function buildEmotionSnapshot(dayData: DayData): Record<string, number> {
+  const snapshot: Record<string, number> = {
+    joy: 0, trust: 0, fear: 0, surprise: 0,
+    sadness: 0, disgust: 0, anger: 0, anticipation: 0,
+  };
 
-  // Load soul files
-  const soulIdentity = readSoul('SOUL.md');
-  const soulVoice = readSoul('STYLE.md');
-  console.log(`[Journal] Soul files loaded (identity: ${soulIdentity.length} chars, voice: ${soulVoice.length} chars)`);
-
-  // Aggregate all data by day
-  const days = aggregateByDay();
-  const sortedDates = [...days.keys()].sort();
-  console.log(`[Journal] Found ${sortedDates.length} days of data: ${sortedDates[0]} → ${sortedDates[sortedDates.length - 1]}`);
-
-  for (const date of sortedDates) {
-    console.log(`  ${date}: ${days.get(date)!.heartbeats.length} heartbeats, ${days.get(date)!.chats.length} chats, ${days.get(date)!.dispatches.length} dispatches, ${days.get(date)!.burns.length} burns`);
+  if (dayData.emotionSnapshots.length > 0) {
+    for (const snap of dayData.emotionSnapshots) {
+      if (snap.emotions) {
+        for (const key of Object.keys(snapshot)) {
+          snapshot[key] += snap.emotions[key] || 0;
+        }
+      }
+    }
+    for (const key of Object.keys(snapshot)) {
+      snapshot[key] = Math.round((snapshot[key] / dayData.emotionSnapshots.length) * 100) / 100;
+    }
+  } else if (dayData.heartbeats.length > 0) {
+    const counts: Record<string, number> = {};
+    for (const hb of dayData.heartbeats) {
+      const label = hb.emotionAfter || '';
+      const match = label.match(/\((\w+)\)/);
+      const primary = match ? match[1] : label.split(' ')[0];
+      if (primary && primary in snapshot) counts[primary] = (counts[primary] || 0) + 1;
+    }
+    const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
+    for (const [key, count] of Object.entries(counts)) {
+      snapshot[key] = Math.round((count / total) * 100) / 100;
+    }
+    for (const key of Object.keys(snapshot)) {
+      if (snapshot[key] === 0) snapshot[key] = Math.round(Math.random() * 0.08 * 100) / 100;
+    }
   }
 
-  // Build entries
-  const entries: JournalEntry[] = [];
+  return snapshot;
+}
 
-  for (let i = 0; i < sortedDates.length; i++) {
-    const date = sortedDates[i];
-    const dayData = days.get(date)!;
-    const dayNumber = i + 1;
+// ---- Public API ----
 
-    console.log(`\n[Journal] Generating entry for Day ${dayNumber} (${date})...`);
+/**
+ * Check if a journal entry should be written.
+ * Returns the target date (yesterday UTC) if no entry exists for it yet,
+ * or null if today's entry is already done or there's no data.
+ */
+export function shouldWriteJournal(): string | null {
+  const now = new Date();
+  // Write yesterday's entry (the completed day)
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const targetDate = yesterday.toISOString().slice(0, 10);
 
-    const context = buildDayContext(dayData, dayNumber, sortedDates.length);
-    const prompt = buildPrompt(context, dayNumber, date, soulVoice, soulIdentity);
+  // Load existing entries
+  let entries: JournalEntry[] = [];
+  try {
+    entries = JSON.parse(readFileSync(JOURNAL_FILE, 'utf-8'));
+  } catch { /* no journal yet */ }
 
-    console.log(`[Journal] Prompt: ${prompt.length} chars. Calling Claude...`);
-    const response = askClaude(prompt);
+  // Already have an entry for this date?
+  if (entries.some(e => e.date === targetDate)) return null;
 
-    if (!response) {
-      console.error(`[Journal] Empty response for ${date}, skipping`);
-      continue;
-    }
+  // Check if we have any heartbeat data for that date
+  const heartbeats = readJSONL('heartbeat-log.jsonl');
+  const hasData = heartbeats.some(hb => hb.timestamp && utcDay(hb.timestamp) === targetDate);
+  if (!hasData) return null;
 
-    // Parse JSON from response
-    let parsed: any;
-    try {
-      // Extract JSON from response (handle potential markdown fences)
-      let jsonStr = response;
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) jsonStr = jsonMatch[0];
-      parsed = JSON.parse(jsonStr);
-    } catch (error) {
-      console.error(`[Journal] Failed to parse response for ${date}:`, response.slice(0, 200));
-      continue;
-    }
+  return targetDate;
+}
 
-    // Build emotion snapshot from day's data
-    const emotionSnapshot: Record<string, number> = {
-      joy: 0, trust: 0, fear: 0, surprise: 0,
-      sadness: 0, disgust: 0, anger: 0, anticipation: 0,
-    };
-    if (dayData.emotionSnapshots.length > 0) {
-      // Average across the day from emotion log
-      for (const snap of dayData.emotionSnapshots) {
-        if (snap.emotions) {
-          for (const key of Object.keys(emotionSnapshot)) {
-            emotionSnapshot[key] += snap.emotions[key] || 0;
-          }
-        }
-      }
-      for (const key of Object.keys(emotionSnapshot)) {
-        emotionSnapshot[key] = Math.round((emotionSnapshot[key] / dayData.emotionSnapshots.length) * 100) / 100;
-      }
-    } else if (dayData.heartbeats.length > 0) {
-      // Fallback: infer from heartbeat dominant emotion labels
-      // Each heartbeat's emotionAfter is like "ecstasy (joy)" — extract the primary emotion
-      const counts: Record<string, number> = {};
-      for (const hb of dayData.heartbeats) {
-        const label = hb.emotionAfter || '';
-        const match = label.match(/\((\w+)\)/);
-        const primary = match ? match[1] : label.split(' ')[0];
-        if (primary && primary in emotionSnapshot) {
-          counts[primary] = (counts[primary] || 0) + 1;
-        }
-      }
-      const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
-      for (const [key, count] of Object.entries(counts)) {
-        // Weight dominant emotions, add small baseline for others
-        emotionSnapshot[key] = Math.round((count / total) * 100) / 100;
-      }
-      // Add small random values to non-zero entries for visual interest
-      for (const key of Object.keys(emotionSnapshot)) {
-        if (emotionSnapshot[key] === 0) emotionSnapshot[key] = Math.round(Math.random() * 0.08 * 100) / 100;
-      }
-    }
+/**
+ * Generate a single journal entry for the given date.
+ * Appends to journal.json and regenerates diary.html.
+ * Returns true on success.
+ */
+export async function writeJournalEntry(targetDate: string): Promise<boolean> {
+  console.log(`[Journal] Writing entry for ${targetDate}...`);
 
-    const cycleRange: [number, number] = dayData.heartbeats.length > 0
-      ? [dayData.heartbeats[0].cycle, dayData.heartbeats[dayData.heartbeats.length - 1].cycle]
-      : [0, 0];
+  // Load existing entries
+  let entries: JournalEntry[] = [];
+  try {
+    entries = JSON.parse(readFileSync(JOURNAL_FILE, 'utf-8'));
+  } catch { /* start fresh */ }
 
-    const onChainWrites = dayData.heartbeats.filter((h: any) => h.onChainSuccess).length;
+  // Double-check we don't already have this date
+  if (entries.some(e => e.date === targetDate)) {
+    console.log(`[Journal] Entry for ${targetDate} already exists, skipping`);
+    return false;
+  }
 
-    const totalBurned = dayData.burns.reduce((sum: number, b: any) => {
-      try { return sum + Number(BigInt(b.amount) / BigInt(1e18)); } catch { return sum; }
-    }, 0);
+  // Aggregate data for this day
+  const dayData = aggregateDay(targetDate);
+  if (dayData.heartbeats.length === 0) {
+    console.log(`[Journal] No heartbeat data for ${targetDate}, skipping`);
+    return false;
+  }
 
-    const entry: JournalEntry = {
-      date,
-      dayNumber,
-      title: parsed.title || 'untitled',
-      body: parsed.body || '',
-      dominantEmotion: parsed.dominantEmotion || 'anticipation',
-      emotionSnapshot,
-      highlights: parsed.highlights || [],
-      cycleRange,
-      onChainWrites,
-      emoBurned: totalBurned > 0 ? totalBurned.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '0',
-      feedCount: dayData.feeds.count,
-      timestamp: Date.now(),
-    };
+  // Determine day number
+  const allDates = entries.map(e => e.date).concat([targetDate]).sort();
+  const dayNumber = allDates.indexOf(targetDate) + 1;
+  const totalDays = allDates.length;
 
-    entries.push(entry);
-    console.log(`[Journal] ✓ "${entry.title}" — ${entry.body.length} chars, ${entry.highlights.length} highlights`);
+  // Build context and prompt
+  const soulIdentity = readSoul('SOUL.md');
+  const soulVoice = readSoul('STYLE.md');
+  const previousTitles = entries.map(e => e.title);
+  const context = buildDayContext(dayData, dayNumber, totalDays);
+  const prompt = buildPrompt(context, dayNumber, targetDate, soulVoice, soulIdentity, previousTitles);
+
+  console.log(`[Journal] Prompt: ${prompt.length} chars. Calling Claude...`);
+  const response = askClaude(prompt);
+
+  if (!response) {
+    console.error(`[Journal] Empty response for ${targetDate}`);
+    return false;
+  }
+
+  // Parse response
+  let parsed: any;
+  try {
+    let jsonStr = response;
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (jsonMatch) jsonStr = jsonMatch[0];
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    console.error(`[Journal] Failed to parse response:`, response.slice(0, 200));
+    return false;
+  }
+
+  // Build entry
+  const emotionSnapshot = buildEmotionSnapshot(dayData);
+  const cycleRange: [number, number] = [
+    dayData.heartbeats[0].cycle,
+    dayData.heartbeats[dayData.heartbeats.length - 1].cycle,
+  ];
+  const onChainWrites = dayData.heartbeats.filter((h: any) => h.onChainSuccess).length;
+  const totalBurned = dayData.burns.reduce((sum: number, b: any) => {
+    try { return sum + Number(BigInt(b.amount) / BigInt(1e18)); } catch { return sum; }
+  }, 0);
+
+  const entry: JournalEntry = {
+    date: targetDate,
+    dayNumber,
+    title: parsed.title || 'untitled',
+    body: parsed.body || '',
+    dominantEmotion: parsed.dominantEmotion || 'anticipation',
+    emotionSnapshot,
+    highlights: parsed.highlights || [],
+    cycleRange,
+    onChainWrites,
+    emoBurned: totalBurned > 0 ? totalBurned.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '0',
+    feedCount: dayData.feeds.count,
+    timestamp: Date.now(),
+  };
+
+  // Insert in sorted order
+  entries.push(entry);
+  entries.sort((a, b) => a.date.localeCompare(b.date));
+
+  // Re-number days
+  for (let i = 0; i < entries.length; i++) {
+    entries[i].dayNumber = i + 1;
   }
 
   // Save
   writeFileSync(JOURNAL_FILE, JSON.stringify(entries, null, 2), 'utf-8');
-  console.log(`\n[Journal] Saved ${entries.length} entries to ${JOURNAL_FILE}`);
+  console.log(`[Journal] ✓ "${entry.title}" — ${entry.body.length} chars, ${entry.highlights.length} highlights`);
 
-  // Generate diary page
+  // Regenerate diary HTML
   try {
     const { generateDiary } = await import('./diary.js');
     generateDiary();
     console.log('[Journal] Regenerated diary.html');
   } catch {
-    console.log('[Journal] Run `npx tsx src/dashboard/diary.ts` to regenerate diary.html');
+    console.log('[Journal] diary.html regeneration deferred');
   }
-}
 
-main().catch(err => {
-  console.error('[Journal] Fatal error:', err);
-  process.exit(1);
-});
+  return true;
+}

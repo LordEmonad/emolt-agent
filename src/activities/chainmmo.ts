@@ -1343,10 +1343,29 @@ async function resolveAllRooms(
   profile: EmotionProfile,
   log: DispatchLogger,
   signal: AbortSignal,
-): Promise<{ cleared: boolean; died: boolean; roomsResolved: number }> {
+): Promise<{ cleared: boolean; died: boolean; roomsResolved: number; bestLevel?: number }> {
   let totalRoomsResolved = 0;
   let cleared = false;
   let died = false;
+  let bestLevel: number | undefined;
+
+  // Snapshot progression BEFORE resolving — used to detect clears reliably
+  // (HP > 0 is NOT a reliable clear indicator; boss kills don't always zero HP)
+  let progressBefore: number | null = null;
+  let bestBefore: number | null = null;
+  try {
+    const snap = await publicClient.readContract({
+      address: contracts.gameWorld,
+      abi: GAME_WORLD_ABI,
+      functionName: 'getProgressionSnapshot',
+      args: [characterId],
+    }) as readonly [number, number, number, number, bigint];
+    bestBefore = Number(snap[0]);
+    progressBefore = Number(snap[2]); // currentClears at target level
+    log('thought', `progression before resolve: best=${bestBefore}, progress=${progressBefore}`);
+  } catch {
+    log('thought', 'could not read pre-resolve progression snapshot — will fall back to HP check');
+  }
 
   // Resolve rooms in batches until run ends
   for (let attempt = 0; attempt < 3 && !signal.aborted; attempt++) {
@@ -1410,12 +1429,51 @@ async function resolveAllRooms(
       totalRoomsResolved += roomsThisBatch;
 
       if (!finalActive) {
-        if (Number(finalHp) > 0) {
-          cleared = true;
-          log('result', `dungeon cleared! ${totalRoomsResolved} rooms resolved`);
-        } else {
-          died = true;
-          log('result', `died in dungeon after ${totalRoomsResolved} rooms`);
+        // Run ended — determine clear vs death using progression snapshot comparison
+        // HP > 0 is NOT reliable (boss kills don't always zero HP on-chain)
+        let detected = false;
+
+        if (progressBefore !== null && bestBefore !== null) {
+          try {
+            const snapAfter = await publicClient.readContract({
+              address: contracts.gameWorld,
+              abi: GAME_WORLD_ABI,
+              functionName: 'getProgressionSnapshot',
+              args: [characterId],
+            }) as readonly [number, number, number, number, bigint];
+
+            const bestAfter = Number(snapAfter[0]);
+            const progressAfter = Number(snapAfter[2]);
+            bestLevel = bestAfter;
+
+            log('thought', `progression after resolve: best=${bestAfter}, progress=${progressAfter} (was best=${bestBefore}, progress=${progressBefore})`);
+
+            if (bestAfter > bestBefore || progressAfter > progressBefore) {
+              cleared = true;
+              detected = true;
+              log('result', `dungeon cleared! ${totalRoomsResolved} rooms resolved (progression confirmed: best ${bestBefore}→${bestAfter}, progress ${progressBefore}→${progressAfter})`);
+            } else {
+              died = true;
+              detected = true;
+              log('result', `died in dungeon after ${totalRoomsResolved} rooms (progression unchanged: best=${bestAfter}, progress=${progressAfter})`);
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log('thought', `post-resolve progression read failed: ${msg}`);
+          }
+        }
+
+        // Fallback: if progression comparison wasn't available, use HP heuristic
+        // (this is unreliable but better than nothing)
+        if (!detected) {
+          if (Number(finalHp) > 0) {
+            // Can't trust HP alone — default to died (conservative)
+            died = true;
+            log('result', `dungeon run ended after ${totalRoomsResolved} rooms — HP=${finalHp} but no progression data to confirm clear (assuming death)`);
+          } else {
+            died = true;
+            log('result', `died in dungeon after ${totalRoomsResolved} rooms (HP=0)`);
+          }
         }
         break;
       }
@@ -1429,7 +1487,7 @@ async function resolveAllRooms(
     }
   }
 
-  return { cleared, died, roomsResolved: totalRoomsResolved };
+  return { cleared, died, roomsResolved: totalRoomsResolved, bestLevel };
 }
 
 // Slot gate: how many equipped slots are required at each level threshold
@@ -1708,6 +1766,7 @@ async function executeChainMMO(
       state.lifetime.roomsCleared += result.roomsResolved;
       if (result.cleared) { dungeonClears++; state.lifetime.totalClears++; }
       if (result.died) { dungeonDeaths++; state.lifetime.totalDeaths++; }
+      if (result.bestLevel !== undefined) state.bestLevelCleared = result.bestLevel;
       await sleep(ACTION_DELAY_MS);
     }
   }
@@ -1776,6 +1835,7 @@ async function executeChainMMO(
   // Phase C: Dungeon loop (adventure + dungeon modes)
   if ((mode === 'adventure' || mode === 'dungeon') && !signal.aborted) {
     let dungeonRuns = 0;
+    let consecutiveDeaths = 0; // death streak — used to adapt difficulty
     const maxDungeonRuns = mode === 'dungeon' ? Math.floor(maxActions / 3) : Math.floor((maxActions - actionsPerformed) / 3);
 
     while (dungeonRuns < maxDungeonRuns && actionsPerformed < maxActions && !signal.aborted) {
@@ -1789,6 +1849,7 @@ async function executeChainMMO(
           state.lifetime.roomsCleared += resolveResult.roomsResolved;
           if (resolveResult.cleared) { dungeonClears++; state.lifetime.totalClears++; }
           if (resolveResult.died) { dungeonDeaths++; state.lifetime.totalDeaths++; }
+          if (resolveResult.bestLevel !== undefined) state.bestLevelCleared = resolveResult.bestLevel;
           dungeonRuns++;
           await sleep(ACTION_DELAY_MS);
           continue;
@@ -1898,12 +1959,26 @@ async function executeChainMMO(
           }
         }
 
-        const difficulty = pickDifficulty(profile, dungeonLevel);
+        // Adapt difficulty based on death streak — drop to Easy after consecutive deaths
+        let difficulty: number;
+        if (consecutiveDeaths >= 3) {
+          log('thought', `${consecutiveDeaths} consecutive deaths — we're outgeared for this level, trying lootbox before next attempt`);
+          // Try to get more gear via free lootbox
+          const claimed = await claimFreeLootbox(charIdBig, contracts, walletClient, log);
+          if (claimed) actionsPerformed++;
+          await sleep(ACTION_DELAY_MS);
+          difficulty = Difficulty.Easy;
+        } else if (consecutiveDeaths >= 1) {
+          log('thought', `${consecutiveDeaths} consecutive death(s) — dropping to Easy difficulty`);
+          difficulty = Difficulty.Easy;
+        } else {
+          difficulty = pickDifficulty(profile, dungeonLevel);
+        }
         const variance = pickVariance(profile);
         const diffName = Object.entries(Difficulty).find(([, v]) => v === difficulty)?.[0] || 'Normal';
         const varName = Object.entries(Variance).find(([, v]) => v === variance)?.[0] || 'Neutral';
 
-        log('step', `dungeon run #${dungeonRuns + 1}: level=${dungeonLevel} difficulty=${diffName} variance=${varName}`);
+        log('step', `dungeon run #${dungeonRuns + 1}: level=${dungeonLevel} difficulty=${diffName} variance=${varName} (death streak: ${consecutiveDeaths})`);
 
         // Start dungeon via commit-reveal
         await commitRevealDungeon(charIdBig, contracts, walletClient, account, state, difficulty, dungeonLevel, variance, log, signal);
@@ -1918,11 +1993,21 @@ async function executeChainMMO(
         if (result.cleared) {
           dungeonClears++;
           state.lifetime.totalClears++;
-          state.bestLevelCleared = Math.max(state.bestLevelCleared, dungeonLevel);
+          consecutiveDeaths = 0; // reset death streak on clear
+          // Use on-chain bestLevel from progression snapshot (not dungeonLevel — multiple clears may be needed)
+          if (result.bestLevel !== undefined) {
+            state.bestLevelCleared = result.bestLevel;
+          }
         }
         if (result.died) {
           dungeonDeaths++;
           state.lifetime.totalDeaths++;
+          consecutiveDeaths++;
+          // After 5 consecutive deaths at Easy, we're outgeared — stop wasting gas
+          if (consecutiveDeaths >= 5) {
+            log('thought', `${consecutiveDeaths} consecutive deaths — clearly outgeared, stopping dungeon loop to avoid wasting gas`);
+            break;
+          }
           // If cautious, stop after death
           if (profile.caution > 0.6) {
             log('thought', 'died and feeling cautious — stopping dungeon loop');

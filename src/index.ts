@@ -51,6 +51,8 @@ import { buildDiagnostics } from './brain/diagnostics.js';
 import { generateDashboard } from './dashboard/generate.js';
 import { generateTimeline } from './dashboard/timeline.js';
 import { generateBurnboard } from './dashboard/burnboard.js';
+import { generateDiary } from './dashboard/diary.js';
+import { shouldWriteJournal, writeJournalEntry } from './dashboard/journal.js';
 import {
   ensureStateDir,
   STATE_DIR,
@@ -800,11 +802,27 @@ Good examples of your voice on crypto posts:
   } catch {
     // burnboard generation is non-fatal
   }
+  try {
+    generateDiary();
+  } catch {
+    // diary generation is non-fatal
+  }
+
+  // 15.5. Daily journal entry (once per day, writes yesterday's entry)
+  try {
+    const journalDate = shouldWriteJournal();
+    if (journalDate) {
+      console.log(`[Journal] Writing diary entry for ${journalDate}...`);
+      await writeJournalEntry(journalDate);
+    }
+  } catch (err) {
+    console.error('[Journal] Daily entry failed (non-fatal):', err);
+  }
 
   // 16. Push updated dashboard to git
   try {
     const { execSync } = await import('child_process');
-    execSync('git add heartbeat.html timeline.html burnboard.html visualizer/animations/gif/ src/dashboard/ src/emotion/ src/chain/ src/brain/ src/social/ src/state/ src/activities/ src/chat/ src/index.ts && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
+    execSync('git add heartbeat.html timeline.html burnboard.html diary.html visualizer/animations/gif/ src/dashboard/ src/emotion/ src/chain/ src/brain/ src/social/ src/state/ src/activities/ src/chat/ src/index.ts && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
       stdio: 'ignore',
       timeout: 30_000,
     });
