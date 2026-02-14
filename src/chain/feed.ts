@@ -96,7 +96,7 @@ async function detectIncomingMon(
 
   try {
     const startBlock = (lastProcessedBlock + 1n).toString();
-    const url = `${ETHERSCAN_BASE}?chainid=${CHAIN_ID}&apikey=${apiKey}&module=account&action=txlist&address=${agentAddress}&startblock=${startBlock}&endblock=99999999&page=1&offset=100&sort=asc`;
+    const url = `${ETHERSCAN_BASE}?chainid=${CHAIN_ID}&apikey=${apiKey}&module=account&action=txlist&address=${agentAddress}&startblock=${startBlock}&endblock=99999999&page=1&offset=10000&sort=desc`;
     const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     const data = await res.json();
 
@@ -315,14 +315,21 @@ export async function detectAndProcessFeeds(
   // Flush updated dedup set back to ledger
   ledger.processedTxHashes = [...seen].slice(-200);
 
-  // 6. Update processed blocks — tracked separately so one source failing doesn't skip the other
+  // 6. Update processed blocks — always advance to current block to prevent getting stuck
+  // (txlist returns ALL wallet txs including outgoing; with a low page limit, incoming
+  //  MON donations can get buried behind agent outgoing txs and never seen, causing
+  //  lastProcessedMonBlock to freeze and the gap to grow forever)
   if (newEmoFeeds.length > 0) {
-    const maxEmo = newEmoFeeds.reduce((m, f) => f.blockNumber > m ? f.blockNumber : m, lastEmoBlock);
+    const maxEmo = newEmoFeeds.reduce((m, f) => f.blockNumber > m ? f.blockNumber : m, _toBlock);
     ledger.lastProcessedEmoBlock = maxEmo.toString();
+  } else {
+    ledger.lastProcessedEmoBlock = _toBlock.toString();
   }
   if (newMonFeeds.length > 0) {
-    const maxMon = newMonFeeds.reduce((m, f) => f.blockNumber > m ? f.blockNumber : m, lastMonBlock);
+    const maxMon = newMonFeeds.reduce((m, f) => f.blockNumber > m ? f.blockNumber : m, _toBlock);
     ledger.lastProcessedMonBlock = maxMon.toString();
+  } else {
+    ledger.lastProcessedMonBlock = _toBlock.toString();
   }
   // Keep legacy field updated for backward compat
   ledger.lastProcessedBlock = _toBlock.toString();

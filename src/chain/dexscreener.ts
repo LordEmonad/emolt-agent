@@ -1,13 +1,24 @@
+import { readFileSync } from 'fs';
 import type { DexScreenerMarketData, DexScreenerPairData } from './types.js';
 
 // Circuit breaker: 3 failures → 90-min cooldown
 let failures = 0;
 let skipUntil = 0;
 
-// Previous-cycle cache for delta computation
+// Previous-cycle cache for delta computation — seed from last saved snapshot
 let previousPairs: Set<string> = new Set();
 let previousVolume = 0;
 let previousLiquidity = 0;
+try {
+  const prev = JSON.parse(readFileSync('./state/dex-screener-data.json', 'utf-8'));
+  if (prev?.dataAvailable) {
+    previousVolume = prev.totalVolume1h || 0;
+    previousLiquidity = prev.totalLiquidity || 0;
+    if (prev.topPairs) {
+      for (const p of prev.topPairs) if (p.pairAddress) previousPairs.add(p.pairAddress);
+    }
+  }
+} catch { /* no previous data on first run */ }
 
 function isCircuitOpen(): boolean {
   if (failures >= 3 && Date.now() < skipUntil) {

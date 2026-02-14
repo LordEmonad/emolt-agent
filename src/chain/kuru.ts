@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import type { KuruOrderbookData } from './types.js';
 
 // MON/USDC market on Kuru
@@ -8,9 +9,16 @@ const KURU_L2_URL = `https://api.kuru.io/api/v2/orders/market/${KURU_MARKET}/l2b
 let failures = 0;
 let skipUntil = 0;
 
-// Previous-cycle cache for delta computation
+// Previous-cycle cache for delta computation — seed from last saved snapshot
 let previousSpreadPct = 0;
 let previousTotalDepth = 0;
+try {
+  const prev = JSON.parse(readFileSync('./state/kuru-data.json', 'utf-8'));
+  if (prev?.dataAvailable) {
+    previousSpreadPct = prev.spreadPct || 0;
+    previousTotalDepth = (prev.bidDepthMon || 0) + (prev.askDepthMon || 0);
+  }
+} catch { /* no previous data on first run */ }
 
 function isCircuitOpen(): boolean {
   if (failures >= 3 && Date.now() < skipUntil) {
