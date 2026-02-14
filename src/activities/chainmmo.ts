@@ -592,23 +592,61 @@ function nextNonce(): bigint {
   return nonceCounter++;
 }
 
-// Extract commitId from ActionCommitted event in tx receipt
-function extractCommitId(receipt: any): bigint {
-  for (const log of receipt.logs || []) {
+// Extract commitId from ActionCommitted event in tx receipt.
+// Three strategies: ABI decode → raw topic extraction → pre-read fallback.
+function extractCommitId(
+  receipt: any,
+  gameWorldAddress: `0x${string}`,
+  preReadCommitId: bigint | null,
+  log: DispatchLogger,
+): bigint {
+  const logs = receipt.logs || [];
+  log('thought', `extractCommitId: ${logs.length} log(s) in receipt`);
+
+  // Strategy 1: Full ABI decode via viem
+  for (const entry of logs) {
     try {
       const decoded = decodeEventLog({
         abi: GAME_WORLD_ABI,
-        data: log.data,
-        topics: log.topics,
+        data: entry.data,
+        topics: entry.topics,
       });
       if (decoded.eventName === 'ActionCommitted') {
-        return (decoded.args as any).commitId as bigint;
+        const id = (decoded.args as any).commitId as bigint;
+        log('thought', `commitId from ABI decode: ${id}`);
+        return id;
       }
     } catch {
       // Not this event, continue
     }
   }
-  throw new Error('ActionCommitted event not found in receipt — cannot extract commitId');
+
+  // Strategy 2: Raw topic extraction — ActionCommitted has commitId as first indexed param (topic[1])
+  const gwLower = gameWorldAddress.toLowerCase();
+  for (const entry of logs) {
+    if (entry.address?.toLowerCase() === gwLower && entry.topics?.length >= 2) {
+      try {
+        const id = BigInt(entry.topics[1]);
+        if (id > 0n) {
+          log('thought', `commitId from raw topic[1]: ${id}`);
+          return id;
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  // Debug: log raw entries so we can diagnose in future
+  for (let i = 0; i < Math.min(logs.length, 5); i++) {
+    log('thought', `log[${i}]: addr=${logs[i].address} topics=${JSON.stringify(logs[i].topics).slice(0, 300)} data=${String(logs[i].data).slice(0, 100)}`);
+  }
+
+  // Strategy 3: Fall back to pre-read nextCommitId
+  if (preReadCommitId !== null && preReadCommitId > 0n) {
+    log('thought', `event extraction failed — falling back to pre-read commitId: ${preReadCommitId}`);
+    return preReadCommitId;
+  }
+
+  throw new Error('ActionCommitted event not found in receipt and no fallback commitId available');
 }
 
 async function waitForBlocks(
@@ -654,6 +692,19 @@ async function commitRevealLootbox(
   });
   log('thought', `commit fee: ${commitFee} wei | nonce: ${nonce}`);
 
+  // Pre-read nextCommitId as fallback in case event extraction fails
+  let preReadCommitId: bigint | null = null;
+  try {
+    preReadCommitId = await publicClient.readContract({
+      address: contracts.gameWorld,
+      abi: GAME_WORLD_ABI,
+      functionName: 'nextCommitId',
+    }) as bigint;
+    log('thought', `pre-read nextCommitId: ${preReadCommitId}`);
+  } catch {
+    log('thought', 'nextCommitId pre-read failed (non-fatal)');
+  }
+
   // Compute hash via view function
   const hash = await publicClient.readContract({
     address: contracts.gameWorld,
@@ -677,9 +728,8 @@ async function commitRevealLootbox(
   if (commitReceipt.status !== 'success') throw new Error(`commit tx reverted: ${commitTxHash}`);
   log('step', `commit confirmed at block ${commitReceipt.blockNumber}`);
 
-  // Extract commitId from ActionCommitted event (not nextCommitId — avoids race conditions)
-  const commitId = extractCommitId(commitReceipt);
-  log('thought', `commitId from event: ${commitId}`);
+  // Extract commitId: ABI decode → raw topic → pre-read fallback
+  const commitId = extractCommitId(commitReceipt, contracts.gameWorld, preReadCommitId, log);
 
   // Save pending commit for crash recovery
   state.pendingCommit = {
@@ -764,6 +814,19 @@ async function commitRevealDungeon(
   });
   log('thought', `commit fee: ${commitFee} wei | nonce: ${nonce}`);
 
+  // Pre-read nextCommitId as fallback in case event extraction fails
+  let preReadCommitId: bigint | null = null;
+  try {
+    preReadCommitId = await publicClient.readContract({
+      address: contracts.gameWorld,
+      abi: GAME_WORLD_ABI,
+      functionName: 'nextCommitId',
+    }) as bigint;
+    log('thought', `pre-read nextCommitId: ${preReadCommitId}`);
+  } catch {
+    log('thought', 'nextCommitId pre-read failed (non-fatal)');
+  }
+
   // Compute hash via view function
   const hash = await publicClient.readContract({
     address: contracts.gameWorld,
@@ -787,9 +850,8 @@ async function commitRevealDungeon(
   if (commitReceipt.status !== 'success') throw new Error(`commit tx reverted: ${commitTxHash}`);
   log('step', `commit confirmed at block ${commitReceipt.blockNumber}`);
 
-  // Extract commitId from ActionCommitted event (not nextCommitId — avoids race conditions)
-  const commitId = extractCommitId(commitReceipt);
-  log('thought', `commitId from event: ${commitId}`);
+  // Extract commitId: ABI decode → raw topic → pre-read fallback
+  const commitId = extractCommitId(commitReceipt, contracts.gameWorld, preReadCommitId, log);
 
   // Save pending commit for crash recovery
   state.pendingCommit = {

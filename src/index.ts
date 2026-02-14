@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { join } from 'path';
 import { validateEnv } from './config.js';
 import { decay, stimulate, updateMood } from './emotion/engine.js';
 import { formatEmotionForPrompt, formatEmotionHistory, formatPreviousPosts } from './emotion/formatter.js';
@@ -52,6 +53,8 @@ import { generateTimeline } from './dashboard/timeline.js';
 import { generateBurnboard } from './dashboard/burnboard.js';
 import {
   ensureStateDir,
+  STATE_DIR,
+  atomicWriteFileSync,
   loadEmotionState,
   saveEmotionState,
   loadChainHistory,
@@ -752,6 +755,14 @@ Good examples of your voice on crypto posts:
   saveChainHistory(chainData);
   appendEmotionLog(emotionState);
   saveMemory(memory);
+
+  // Persist DexScreener + Kuru snapshots for dashboard
+  if (dexScreenerData) {
+    try { atomicWriteFileSync(join(STATE_DIR, 'dex-screener-data.json'), JSON.stringify(dexScreenerData, null, 2)); } catch { /* non-fatal */ }
+  }
+  if (kuruData) {
+    try { atomicWriteFileSync(join(STATE_DIR, 'kuru-data.json'), JSON.stringify(kuruData, null, 2)); } catch { /* non-fatal */ }
+  }
 
   // 14.5. Heartbeat post-mortem log
   try {

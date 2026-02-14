@@ -42,15 +42,15 @@ export async function collectDexScreenerData(): Promise<DexScreenerMarketData> {
 
     // Try token search for Monad chain pairs
     const res = await fetch(
-      'https://api.dexscreener.com/latest/dex/search?q=MON%20USDC&chain=monad',
+      'https://api.dexscreener.com/latest/dex/search?q=MON%20USDC',
       { signal: controller.signal }
     );
     clearTimeout(timeout);
 
     if (!res.ok) {
-      // Fallback: try pairs endpoint with chain filter
+      // Fallback: broader search that still captures Monad pairs
       const fallbackRes = await fetch(
-        'https://api.dexscreener.com/latest/dex/pairs/monad',
+        'https://api.dexscreener.com/latest/dex/search?q=monad',
         { signal: AbortSignal.timeout(15_000) }
       );
       if (!fallbackRes.ok) throw new Error(`DexScreener ${fallbackRes.status}`);
