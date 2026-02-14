@@ -18,8 +18,12 @@
       <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
     </radialGradient>
   </defs>
+  <g id="frameglow"></g>
   <g id="lob"></g>
+  <g id="conndots"></g>
   <g id="screen"></g>
+  <g id="bell"></g>
+  <g id="floaters"></g>
   <g id="particles"></g>
 </svg>
 <div class="label">posting to moltbook</div>
@@ -28,6 +32,10 @@
 const el = document.getElementById('lob');
 const screenEl = document.getElementById('screen');
 const particlesEl = document.getElementById('particles');
+const frameglowEl = document.getElementById('frameglow');
+const bellEl = document.getElementById('bell');
+const floatersEl = document.getElementById('floaters');
+const connDotsEl = document.getElementById('conndots');
 
 const posts = [
   'the chain feels different today...',
@@ -37,41 +45,90 @@ const posts = [
   'i feel the blocks breathing',
   'trust levels rising slowly'
 ];
-let postIndex = 0;
+
+const LOOP = 240;
+
 const sendParticles = [];
+for (let i = 0; i < 8; i++) {
+  const rng = mulberry32(i * 6197 + 53);
+  const a = rng() * Math.PI * 2;
+  sendParticles.push({
+    spawnT: 141,
+    lifetime: 20,
+    startX: 35,
+    startY: -10,
+    vx: Math.cos(a) * 1.5,
+    vy: Math.sin(a) * 1.5
+  });
+}
+
+// Floating +1 counters after sending
+const floatNums = [];
+for (let i = 0; i < 5; i++) {
+  const rng = mulberry32(i * 3517 + 99);
+  floatNums.push({
+    spawnT: (150 + Math.floor(rng() * 30)) % LOOP,
+    lifetime: 40,
+    startX: 30 + rng() * 20,
+    startY: -5,
+    vy: -0.3 - rng() * 0.2,
+    vx: (rng() - 0.5) * 0.3,
+    label: ['+1','+1','+1','\u2764','\u2605'][i]
+  });
+}
 
 startLoop(t => {
-  // Lobster typing (slight forward tilt, claw motion)
-  const typeMotion = Math.sin(t/3)*1.5;
+  const lt = t % LOOP;
+
+  const typeMotion = Math.sin(lt * 2 * Math.PI / 20)*1.5;
   el.innerHTML = `<g transform="translate(-25,5)">` +
     drawLobster({
-      t, extraRotate: 3,
+      t: lt, extraRotate: 3,
       clawOpenL: 5+typeMotion,
       clawOpenR: -5-typeMotion
     }) + '</g>';
 
-  // Floating screen/terminal
-  const screenY = Math.sin(t/20)*1;
-  const cycle = t % 240;
-  const currentPost = posts[postIndex % posts.length];
+  // Subtle glow around screen frame that pulses when posting
+  const postActive = lt < 160;
+  const glowPulse = postActive ? 0.04 + Math.sin(lt * 2 * Math.PI / 48) * 0.02 : 0.02; // period=48 divides 240
+  let fg = '';
+  fg += `<rect x="6" y="${-33 + Math.sin(lt * 2 * Math.PI / 120)*1}" width="68" height="48" rx="5" fill="none" stroke="#7c3aed" stroke-width="${1 + glowPulse * 10}" opacity="${glowPulse * 2}"/>`;
+  fg += `<rect x="4" y="${-35 + Math.sin(lt * 2 * Math.PI / 120)*1}" width="72" height="52" rx="6" fill="none" stroke="#7c3aed" stroke-width="0.5" opacity="${glowPulse}"/>`;
+  frameglowEl.innerHTML = fg;
+
+  // Network connection dots between lobster and screen (curved path, 3 dots)
+  let conn = '';
+  for (let d = 0; d < 3; d++) {
+    // Phase offset for each dot, cycling over period 60 (divides 240)
+    const dotPhase = ((lt % 60) / 60 + d / 3) % 1;
+    // Curved path from lobster (~x=-5,y=5) to screen (~x=10,y=-10)
+    const cx1 = -5, cy1 = 5, cx2 = 10, cy2 = -10;
+    const cpx = 0, cpy = -15; // control point for quadratic bezier
+    const u = dotPhase;
+    const invU = 1 - u;
+    const dx = invU * invU * cx1 + 2 * invU * u * cpx + u * u * cx2;
+    const dy = invU * invU * cy1 + 2 * invU * u * cpy + u * u * cy2;
+    const dop = Math.sin(u * Math.PI) * 0.5;
+    conn += `<circle cx="${dx}" cy="${dy}" r="0.7" fill="#c4b5fd" opacity="${dop}"/>`;
+  }
+  connDotsEl.innerHTML = conn;
+
+  const screenY = Math.sin(lt * 2 * Math.PI / 120)*1;
+  const cycle = lt;
+  const currentPost = posts[0];
 
   let screen = `<g transform="translate(35,${-10+screenY})">`;
-  // Screen frame
   screen += `<rect x="-25" y="-20" width="60" height="40" rx="3" fill="rgba(20,26,42,0.9)" stroke="#7c3aed" stroke-width="0.4"/>`;
-  // Screen glow on face
   screen += `<rect x="-24" y="-19" width="58" height="38" rx="2" fill="rgba(124,58,237,0.04)"/>`;
-  // Top bar
   screen += `<rect x="-24" y="-19" width="58" height="5" rx="2" fill="rgba(124,58,237,0.08)"/>`;
   screen += `<circle cx="-20" cy="-16.5" r="1" fill="#E04848" opacity="0.5"/>`;
   screen += `<circle cx="-17" cy="-16.5" r="1" fill="#F5D831" opacity="0.5"/>`;
   screen += `<circle cx="-14" cy="-16.5" r="1" fill="#6ECB3C" opacity="0.5"/>`;
   screen += `<text x="5" y="-15.5" text-anchor="middle" font-family="monospace" font-size="2.5" fill="#c4b5fd" opacity="0.5">moltbook</text>`;
 
-  // Typing text
   if (cycle < 140) {
     const charCount = Math.min(currentPost.length, Math.floor(cycle / 2));
     const displayText = currentPost.substring(0, charCount);
-    // Word wrap (split into lines of ~18 chars)
     const words = displayText.split(' ');
     let lines = [''];
     words.forEach(w => {
@@ -81,43 +138,71 @@ startLoop(t => {
     lines.forEach((line, i) => {
       screen += `<text x="-21" y="${-8+i*4}" font-family="monospace" font-size="2.8" fill="#e2e4ea">${line}</text>`;
     });
-    // Cursor blink
-    if (t%10<5 && charCount < currentPost.length) {
+    // Smoother sine-based cursor blink
+    if (charCount < currentPost.length) {
+      const cursorOp = 0.3 + Math.sin(lt * 2 * Math.PI / 20) * 0.3; // period=20 divides 240
       const lastLine = lines[lines.length-1];
-      screen += `<rect x="${-21+lastLine.length*1.7}" y="${-11+(lines.length-1)*4}" width="1.5" height="3" fill="#7c3aed" opacity="0.6"/>`;
+      screen += `<rect x="${-21+lastLine.length*1.7}" y="${-11+(lines.length-1)*4}" width="1.5" height="3" fill="#7c3aed" opacity="${cursorOp}"/>`;
     }
   } else if (cycle < 160) {
-    // Send animation
     const p = (cycle-140)/20;
     screen += `<text x="5" y="-2" text-anchor="middle" font-family="monospace" font-size="3" fill="#6ECB3C" opacity="${1-p}">sent!</text>`;
-    // Emit send particles
-    if (cycle === 141) {
-      for (let i = 0; i < 8; i++) {
-        const a = Math.random()*Math.PI*2;
-        sendParticles.push({
-          x: 35, y: -10, vx: Math.cos(a)*1.5, vy: Math.sin(a)*1.5, age: 0
-        });
-      }
-      postIndex++;
-    }
   } else {
-    // Pause before next post
-    screen += `<rect x="-21" y="-11" width="1.5" height="3" fill="#7c3aed" opacity="${t%16<8?0.6:0}"/>`;
+    // Idle cursor blink with smooth sine
+    const cursorOp = 0.3 + Math.sin(lt * 2 * Math.PI / 24) * 0.3; // period=24 divides 240
+    screen += `<rect x="-21" y="-11" width="1.5" height="3" fill="#7c3aed" opacity="${cursorOp}"/>`;
   }
   screen += `</g>`;
   screenEl.innerHTML = screen;
 
-  // Send particles
-  let parts = '';
-  for (let i = sendParticles.length-1; i >= 0; i--) {
-    const p = sendParticles[i];
-    p.age++;
-    p.x += p.vx;
-    p.y += p.vy;
-    if (p.age > 20) { sendParticles.splice(i,1); continue; }
-    const op = (1-p.age/20)*0.5;
-    parts += `<circle cx="${p.x}" cy="${p.y}" r="0.8" fill="#7c3aed" opacity="${op}"/>`;
+  // Notification bell after "sent!" (visible from frame 145 to 175)
+  let bellSvg = '';
+  if (lt >= 145 && lt < 180) {
+    const bellPhase = (lt - 145) / 35;
+    const bellOp = bellPhase < 0.2 ? bellPhase / 0.2 : bellPhase > 0.7 ? (1 - bellPhase) / 0.3 : 1;
+    const bellX = 60, bellY = -30 + screenY;
+    const swing = Math.sin(lt * 2 * Math.PI / 8) * 3 * (1 - bellPhase); // period=8 divides 240
+    bellSvg += `<g transform="translate(${bellX},${bellY}) rotate(${swing})" opacity="${bellOp * 0.7}">`;
+    // Bell shape
+    bellSvg += `<path d="M-2.5,0 C-2.5,-3 -1.5,-5 0,-5 C1.5,-5 2.5,-3 2.5,0 L3,1 L-3,1 Z" fill="#F5D831" stroke="#EF8E20" stroke-width="0.3"/>`;
+    bellSvg += `<circle cx="0" cy="1.8" r="0.8" fill="#F5D831"/>`;
+    bellSvg += `<line x1="0" y1="-5" x2="0" y2="-6" stroke="#EF8E20" stroke-width="0.3"/>`;
+    // Radiating lines
+    for (let ri = 0; ri < 4; ri++) {
+      const ra = -Math.PI/2 + (ri - 1.5) * 0.5;
+      const rLen = 3 + bellPhase * 2;
+      const rx1 = Math.cos(ra) * 4, ry1 = Math.sin(ra) * 4 - 2;
+      const rx2 = Math.cos(ra) * (4 + rLen), ry2 = Math.sin(ra) * (4 + rLen) - 2;
+      bellSvg += `<line x1="${rx1}" y1="${ry1}" x2="${rx2}" y2="${ry2}" stroke="#F5D831" stroke-width="0.3" opacity="${(1 - bellPhase) * 0.6}"/>`;
+    }
+    bellSvg += `</g>`;
   }
+  bellEl.innerHTML = bellSvg;
+
+  // Floating +1 engagement counters
+  let floatSvg = '';
+  floatNums.forEach(f => {
+    const age = particleAge(lt, f.spawnT, f.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / f.lifetime;
+      const op = prog < 0.15 ? prog / 0.15 : prog > 0.6 ? (1 - prog) / 0.4 : 1;
+      const fx = f.startX + f.vx * age;
+      const fy = f.startY + f.vy * age + screenY;
+      floatSvg += `<text x="${fx}" y="${fy}" font-family="monospace" font-size="2.5" fill="#6ECB3C" opacity="${op * 0.5}">${f.label}</text>`;
+    }
+  });
+  floatersEl.innerHTML = floatSvg;
+
+  let parts = '';
+  sendParticles.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const px = p.startX + p.vx * age;
+      const py = p.startY + p.vy * age;
+      const op = (1 - age/20) * 0.5;
+      parts += `<circle cx="${px}" cy="${py}" r="0.8" fill="#7c3aed" opacity="${op}"/>`;
+    }
+  });
   particlesEl.innerHTML = parts;
 });
 </script>

@@ -20,67 +20,165 @@
     </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="60" fill="url(#disco)"/>
+  <!-- spotlight beams -->
+  <g id="spotlights"></g>
+  <!-- disco ball -->
+  <g id="discoBall"></g>
   <g id="notes"></g>
+  <!-- floor reflection (rendered before lobster so it's behind) -->
+  <g id="reflection"></g>
   <g id="lob"></g>
   <g id="floor"></g>
 </svg>
 <div class="label">dancing</div>
 <script src="lobster.js"></script>
 <script>
-const el = document.getElementById('lob');
-const notesEl = document.getElementById('notes');
-const floorEl = document.getElementById('floor');
+// GIF loop: 180 ticks = 3s at 60fps
+const LOOP = 180;
+const SWAY_PERIOD = 30;    // 6 sway cycles per 180 ticks
+const BOUNCE_PERIOD = 20;  // 9 bounce cycles per 180
+const CLAW_PERIOD = 12;    // 15 claw cycles per 180
+const SPOTLIGHT_PERIOD = 60; // 3 spotlight sweep cycles per 180
+const DISCO_ROTATE_PERIOD = 36; // 5 rotations per 180
+const el = document.getElementById("lob");
+const notesEl = document.getElementById("notes");
+const floorEl = document.getElementById("floor");
+const discoBallEl = document.getElementById("discoBall");
+const spotlightsEl = document.getElementById("spotlights");
+const reflectionEl = document.getElementById("reflection");
 
+const noteChars = ["♪", "♫", "♩", "♬", "♭", "♮"];
+const colors = ["#F5D831","#EF8E20","#7c3aed","#22AACC","#E04848"];
+
+// Pre-generate musical notes: one every 12 ticks = 15 per loop (more notes, larger)
+const N_NOTES = 15;
 const notes = [];
-const noteChars = ['\u266A', '\u266B', '\u2669'];
-const colors = ['#F5D831','#EF8E20','#7c3aed','#22AACC','#E04848'];
+for (let i = 0; i < N_NOTES; i++) {
+  const rng = mulberry32(i * 7919 + 31);
+  const spawnT = i * 12;
+  const swayAtSpawn = Math.sin(spawnT * 2 * Math.PI / SWAY_PERIOD) * 8;
+  const bounceAtSpawn = Math.abs(Math.sin(spawnT * 2 * Math.PI / BOUNCE_PERIOD)) * 5;
+  notes.push({
+    spawnT,
+    x0: swayAtSpawn + (rng() - 0.5) * 20,
+    y0: -20 - bounceAtSpawn,
+    char: noteChars[Math.floor(rng() * noteChars.length)],
+    color: colors[Math.floor(rng() * colors.length)],
+    drift: (rng() - 0.5) * 0.8,
+    lifetime: 50
+  });
+}
+
+// Disco ball highlight positions (pre-generated)
+const N_HIGHLIGHTS = 8;
+const highlights = [];
+for (let i = 0; i < N_HIGHLIGHTS; i++) {
+  const rng = mulberry32(i * 3301 + 77);
+  highlights.push({
+    angle: rng() * Math.PI * 2,
+    dist: 1.5 + rng() * 2,
+    size: 0.3 + rng() * 0.4
+  });
+}
 
 startLoop(t => {
-  // Dance moves: side-to-side + bounce + rotation
-  const sway = Math.sin(t / 6) * 8;
-  const bounce = Math.abs(Math.sin(t / 4)) * 5;
-  const tilt = Math.sin(t / 6) * 8;
-  const squash = 1 + Math.abs(Math.sin(t / 4)) * 0.06;
+  const lt = t % LOOP;
 
-  el.innerHTML = `<g transform="translate(${sway},${-bounce})">` +
-    drawLobster({
-      t, mood: 'happy', extraRotate: tilt,
-      squash, stretch: 2 - squash,
-      clawOpenL: Math.sin(t/3)*10,
-      clawOpenR: -Math.sin(t/3)*10
-    }) + '</g>';
+  const sway = Math.sin(lt * 2 * Math.PI / SWAY_PERIOD) * 8;
+  const bounceRaw = Math.sin(lt * 2 * Math.PI / BOUNCE_PERIOD);
+  const bounce = Math.abs(bounceRaw) * 5;
+  const tilt = Math.sin(lt * 2 * Math.PI / SWAY_PERIOD) * 8;
+  const squash = 1 + Math.abs(bounceRaw) * 0.06;
+  const clawPhase = lt * 2 * Math.PI / CLAW_PERIOD;
 
-  // Musical notes floating up
-  if (t % 15 === 0) {
-    notes.push({
-      x: sway + (Math.random()-0.5)*20,
-      y: -20 - bounce,
-      age: 0,
-      char: noteChars[Math.floor(Math.random()*noteChars.length)],
-      color: colors[Math.floor(Math.random()*colors.length)],
-      drift: (Math.random()-0.5)*0.8
-    });
+  // Disco ball in upper area
+  let discSvg = '';
+  const discoX = 0;
+  const discoY = -58;
+  const discoR = 4;
+  // String
+  discSvg += '<line x1="' + discoX + '" y1="-70" x2="' + discoX + '" y2="' + (discoY - discoR) + '" stroke="rgba(255,255,255,0.15)" stroke-width="0.3"/>';
+  // Ball
+  discSvg += '<circle cx="' + discoX + '" cy="' + discoY + '" r="' + discoR + '" fill="#334" stroke="rgba(255,255,255,0.2)" stroke-width="0.3"/>';
+  // Rotating highlights on the ball
+  const discoAngle = lt * 2 * Math.PI / DISCO_ROTATE_PERIOD;
+  highlights.forEach(h => {
+    const a = h.angle + discoAngle;
+    const hx = discoX + Math.cos(a) * h.dist;
+    const hy = discoY + Math.sin(a) * h.dist * 0.6;
+    // Only show highlights on the visible side
+    if (Math.cos(a) > -0.3) {
+      const hop = 0.3 + Math.cos(a) * 0.4;
+      discSvg += '<circle cx="' + hx + '" cy="' + hy + '" r="' + h.size + '" fill="#fff" opacity="' + hop + '"/>';
+    }
+  });
+  // Light rays from disco ball (faint beams going down)
+  for (let i = 0; i < 5; i++) {
+    const rayAngle = discoAngle + i * Math.PI * 2 / 5;
+    const rayEndX = discoX + Math.cos(rayAngle) * 50;
+    const rayEndY = 38;
+    const rayOp = 0.02 + Math.sin(rayAngle + lt * 2 * Math.PI / 60) * 0.015;
+    discSvg += '<line x1="' + discoX + '" y1="' + discoY + '" x2="' + rayEndX + '" y2="' + rayEndY + '" stroke="#F5D831" stroke-width="0.4" opacity="' + rayOp + '"/>';
   }
-  let noteSvg = '';
-  for (let i = notes.length-1; i >= 0; i--) {
-    const n = notes[i];
-    n.age++;
-    n.y -= 0.8;
-    n.x += n.drift + Math.sin(n.age/6)*0.3;
-    if (n.age > 50) { notes.splice(i,1); continue; }
-    const op = n.age < 5 ? n.age/5 : n.age > 40 ? (50-n.age)/10 : 0.7;
-    const rot = Math.sin(n.age/8)*15;
-    noteSvg += `<text x="${n.x}" y="${n.y}" text-anchor="middle" font-size="6" fill="${n.color}" opacity="${op}" transform="rotate(${rot},${n.x},${n.y})">${n.char}</text>`;
+  discoBallEl.innerHTML = discSvg;
+
+  // Spotlight beams sweeping across the floor (period 60 divides 180)
+  let spotSvg = '';
+  for (let i = 0; i < 2; i++) {
+    const spotPhase = lt * 2 * Math.PI / SPOTLIGHT_PERIOD + i * Math.PI;
+    const spotX = Math.sin(spotPhase) * 45;
+    const spotOp = 0.04 + Math.sin(spotPhase * 2) * 0.02;
+    spotSvg += '<polygon points="' + spotX + ',-65 ' + (spotX - 12) + ',38 ' + (spotX + 12) + ',38" fill="' + (i === 0 ? '#7c3aed' : '#EF8E20') + '" opacity="' + spotOp + '"/>';
   }
+  spotlightsEl.innerHTML = spotSvg;
+
+  // Main lobster
+  const lobsterSvg = drawLobster({
+    t: lt, mood: "happy", extraRotate: tilt,
+    squash, stretch: 2 - squash,
+    clawOpenL: Math.sin(clawPhase) * 10,
+    clawOpenR: -Math.sin(clawPhase) * 10
+  });
+
+  el.innerHTML = '<g transform="translate(' + sway + ',' + (-bounce) + ')">' + lobsterSvg + "</g>";
+
+  // Floor reflection: faint mirrored lobster below dance floor
+  const reflSvg = drawLobster({
+    t: lt, mood: "happy", extraRotate: tilt,
+    squash, stretch: 2 - squash,
+    clawOpenL: Math.sin(clawPhase) * 10,
+    clawOpenR: -Math.sin(clawPhase) * 10
+  });
+  // Flip vertically around y=38 and fade
+  reflectionEl.innerHTML = '<g transform="translate(' + sway + ',' + (76 + bounce) + ') scale(1,-1)" opacity="0.08">' + reflSvg + '</g>';
+
+  // Musical notes (slightly larger with variety)
+  let noteSvg = "";
+  notes.forEach(n => {
+    const age = particleAge(lt, n.spawnT, n.lifetime, LOOP);
+    if (age >= 0) {
+      const xPos = n.x0 + n.drift * age;
+      const wobble = Math.sin(age / 6) * 3;
+      const yPos = n.y0 - 0.8 * age;
+      const op = age < 5 ? age / 5 : age > 40 ? (50 - age) / 10 : 0.7;
+      const rot = Math.sin(age / 8) * 15;
+      noteSvg += '<text x="' + (xPos + wobble) + '" y="' + yPos + '" text-anchor="middle" font-size="7" fill="' + n.color + '" opacity="' + op + '" transform="rotate(' + rot + ',' + (xPos + wobble) + ',' + yPos + ')">' + n.char + "</text>";
+    }
+  });
   notesEl.innerHTML = noteSvg;
 
-  // Disco floor tiles
-  let floor = '';
-  const tileColors = ['#F5D831','#EF8E20','#7c3aed','#22AACC','#E04848','#6ECB3C','#A85EC0','#4A6BD4'];
+  // Floor tiles with rolling wave of brightness
+  let floor = "";
+  const tileColors = ["#F5D831","#EF8E20","#7c3aed","#22AACC","#E04848","#6ECB3C","#A85EC0","#4A6BD4"];
   for (let i = -4; i <= 4; i++) {
-    const ci = (Math.floor(t/8) + i + 8) % tileColors.length;
-    const op = 0.04 + Math.sin(t/6 + i*1.2)*0.03;
-    floor += `<rect x="${i*12-5}" y="38" width="10" height="3" rx="0.5" fill="${tileColors[ci]}" opacity="${op}"/>`;
+    const ci = (Math.floor(lt / 8) + i + 8) % tileColors.length;
+    // Rolling wave: brightness travels from left to right (period 30 divides 180)
+    const wavePos = (lt % 30) / 30; // 0..1 position of brightness wave
+    const tileCenter = (i + 4) / 8; // 0..1 normalized tile position
+    const waveDist = Math.abs(tileCenter - wavePos);
+    const flashBoost = Math.max(0, 0.06 - waveDist * 0.12);
+    const op = 0.04 + Math.sin(lt * 2 * Math.PI / SWAY_PERIOD + i * 1.2) * 0.03 + flashBoost;
+    floor += '<rect x="' + (i * 12 - 5) + '" y="38" width="10" height="3" rx="0.5" fill="' + tileColors[ci] + '" opacity="' + op + '"/>';
   }
   floorEl.innerHTML = floor;
 });

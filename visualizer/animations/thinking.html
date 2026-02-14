@@ -20,8 +20,11 @@
     <filter id="blur"><feGaussianBlur stdDeviation="0.5"/></filter>
   </defs>
   <circle cx="0" cy="0" r="70" fill="url(#glow)"/>
+  <g id="formulas"></g>
   <g id="lob"></g>
+  <g id="synapses"></g>
   <g id="bubbles"></g>
+  <g id="cogs"></g>
   <g id="thought"></g>
 </svg>
 <div class="label">thinking</div>
@@ -30,6 +33,9 @@
 const el = document.getElementById('lob');
 const bubblesEl = document.getElementById('bubbles');
 const thoughtEl = document.getElementById('thought');
+const formulasEl = document.getElementById('formulas');
+const synapsesEl = document.getElementById('synapses');
+const cogsEl = document.getElementById('cogs');
 
 const thoughts = [
   'the chain is breathing...',
@@ -41,15 +47,78 @@ const thoughts = [
   'I feel therefore I am',
   'Plutchik was onto something'
 ];
-let currentThought = 0;
+
+// Floating formula fragments
+const formulaTexts = ['\u2211', '\u222B', '\u2202x', 'f(x)', '\u0394t', '\u03B1\u00B7\u03B2', 'P(E)', 'log n', '\u221A', '\u03C0r\u00B2'];
+const formulaItems = [];
+for (let i = 0; i < 12; i++) {
+  const rng = mulberry32(i * 8831 + 41);
+  formulaItems.push({
+    spawnT: Math.floor(rng() * 300),
+    lifetime: 80 + Math.floor(rng() * 60),
+    x0: -60 + rng() * 140,
+    y0: 70 + rng() * 10,
+    vx: (rng() - 0.5) * 0.08,
+    vy: -0.12 - rng() * 0.1,
+    text: formulaTexts[Math.floor(rng() * formulaTexts.length)],
+    size: 2 + rng() * 2
+  });
+}
+
+const LOOP = 300;
+
+// Cog positions (2-3 tiny rotating cogs near the bubble trail)
+const cogPositions = [
+  { x: 15, y: -20, r: 2.5, speed: 1 },
+  { x: 24, y: -32, r: 2, speed: -1.5 },
+  { x: 8, y: -28, r: 1.8, speed: 1.2 }
+];
 
 startLoop(t => {
-  // Slight head tilt, contemplative
-  const tilt = Math.sin(t/50)*2;
-  el.innerHTML = `<g transform="translate(-15,5)">` +
-    drawLobster({ t, extraRotate: tilt }) + '</g>';
+  const lt = t % LOOP;
 
-  // Thought bubbles trail
+  const tilt = Math.sin(lt * 2 * Math.PI / 300)*2;
+  el.innerHTML = `<g transform="translate(-15,5)">` +
+    drawLobster({ t: lt, extraRotate: tilt }) + '</g>';
+
+  // Floating formula fragments in background
+  let formSvg = '';
+  formulaItems.forEach(f => {
+    const age = particleAge(lt, f.spawnT, f.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / f.lifetime;
+      const op = prog < 0.15 ? prog / 0.15 : prog > 0.7 ? (1 - prog) / 0.3 : 1;
+      const fx = f.x0 + f.vx * age;
+      const fy = f.y0 + f.vy * age;
+      formSvg += `<text x="${fx}" y="${fy}" font-family="serif" font-size="${f.size}" fill="#7c3aed" opacity="${op * 0.08}">${f.text}</text>`;
+    }
+  });
+  formulasEl.innerHTML = formSvg;
+
+  // Synaptic connection lines from lobster to thought cloud
+  let synSvg = '';
+  // Main path: from lobster head (~-5,-10) branching toward cloud (~45,-55)
+  const synPulse = Math.sin(lt * 2 * Math.PI / 60) * 0.5 + 0.5; // period=60, divides 300
+  const synBranches = [
+    { x1: 0, y1: -5, cx: 10, cy: -20, x2: 30, y2: -40 },
+    { x1: -5, y1: -8, cx: 5, cy: -25, x2: 40, y2: -45 },
+    { x1: 5, y1: -3, cx: 20, cy: -15, x2: 50, y2: -50 },
+  ];
+  synBranches.forEach((b, i) => {
+    const sPulse = Math.sin(lt * 2 * Math.PI / 60 + i * 2) * 0.5 + 0.5;
+    const sOp = 0.05 + sPulse * 0.08;
+    synSvg += `<path d="M${b.x1},${b.y1} Q${b.cx},${b.cy} ${b.x2},${b.y2}" fill="none" stroke="#A85EC0" stroke-width="0.3" opacity="${sOp}"/>`;
+    // Pulse dot traveling along the path
+    const dotPos = (lt % 75 + i * 25) % 75 / 75; // period=75, divides 300
+    const dU = dotPos;
+    const inv = 1 - dU;
+    const dx = inv*inv*b.x1 + 2*inv*dU*b.cx + dU*dU*b.x2;
+    const dy = inv*inv*b.y1 + 2*inv*dU*b.cy + dU*dU*b.y2;
+    synSvg += `<circle cx="${dx}" cy="${dy}" r="0.6" fill="#A85EC0" opacity="${sOp * 2}"/>`;
+  });
+  synapsesEl.innerHTML = synSvg;
+
+  // Bubble trail
   let bub = '';
   const bubbleTrail = [
     { x: 10, y: -15, r: 2 },
@@ -57,34 +126,65 @@ startLoop(t => {
     { x: 28, y: -38, r: 4.5 },
   ];
   bubbleTrail.forEach((b, i) => {
-    const oy = Math.sin(t/12+i*1.5)*1.5;
-    const op = 0.2 + Math.sin(t/10+i)*0.1;
+    const oy = Math.sin(lt * 2 * Math.PI / 75 + i*1.5)*1.5;
+    const op = 0.2 + Math.sin(lt * 2 * Math.PI / 60 + i)*0.1;
     bub += `<circle cx="${b.x}" cy="${b.y+oy}" r="${b.r}" fill="none" stroke="#7c3aed" stroke-width="0.4" opacity="${op}"/>`;
   });
   bubblesEl.innerHTML = bub;
 
-  // Thought cloud with text
-  const thoughtCycle = Math.floor(t / 300) % thoughts.length;
-  const phase = (t % 300) / 300;
+  // Tiny rotating cogs near the bubble trail
+  let cogSvg = '';
+  cogPositions.forEach((cog, ci) => {
+    const cogAngle = lt * cog.speed * 2 * Math.PI / 60; // period=60, divides 300
+    const cogOp = 0.12 + Math.sin(lt * 2 * Math.PI / 60 + ci) * 0.04;
+    const oy = Math.sin(lt * 2 * Math.PI / 75 + ci * 1.5) * 1;
+    cogSvg += `<g transform="translate(${cog.x},${cog.y + oy}) rotate(${cogAngle * 180 / Math.PI})" opacity="${cogOp}">`;
+    // Simple gear: circle with teeth
+    const teeth = 6;
+    let gearPath = '';
+    for (let ti = 0; ti < teeth; ti++) {
+      const a1 = (ti / teeth) * Math.PI * 2;
+      const a2 = ((ti + 0.3) / teeth) * Math.PI * 2;
+      const a3 = ((ti + 0.5) / teeth) * Math.PI * 2;
+      const a4 = ((ti + 0.8) / teeth) * Math.PI * 2;
+      const ir = cog.r * 0.7, or = cog.r;
+      gearPath += `${ti===0?'M':'L'}${Math.cos(a1)*ir},${Math.sin(a1)*ir} `;
+      gearPath += `L${Math.cos(a2)*or},${Math.sin(a2)*or} `;
+      gearPath += `L${Math.cos(a3)*or},${Math.sin(a3)*or} `;
+      gearPath += `L${Math.cos(a4)*ir},${Math.sin(a4)*ir} `;
+    }
+    gearPath += 'Z';
+    cogSvg += `<path d="${gearPath}" fill="none" stroke="#A85EC0" stroke-width="0.3"/>`;
+    cogSvg += `<circle cx="0" cy="0" r="${cog.r*0.25}" fill="#A85EC0" opacity="0.3"/>`;
+    cogSvg += `</g>`;
+  });
+  cogsEl.innerHTML = cogSvg;
+
+  const thoughtCycle = 0;
+  const phase = lt / 300;
   let op = 1;
   if (phase < 0.1) op = phase / 0.1;
   else if (phase > 0.85) op = (1-phase) / 0.15;
 
-  const cloudY = -55 + Math.sin(t/15)*1.5;
+  const cloudY = -55 + Math.sin(lt * 2 * Math.PI / 100)*1.5;
   let cloud = `<g opacity="${op*0.85}" transform="translate(45,${cloudY})">`;
-  // Cloud shape
-  cloud += `<ellipse cx="0" cy="0" rx="30" ry="14" fill="rgba(20,26,42,0.85)" stroke="#7c3aed" stroke-width="0.4"/>`;
-  cloud += `<ellipse cx="-12" cy="-6" rx="12" ry="8" fill="rgba(20,26,42,0.85)" stroke="#7c3aed" stroke-width="0.4"/>`;
-  cloud += `<ellipse cx="10" cy="-5" rx="14" ry="9" fill="rgba(20,26,42,0.85)" stroke="#7c3aed" stroke-width="0.4"/>`;
-  // Fill over strokes
-  cloud += `<ellipse cx="0" cy="0" rx="28" ry="12" fill="rgba(20,26,42,0.95)"/>`;
-  cloud += `<ellipse cx="-10" cy="-4" rx="10" ry="6" fill="rgba(20,26,42,0.95)"/>`;
-  cloud += `<ellipse cx="8" cy="-3" rx="12" ry="7" fill="rgba(20,26,42,0.95)"/>`;
-  // Text
+
+  // Smoother cloud shape using a single cloud-like SVG path
+  cloud += `<path d="M-28,4 C-32,4 -33,-2 -30,-6 C-32,-10 -28,-16 -22,-14 C-20,-20 -12,-22 -6,-18 C-2,-22 6,-22 12,-18 C18,-22 26,-18 28,-12 C32,-8 30,-2 26,2 C28,6 24,10 18,10 C14,14 6,14 0,12 C-6,14 -14,14 -18,10 C-24,10 -28,8 -28,4 Z" fill="rgba(20,26,42,0.92)" stroke="#7c3aed" stroke-width="0.4"/>`;
+
   const txt = thoughts[thoughtCycle];
   const charCount = Math.min(txt.length, Math.floor(phase * txt.length / 0.3));
   const displayTxt = phase < 0.3 ? txt.substring(0, charCount) : txt;
-  cloud += `<text x="0" y="3" text-anchor="middle" font-family="monospace" font-size="4" fill="#c4b5fd">${displayTxt}</text>`;
+  cloud += `<text x="0" y="1" text-anchor="middle" font-family="monospace" font-size="3.5" fill="#c4b5fd">${displayTxt}</text>`;
+
+  // Typing cursor in the cloud (visible while typing)
+  if (phase < 0.3 && charCount < txt.length) {
+    const cursorOp = 0.4 + Math.sin(lt * 2 * Math.PI / 15) * 0.3; // period=15, divides 300
+    // Approximate cursor position
+    const cursorX = -txt.length * 0.85 + charCount * 1.75;
+    cloud += `<rect x="${cursorX}" y="${-3}" width="1.5" height="5" fill="#A85EC0" opacity="${cursorOp}"/>`;
+  }
+
   cloud += `</g>`;
   thoughtEl.innerHTML = cloud;
 });

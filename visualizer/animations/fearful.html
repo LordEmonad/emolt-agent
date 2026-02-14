@@ -8,11 +8,9 @@
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:#080c14;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
   .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#2BA84A;font-family:monospace;font-size:14px;opacity:0.6}
-  .darkness{position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 50%,transparent 15%,rgba(0,0,0,0.6) 70%)}
 </style>
 </head>
 <body>
-<div class="darkness"></div>
 <svg width="400" height="400" viewBox="-60 -60 120 120">
   <defs>
     <radialGradient id="spot" cx="50%" cy="50%" r="30%">
@@ -21,6 +19,8 @@
     </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="55" fill="url(#spot)"/>
+  <g id="darknessOverlay"></g>
+  <g id="scratches"></g>
   <g id="eyes"></g>
   <g id="lob"></g>
   <g id="sweat"></g>
@@ -28,70 +28,139 @@
 <div class="label">fearful</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 300 ticks = 5s at 60fps
+const LOOP = 300;
 const el = document.getElementById('lob');
 const eyesEl = document.getElementById('eyes');
 const sweatEl = document.getElementById('sweat');
+const darknessEl = document.getElementById('darknessOverlay');
+const scratchesEl = document.getElementById('scratches');
 
-const sweatDrops = [];
-
-// Lurking eyes in the dark
+// Lurking eyes — deterministic positions
 const lurkingEyes = [];
 for (let i = 0; i < 4; i++) {
-  const a = (i/4)*Math.PI*2 + Math.PI/4;
+  const rng = mulberry32(i * 3331 + 17);
+  const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
   lurkingEyes.push({
-    x: Math.cos(a)*45 + Math.random()*10-5,
-    y: Math.sin(a)*35 + Math.random()*10-5,
-    blinkPhase: Math.random()*200,
-    size: 1.5+Math.random()
+    x: Math.cos(a) * 45 + rng() * 10 - 5,
+    y: Math.sin(a) * 35 + rng() * 10 - 5,
+    blinkPhase: rng() * 200,
+    size: 1.5 + rng()
   });
 }
 
+// Pre-generate sweat drops (every 25 ticks = 12 per loop)
+const N_SWEAT = 12;
+const sweatDrops = [];
+for (let i = 0; i < N_SWEAT; i++) {
+  const rng = mulberry32(i * 6337 + 99);
+  sweatDrops.push({
+    spawnT: i * 25,
+    x0: -8 + rng() * 6,
+    lifetime: 30 + Math.floor(rng() * 8)
+  });
+}
+
+// Pre-generate 3 sets of scratch/claw marks
+const scratchSets = [];
+for (let i = 0; i < 3; i++) {
+  const rng = mulberry32(i * 5573 + 37);
+  const cx = (rng() - 0.5) * 90;
+  const cy = (rng() - 0.5) * 80;
+  const marks = [];
+  for (let j = 0; j < 3; j++) {
+    const ox = j * 3 - 3;
+    const len = 8 + rng() * 6;
+    const angle = -0.3 + rng() * 0.6;
+    marks.push({ ox, len, angle });
+  }
+  // Each set appears for 25 ticks, cycling: set 0 at lt 0-24, set 1 at 100-124, set 2 at 200-224
+  scratchSets.push({ cx, cy, marks, startT: i * 100 });
+}
+
 startLoop(t => {
-  // Trembling
-  const tremble = Math.sin(t*3)*0.6;
-  const trembleY = Math.cos(t*3.7)*0.4;
+  const lt = t % LOOP;
 
-  // Shrink effect (cowering)
-  const cower = 0.9 + Math.sin(t/40)*0.05;
+  const tremble = Math.sin(lt * 2 * Math.PI * 143 / 300) * 0.6;
+  const trembleY = Math.cos(lt * 2 * Math.PI * 177 / 300) * 0.4;
+  const cower = 0.9 + Math.sin(lt * 2 * Math.PI / 300) * 0.05;
 
-  el.innerHTML = `<g transform="translate(${tremble},${trembleY}) scale(${cower})">` +
-    drawLobster({ t, mood: 'fearful' }) + '</g>';
+  // Heartbeat scale pulse at 2x tremble frequency
+  const heartbeat = 1 + Math.sin(lt * 2 * Math.PI * 286 / 300) * 0.015;
+  const totalScale = cower * heartbeat;
 
-  // Lurking eyes
+  el.innerHTML = `<g transform="translate(${tremble},${trembleY}) scale(${totalScale})">` +
+    drawLobster({ t: lt, mood: 'fearful' }) + '</g>';
+
+  // Pulsing darkness vignette as SVG overlay
+  const darkOp = 0.5 + Math.sin(lt * 2 * Math.PI / 150) * 0.1;
+  darknessEl.innerHTML =
+    `<defs><radialGradient id="darkVig" cx="50%" cy="50%" r="50%"><stop offset="15%" stop-color="transparent"/><stop offset="70%" stop-color="rgba(0,0,0,1)"/></radialGradient></defs>` +
+    `<rect x="-60" y="-60" width="120" height="120" fill="url(#darkVig)" opacity="${darkOp}"/>`;
+
+  // Scratch marks that appear briefly
+  let scratchSvg = '';
+  scratchSets.forEach(s => {
+    const age = ((lt - s.startT) % LOOP + LOOP) % LOOP;
+    if (age < 25) {
+      const prog = age / 25;
+      const op = prog < 0.2 ? prog / 0.2 : prog > 0.7 ? (1 - prog) / 0.3 : 1;
+      s.marks.forEach(m => {
+        const x1 = s.cx + m.ox;
+        const y1 = s.cy;
+        const x2 = x1 + Math.sin(m.angle) * m.len;
+        const y2 = y1 + Math.cos(m.angle) * m.len;
+        scratchSvg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#1a3a1a" stroke-width="0.5" opacity="${op * 0.3}" stroke-linecap="round"/>`;
+      });
+    }
+  });
+  scratchesEl.innerHTML = scratchSvg;
+
+  // Lurking eyes with pupil constrict/dilate
   let eyes = '';
   lurkingEyes.forEach(e => {
-    const blink = ((t+e.blinkPhase)%180);
+    const blink = ((lt + e.blinkPhase) % 180);
     const open = blink < 3 ? 0 : 1;
-    const ox = Math.sin(t/30+e.blinkPhase)*2;
-    const oy = Math.cos(t/25+e.blinkPhase);
+    const ox = Math.sin(lt * 2 * Math.PI / 150 + e.blinkPhase) * 2;
+    const oy = Math.cos(lt * 2 * Math.PI / 100 + e.blinkPhase);
     if (open) {
-      const op = 0.15 + Math.sin(t/20+e.blinkPhase)*0.08;
+      const op = 0.15 + Math.sin(lt * 2 * Math.PI / 100 + e.blinkPhase) * 0.08;
+      // Slow pupil constrict/dilate — period 60 divides 300
+      const pupilScale = 0.25 + Math.sin(lt * 2 * Math.PI / 60 + e.blinkPhase) * 0.08;
       eyes += `<g opacity="${op}">`;
-      eyes += `<ellipse cx="${e.x+ox-2}" cy="${e.y+oy}" rx="${e.size}" ry="${e.size*0.6*open}" fill="#8eff8e"/>`;
-      eyes += `<ellipse cx="${e.x+ox+2}" cy="${e.y+oy}" rx="${e.size}" ry="${e.size*0.6*open}" fill="#8eff8e"/>`;
-      eyes += `<circle cx="${e.x+ox-2}" cy="${e.y+oy}" r="${e.size*0.3}" fill="#1a4a1a"/>`;
-      eyes += `<circle cx="${e.x+ox+2}" cy="${e.y+oy}" r="${e.size*0.3}" fill="#1a4a1a"/>`;
+      eyes += `<ellipse cx="${e.x+ox-2}" cy="${e.y+oy}" rx="${e.size}" ry="${e.size*0.6}" fill="#8eff8e"/>`;
+      eyes += `<ellipse cx="${e.x+ox+2}" cy="${e.y+oy}" rx="${e.size}" ry="${e.size*0.6}" fill="#8eff8e"/>`;
+      eyes += `<circle cx="${e.x+ox-2}" cy="${e.y+oy}" r="${e.size*pupilScale}" fill="#1a4a1a"/>`;
+      eyes += `<circle cx="${e.x+ox+2}" cy="${e.y+oy}" r="${e.size*pupilScale}" fill="#1a4a1a"/>`;
       eyes += `</g>`;
     }
   });
   eyesEl.innerHTML = eyes;
 
-  // Sweat drops
-  if (t % 25 === 0) {
-    sweatDrops.push({ x: -8+Math.random()*6, y: -18, vy: 0.2, age: 0 });
-  }
+  // Sweat drops — teardrop-shaped with small trail
   let sweat = '';
-  for (let i = sweatDrops.length-1; i >= 0; i--) {
-    const d = sweatDrops[i];
-    d.age++;
-    d.vy += 0.06;
-    d.y += d.vy;
-    if (d.age > 35) { sweatDrops.splice(i,1); continue; }
-    const op = (1-d.age/35)*0.5;
-    sweat += `<g transform="translate(${d.x+tremble},${d.y+trembleY})" opacity="${op}">`;
-    sweat += `<path d="M0,-1.5 C-1,0 -1,1 0,2 C1,1 1,0 0,-1.5 Z" fill="#7caae8"/>`;
-    sweat += `</g>`;
-  }
+  sweatDrops.forEach(d => {
+    const age = particleAge(lt, d.spawnT, d.lifetime, LOOP);
+    if (age >= 0) {
+      const y = -18 + 0.2 * age + 0.03 * age * age;
+      const op = (1 - age / d.lifetime) * 0.5;
+      const x = d.x0 + tremble;
+      const yAbs = y + trembleY;
+      // Small trail behind the drop
+      for (let tr = 2; tr >= 1; tr--) {
+        const trAge = age - tr * 3;
+        if (trAge >= 0) {
+          const trY = -18 + 0.2 * trAge + 0.03 * trAge * trAge;
+          const trOp = op * (0.3 - tr * 0.1);
+          sweat += `<ellipse cx="${x}" cy="${trY + trembleY}" rx="0.4" ry="0.6" fill="#7caae8" opacity="${trOp}"/>`;
+        }
+      }
+      // Main teardrop
+      sweat += `<g transform="translate(${x},${yAbs})" opacity="${op}">`;
+      sweat += `<path d="M0,-2 C-1.2,0 -1.2,1.5 0,2.5 C1.2,1.5 1.2,0 0,-2 Z" fill="#7caae8"/>`;
+      sweat += `</g>`;
+    }
+  });
   sweatEl.innerHTML = sweat;
 });
 </script>

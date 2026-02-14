@@ -19,71 +19,178 @@
     </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <g id="speedLines"></g>
   <g id="excl"></g>
   <g id="lob"></g>
   <g id="rings"></g>
+  <g id="starbursts"></g>
+  <g id="cameraFlash"></g>
 </svg>
 <div class="label">surprised</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 240 ticks = 4s at 60fps (2 surprise cycles)
+const LOOP = 240;
+const SURPRISE_PERIOD = 120;
 const el = document.getElementById('lob');
 const exclEl = document.getElementById('excl');
 const ringsEl = document.getElementById('rings');
+const speedLinesEl = document.getElementById('speedLines');
+const starburstsEl = document.getElementById('starbursts');
+const cameraFlashEl = document.getElementById('cameraFlash');
 
-const shockRings = [];
+// Pre-generate shock rings: one per surprise cycle at cycle===8
+const shockRings = [
+  { spawnT: 8, lifetime: 30 },
+  { spawnT: 128, lifetime: 30 }
+];
+
+// Spark particles emitted by shock rings (6 per ring = 12 total)
+const ringSparksParts = [];
+for (let r = 0; r < 2; r++) {
+  const ringSpawnT = r === 0 ? 8 : 128;
+  for (let i = 0; i < 6; i++) {
+    const rng = mulberry32(r * 9311 + i * 4217 + 29);
+    const angle = (i / 6) * Math.PI * 2 + rng() * 0.5;
+    ringSparksParts.push({
+      spawnT: ringSpawnT + 5 + Math.floor(rng() * 10),
+      lifetime: 18,
+      angle,
+      speed: 1.2 + rng() * 0.8,
+      baseY: -12 * Math.sin(((8 - 5) / 10) * Math.PI) // ringJumpY
+    });
+  }
+}
+
+// Starburst sparkles around head (pre-generated per surprise cycle)
+const starbursts = [];
+for (let r = 0; r < 2; r++) {
+  const baseT = r * SURPRISE_PERIOD + 6;
+  for (let i = 0; i < 6; i++) {
+    const rng = mulberry32(r * 7331 + i * 2903 + 17);
+    starbursts.push({
+      spawnT: baseT + Math.floor(rng() * 5),
+      lifetime: 20,
+      angle: rng() * Math.PI * 2,
+      dist: 10 + rng() * 8,
+      size: 1 + rng() * 1.5,
+      rotSpeed: (rng() - 0.5) * 8
+    });
+  }
+}
 
 startLoop(t => {
-  // Periodic jump-back surprise
-  const cycle = t % 120;
+  const lt = t % LOOP;
+
+  const cycle = lt % SURPRISE_PERIOD;
   let jumpY = 0, jumpScale = 1;
   if (cycle < 5) {
-    // Anticipation crouch
     jumpY = cycle * 0.5;
     jumpScale = 1 + cycle * 0.01;
   } else if (cycle < 15) {
-    // Jump up
     const p = (cycle - 5) / 10;
     jumpY = -12 * Math.sin(p * Math.PI);
     jumpScale = 1 - 0.05 * Math.sin(p * Math.PI);
   } else if (cycle < 20) {
-    // Landing squash
     const p = (cycle - 15) / 5;
     jumpY = 0;
-    jumpScale = 1 + 0.04 * (1-p);
-  }
-
-  // Emit shock ring on jump
-  if (cycle === 8) {
-    shockRings.push({ age: 0 });
+    jumpScale = 1 + 0.04 * (1 - p);
   }
 
   el.innerHTML = `<g transform="translate(0,${jumpY})">` +
-    drawLobster({ t, mood: 'surprised', squash: jumpScale, stretch: 2-jumpScale }) + '</g>';
+    drawLobster({ t: lt, mood: 'surprised', squash: jumpScale, stretch: 2 - jumpScale }) + '</g>';
 
-  // Exclamation marks
+  // Stylized SVG exclamation and question marks (custom paths)
   let excl = '';
   if (cycle > 3 && cycle < 40) {
-    const eop = cycle < 10 ? (cycle-3)/7 : cycle > 30 ? (40-cycle)/10 : 1;
-    const ey = -50 + jumpY + Math.sin(t/5)*0.5;
-    excl += `<g opacity="${eop*0.8}">`;
-    excl += `<text x="0" y="${ey}" text-anchor="middle" font-family="monospace" font-size="14" font-weight="bold" fill="#22AACC">!</text>`;
-    excl += `<text x="-10" y="${ey+3}" text-anchor="middle" font-family="monospace" font-size="10" font-weight="bold" fill="#22AACC" opacity="0.6">?</text>`;
-    excl += `<text x="11" y="${ey+2}" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="#22AACC" opacity="0.5">!</text>`;
+    const eop = cycle < 10 ? (cycle - 3) / 7 : cycle > 30 ? (40 - cycle) / 10 : 1;
+    const ey = -50 + jumpY + Math.sin(lt * 2 * Math.PI / 30) * 0.5;
+    excl += `<g opacity="${eop * 0.8}">`;
+    // Stylized "!" with rounded ends (SVG path)
+    excl += `<g transform="translate(0,${ey})">`;
+    excl += `<path d="M0,-7 C-1.2,-7 -1.5,-6 -1.3,-2 L-0.8,3 C-0.6,4 0.6,4 0.8,3 L1.3,-2 C1.5,-6 1.2,-7 0,-7 Z" fill="#22AACC"/>`;
+    excl += `<circle cx="0" cy="5.5" r="1.2" fill="#22AACC"/>`;
+    excl += `</g>`;
+    // Stylized "?" offset left
+    excl += `<g transform="translate(-10,${ey+3}) scale(0.8)">`;
+    excl += `<path d="M-2,-6 C-2,-8 0,-9.5 2,-9 C4,-8.5 4.5,-6.5 3,-5 C2,-4 0.5,-3.5 0.5,-1.5 C0.5,-0.5 -0.5,-0.5 -0.5,-1.5 C-0.5,-4.5 1,-5 2,-5.5 C3,-6 3,-7.5 2,-7.8 C1,-8 -0.8,-7 -0.8,-6" fill="none" stroke="#22AACC" stroke-width="1.5" stroke-linecap="round"/>`;
+    excl += `<circle cx="0" cy="1" r="1" fill="#22AACC"/>`;
+    excl += `</g>`;
+    // Smaller "!" offset right
+    excl += `<g transform="translate(11,${ey+2}) scale(0.7)">`;
+    excl += `<path d="M0,-6 C-1,-6 -1.2,-5 -1,-1.5 L-0.6,2.5 C-0.5,3.5 0.5,3.5 0.6,2.5 L1,-1.5 C1.2,-5 1,-6 0,-6 Z" fill="#22AACC" opacity="0.6"/>`;
+    excl += `<circle cx="0" cy="4.5" r="1" fill="#22AACC" opacity="0.6"/>`;
+    excl += `</g>`;
     excl += `</g>`;
   }
   exclEl.innerHTML = excl;
 
-  // Expanding shock rings
-  let rings = '';
-  for (let i = shockRings.length-1; i >= 0; i--) {
-    const r = shockRings[i];
-    r.age++;
-    if (r.age > 30) { shockRings.splice(i,1); continue; }
-    const radius = 5 + r.age * 1.5;
-    const op = (1 - r.age/30) * 0.4;
-    rings += `<ellipse cx="0" cy="${jumpY}" rx="${radius}" ry="${radius*0.3}" fill="none" stroke="#22AACC" stroke-width="0.5" opacity="${op}"/>`;
+  // Speed/action lines radiating outward during jump (cycle 5-15)
+  let speedSvg = '';
+  if (cycle >= 5 && cycle < 18) {
+    const lineOp = cycle < 10 ? (cycle - 5) / 5 : (18 - cycle) / 8;
+    for (let i = 0; i < 10; i++) {
+      const angle = (i / 10) * Math.PI * 2;
+      const r1 = 22 + (cycle - 5) * 1.5;
+      const r2 = r1 + 5;
+      const lx1 = Math.cos(angle) * r1;
+      const ly1 = jumpY + Math.sin(angle) * r1 * 0.5;
+      const lx2 = Math.cos(angle) * r2;
+      const ly2 = jumpY + Math.sin(angle) * r2 * 0.5;
+      speedSvg += `<line x1="${lx1}" y1="${ly1}" x2="${lx2}" y2="${ly2}" stroke="#22AACC" stroke-width="0.6" opacity="${lineOp * 0.4}" stroke-linecap="round"/>`;
+    }
   }
+  speedLinesEl.innerHTML = speedSvg;
+
+  // Starburst sparkles around head during surprise
+  let starSvg = '';
+  starbursts.forEach(sb => {
+    const age = particleAge(lt, sb.spawnT, sb.lifetime, LOOP);
+    if (age >= 0) {
+      const sop = age < 4 ? age / 4 : (1 - age / sb.lifetime) * 0.7;
+      const sx = Math.cos(sb.angle) * (sb.dist + age * 0.3);
+      const sy = -25 + Math.sin(sb.angle) * (sb.dist * 0.5 + age * 0.2);
+      const srot = sb.rotSpeed * age;
+      // 4-point star shape
+      starSvg += `<g transform="translate(${sx},${sy}) rotate(${srot})" opacity="${sop}">`;
+      starSvg += `<polygon points="0,${-sb.size} ${sb.size*0.25},${-sb.size*0.25} ${sb.size},0 ${sb.size*0.25},${sb.size*0.25} 0,${sb.size} ${-sb.size*0.25},${sb.size*0.25} ${-sb.size},0 ${-sb.size*0.25},${-sb.size*0.25}" fill="#22AACC"/>`;
+      starSvg += `</g>`;
+    }
+  });
+  starburstsEl.innerHTML = starSvg;
+
+  // Expanding shock rings with spark particles
+  let rings = '';
+  const ringJumpP = (8 - 5) / 10;
+  const ringJumpY = -12 * Math.sin(ringJumpP * Math.PI);
+  shockRings.forEach(sr => {
+    const age = particleAge(lt, sr.spawnT, sr.lifetime, LOOP);
+    if (age >= 0) {
+      const radius = 5 + age * 1.5;
+      const op = (1 - age / sr.lifetime) * 0.4;
+      rings += `<ellipse cx="0" cy="${ringJumpY}" rx="${radius}" ry="${radius * 0.3}" fill="none" stroke="#22AACC" stroke-width="0.5" opacity="${op}"/>`;
+    }
+  });
+  // Ring spark particles
+  ringSparksParts.forEach(sp => {
+    const age = particleAge(lt, sp.spawnT, sp.lifetime, LOOP);
+    if (age >= 0) {
+      const r = 5 + age * sp.speed;
+      const sx = Math.cos(sp.angle) * r;
+      const sy = sp.baseY + Math.sin(sp.angle) * r * 0.3;
+      const sop = (1 - age / sp.lifetime) * 0.5;
+      rings += `<circle cx="${sx}" cy="${sy}" r="0.5" fill="#22AACC" opacity="${sop}"/>`;
+    }
+  });
   ringsEl.innerHTML = rings;
+
+  // Camera flash effect at jump peak (cycle ~10)
+  let flashSvg = '';
+  if (cycle >= 9 && cycle < 14) {
+    const fp = cycle === 9 ? 0.6 : cycle === 10 ? 0.35 : cycle === 11 ? 0.15 : cycle === 12 ? 0.06 : 0.02;
+    flashSvg = `<rect x="-60" y="-80" width="120" height="150" fill="#fff" opacity="${fp}"/>`;
+  }
+  cameraFlashEl.innerHTML = flashSvg;
 });
 </script>
 </body>

@@ -22,66 +22,160 @@
       <stop offset="0%" stop-color="#fff" stop-opacity="0.08"/>
       <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="cosmicSource" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0.9"/>
+      <stop offset="30%" stop-color="#a5d8ff" stop-opacity="0.4"/>
+      <stop offset="60%" stop-color="#22AACC" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#22AACC" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
   <circle cx="0" cy="0" r="65" fill="url(#cosmos)"/>
   <circle cx="0" cy="-30" r="35" fill="url(#light)"/>
+  <g id="nebula"></g>
   <g id="stars"></g>
   <g id="aurora"></g>
+  <g id="shootingStars"></g>
   <g id="lob"></g>
   <g id="rays"></g>
+  <g id="cosmicPt"></g>
 </svg>
 <div class="label">awe (fear + surprise)</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 300 ticks = 5s at 60fps
+const LOOP = 300;
 const el = document.getElementById('lob');
 const starsEl = document.getElementById('stars');
 const auroraEl = document.getElementById('aurora');
 const raysEl = document.getElementById('rays');
+const cosmicPtEl = document.getElementById('cosmicPt');
+const nebulaEl = document.getElementById('nebula');
+const shootingStarsEl = document.getElementById('shootingStars');
 
-// Stars
+// Stars -- deterministic via mulberry32
 const stars = [];
 for (let i = 0; i < 40; i++) {
+  const rng = mulberry32(i * 7919 + 41);
   stars.push({
-    x: -55+Math.random()*110, y: -75+Math.random()*80,
-    size: 0.2+Math.random()*0.7, phase: Math.random()*Math.PI*2
+    x: -55 + rng() * 110, y: -75 + rng() * 80,
+    size: 0.2 + rng() * 0.7, phase: rng() * Math.PI * 2
   });
 }
 
+// Nebula clouds (4 faint ellipses)
+const nebulae = [
+  { cx: -30, cy: -55, rx: 22, ry: 10, color: '#7c3aed', phase: 0 },
+  { cx: 25, cy: -45, rx: 18, ry: 12, color: '#22AACC', phase: 1.5 },
+  { cx: -10, cy: -65, rx: 25, ry: 8, color: '#6ECB3C', phase: 3.0 },
+  { cx: 15, cy: -60, rx: 15, ry: 14, color: '#e84393', phase: 4.5 }
+];
+
+// Shooting stars (2 per loop, at lt=60 and lt=210)
+const shootingStarData = [
+  { spawnT: 60, x0: -50, y0: -75, dx: 80, dy: 35, lifetime: 20 },
+  { spawnT: 210, x0: 45, y0: -70, dx: -70, dy: 40, lifetime: 20 }
+];
+
 startLoop(t => {
-  // Looking up in awe, slightly leaning back
+  const lt = t % LOOP;
+
   el.innerHTML = `<g transform="translate(0,15)">` +
-    drawLobster({ t, mood: 'surprised', extraRotate: -5 + Math.sin(t/30)*1.5 }) + '</g>';
+    drawLobster({ t: lt, mood: 'surprised', extraRotate: -5 + Math.sin(lt * 2 * Math.PI / LOOP) * 1.5 }) + '</g>';
 
   // Twinkling stars
   let starSvg = '';
   stars.forEach(s => {
-    const tw = 0.1 + Math.sin(t*0.03+s.phase)*0.15 + (Math.sin(t*0.07+s.phase*2)>0.95?0.3:0);
+    const tw = 0.1 + Math.sin(lt * 2 * Math.PI / 200 + s.phase) * 0.15 + (Math.sin(lt * 2 * Math.PI / 86 + s.phase * 2) > 0.95 ? 0.3 : 0);
     starSvg += `<circle cx="${s.x}" cy="${s.y}" r="${s.size}" fill="#e2e4ea" opacity="${tw}"/>`;
   });
   starsEl.innerHTML = starSvg;
 
-  // Aurora borealis ribbons
+  // Nebula clouds (slowly shifting position)
+  let nebSvg = '';
+  nebulae.forEach(n => {
+    const nx = n.cx + Math.sin(lt * 2 * Math.PI / 300 + n.phase) * 5;
+    const ny = n.cy + Math.cos(lt * 2 * Math.PI / 150 + n.phase) * 3;
+    const nop = 0.04 + Math.sin(lt * 2 * Math.PI / 300 + n.phase * 2) * 0.02;
+    nebSvg += `<ellipse cx="${nx}" cy="${ny}" rx="${n.rx}" ry="${n.ry}" fill="${n.color}" opacity="${nop}"/>`;
+  });
+  nebulaEl.innerHTML = nebSvg;
+
+  // Aurora borealis ribbons (wider, gradient opacity along path)
   let aurora = '';
   for (let ribbon = 0; ribbon < 3; ribbon++) {
     const colors = ['#22AACC','#7c3aed','#6ECB3C'];
-    let path = 'M-55,' + (-50+ribbon*8);
+    let path = 'M-55,' + (-50 + ribbon * 8);
     for (let x = -55; x <= 55; x += 5) {
-      const y = -50+ribbon*8 + Math.sin(x/15+t*0.02+ribbon*2)*8 + Math.sin(x/8+t*0.04+ribbon)*3;
+      const y = -50 + ribbon * 8 + Math.sin(x / 15 + lt * 2 * Math.PI / LOOP + ribbon * 2) * 8 + Math.sin(x / 8 + lt * 2 * Math.PI / 150 + ribbon) * 3;
       path += ` L${x},${y}`;
     }
-    const op = 0.06 + Math.sin(t/20+ribbon)*0.03;
-    aurora += `<path d="${path}" fill="none" stroke="${colors[ribbon]}" stroke-width="3" opacity="${op}" stroke-linecap="round"/>`;
+    // Wider stroke width (5-6) with gradient opacity along length
+    const baseOp = 0.08 + Math.sin(lt * 2 * Math.PI / 100 + ribbon) * 0.04;
+    const sw = 5 + Math.sin(lt * 2 * Math.PI / 150 + ribbon * 0.7) * 0.5;
+    aurora += `<path d="${path}" fill="none" stroke="${colors[ribbon]}" stroke-width="${sw}" opacity="${baseOp}" stroke-linecap="round"/>`;
+    // Second thinner inner ribbon for gradient effect
+    const innerOp = baseOp * 0.6;
+    aurora += `<path d="${path}" fill="none" stroke="#fff" stroke-width="${sw * 0.3}" opacity="${innerOp * 0.3}" stroke-linecap="round"/>`;
   }
   auroraEl.innerHTML = aurora;
 
-  // Light rays from above
+  // Light rays from above (tapered polygon: wider at top, narrower at bottom)
   let rays = '';
   for (let i = 0; i < 5; i++) {
-    const rx = -15+i*8 + Math.sin(t/20+i)*3;
-    const op = 0.02 + Math.sin(t/15+i*1.3)*0.015;
-    rays += `<polygon points="${rx-1},-70 ${rx+1},-70 ${rx+4},30 ${rx-4},30" fill="#fff" opacity="${op}"/>`;
+    const rx = -15 + i * 8 + Math.sin(lt * 2 * Math.PI / 100 + i) * 3;
+    const op = 0.025 + Math.sin(lt * 2 * Math.PI / 100 + i * 1.3) * 0.018;
+    // Wider at top (3px spread), narrower at bottom (0.5px spread)
+    const topW = 2 + Math.sin(lt * 2 * Math.PI / 150 + i) * 0.5;
+    const botW = 0.3;
+    rays += `<polygon points="${rx-topW},-75 ${rx+topW},-75 ${rx+botW},35 ${rx-botW},35" fill="#fff" opacity="${op}"/>`;
   }
   raysEl.innerHTML = rays;
+
+  // Cosmic source point (pulsing bright dot above with radiating glow)
+  const cosmicPulse = 0.6 + Math.sin(lt * 2 * Math.PI / 60) * 0.3;
+  const cosmicR = 3 + Math.sin(lt * 2 * Math.PI / 60) * 1;
+  const glowR = 12 + Math.sin(lt * 2 * Math.PI / 75) * 3;
+  let cosmicSvg = '';
+  cosmicSvg += `<circle cx="0" cy="-72" r="${glowR}" fill="url(#cosmicSource)" opacity="${cosmicPulse * 0.4}"/>`;
+  cosmicSvg += `<circle cx="0" cy="-72" r="${cosmicR}" fill="#fff" opacity="${cosmicPulse}" filter="url(#softGlow)"/>`;
+  // Radiating soft lines
+  for (let i = 0; i < 8; i++) {
+    const ra = (i / 8) * Math.PI * 2 + lt * 2 * Math.PI / 300;
+    const r1 = cosmicR + 2;
+    const r2 = cosmicR + 6 + Math.sin(lt * 2 * Math.PI / 75 + i) * 2;
+    const lx1 = Math.cos(ra) * r1;
+    const ly1 = -72 + Math.sin(ra) * r1;
+    const lx2 = Math.cos(ra) * r2;
+    const ly2 = -72 + Math.sin(ra) * r2;
+    cosmicSvg += `<line x1="${lx1}" y1="${ly1}" x2="${lx2}" y2="${ly2}" stroke="#a5d8ff" stroke-width="0.4" opacity="${cosmicPulse * 0.3}"/>`;
+  }
+  cosmicPtEl.innerHTML = cosmicSvg;
+
+  // Shooting stars
+  let shootSvg = '';
+  shootingStarData.forEach(ss => {
+    const age = particleAge(lt, ss.spawnT, ss.lifetime, LOOP);
+    if (age >= 0) {
+      const p = age / ss.lifetime;
+      const sx = ss.x0 + ss.dx * p;
+      const sy = ss.y0 + ss.dy * p;
+      const sop = p < 0.15 ? p / 0.15 : p > 0.7 ? (1 - p) / 0.3 : 0.7;
+      // Bright head
+      shootSvg += `<circle cx="${sx}" cy="${sy}" r="0.8" fill="#fff" opacity="${sop}"/>`;
+      // Trail (3 fading dots behind)
+      for (let ti = 1; ti <= 4; ti++) {
+        const tp = Math.max(0, p - ti * 0.04);
+        const tx = ss.x0 + ss.dx * tp;
+        const ty = ss.y0 + ss.dy * tp;
+        shootSvg += `<circle cx="${tx}" cy="${ty}" r="${0.6 - ti * 0.1}" fill="#a5d8ff" opacity="${sop * (1 - ti * 0.22)}"/>`;
+      }
+    }
+  });
+  shootingStarsEl.innerHTML = shootSvg;
 });
 </script>
 </body>

@@ -17,8 +17,16 @@
       <stop offset="0%" stop-color="#4A6BD4" stop-opacity="0.05"/>
       <stop offset="100%" stop-color="#080b14" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffe8a0" stop-opacity="0.12"/>
+      <stop offset="60%" stop-color="#ffe8a0" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#080b14" stop-opacity="0"/>
+    </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <!-- moon -->
+  <g id="moon"></g>
+  <g id="shootingStar"></g>
   <g id="stars"></g>
   <g id="lob"></g>
   <g id="zzz"></g>
@@ -27,60 +35,154 @@
 <div class="label">sleeping</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 300 ticks = 5s at 60fps
+const LOOP = 300;
+const BREATHE_PERIOD = 150; // 2 breath cycles per 300
+const BUBBLE_PERIOD = 100;  // 3 bubble cycles per 300
 const el = document.getElementById('lob');
 const zzzEl = document.getElementById('zzz');
 const bubbleEl = document.getElementById('bubble');
 const starsEl = document.getElementById('stars');
+const moonEl = document.getElementById('moon');
+const shootingStarEl = document.getElementById('shootingStar');
 
+// Pre-generate Z particles: one every 30 ticks = 10 per loop
+const N_ZZZ = 10;
 const zParticles = [];
-
-// Twinkling stars
-const stars = [];
-for (let i = 0; i < 15; i++) {
-  stars.push({
-    x: -55+Math.random()*110,
-    y: -55+Math.random()*50,
-    size: 0.3+Math.random()*0.8,
-    phase: Math.random()*Math.PI*2,
-    speed: 0.02+Math.random()*0.03
+for (let i = 0; i < N_ZZZ; i++) {
+  const rng = mulberry32(i * 8831 + 53);
+  const fontWeightChoices = [400, 600, 700, 800];
+  zParticles.push({
+    spawnT: i * 30,
+    lifetime: 60,
+    fontWeight: fontWeightChoices[Math.floor(rng() * fontWeightChoices.length)]
   });
 }
 
+// Twinkling stars: pre-generate with mulberry32
+const starData = [];
+for (let i = 0; i < 18; i++) {
+  const rng = mulberry32(i * 2971 + 7);
+  const speedChoices = [60, 75, 100, 150]; // all divide 300
+  const hasDoublePulse = rng() > 0.6; // some stars get secondary faster flicker
+  const secondPeriod = [30, 50, 60][Math.floor(rng() * 3)]; // all divide 300
+  starData.push({
+    x: -55 + rng() * 110,
+    y: -55 + rng() * 45,
+    size: 0.3 + rng() * 0.8,
+    phase: rng() * Math.PI * 2,
+    period: speedChoices[Math.floor(rng() * speedChoices.length)],
+    hasDoublePulse,
+    secondPeriod,
+    secondPhase: rng() * Math.PI * 2
+  });
+}
+
+// Shooting star: crosses sky once per loop (pre-generated path)
+const shootRng = mulberry32(42424);
+const shootStartX = -50 + shootRng() * 20;
+const shootStartY = -55 + shootRng() * 10;
+const shootEndX = shootStartX + 60 + shootRng() * 30;
+const shootEndY = shootStartY + 15 + shootRng() * 10;
+const SHOOT_START = 100; // tick when shooting star begins (arbitrary but fixed)
+const SHOOT_DURATION = 30;
+
+// Dream bubble icon cycle: period 150 divides 300
+const dreamIcons = ['\u2665', '\u2605', '\u2665', '\u2605']; // heart, star alternating
+
 startLoop(t => {
+  const lt = t % LOOP;
+
   // Very slow breathing, slightly tilted (resting)
-  const breathe = Math.sin(t/30)*1.5;
-  // Override tick to be very slow for sleepy feel
-  const sleepyTick = Math.floor(t * 0.3);
+  const breathe = Math.sin(lt * 2 * Math.PI / BREATHE_PERIOD) * 1.5;
 
-  el.innerHTML = `<g transform="translate(0,2) rotate(5)">` +
-    drawLobster({ t: sleepyTick, mood: 'sad', extraBob: breathe }) + '</g>';
+  el.innerHTML = '<g transform="translate(0,2) rotate(5)">' +
+    drawLobster({ t: lt, mood: 'sad', extraBob: breathe }) + '</g>';
 
-  // Z particles rising
-  if (t % 30 === 0) {
-    zParticles.push({ x: 15, y: -25, age: 0, size: 4 });
+  // Crescent moon with glow (upper left area, period 300 for gentle sway)
+  let moonSvg = '';
+  const moonX = -38;
+  const moonY = -48;
+  const moonGlowPulse = 0.08 + Math.sin(lt * 2 * Math.PI / 150) * 0.03;
+  // Glow behind moon
+  moonSvg += '<circle cx="' + moonX + '" cy="' + moonY + '" r="10" fill="#ffe8a0" opacity="' + moonGlowPulse + '"/>';
+  // Crescent: circle minus offset circle
+  moonSvg += '<circle cx="' + moonX + '" cy="' + moonY + '" r="5" fill="#ffe8a0" opacity="0.7"/>';
+  moonSvg += '<circle cx="' + (moonX + 2.5) + '" cy="' + (moonY - 1.5) + '" r="4" fill="#080b14"/>';
+  moonEl.innerHTML = moonSvg;
+
+  // Shooting star
+  let shootSvg = '';
+  const shootAge = particleAge(lt, SHOOT_START, SHOOT_DURATION, LOOP);
+  if (shootAge >= 0) {
+    const prog = shootAge / SHOOT_DURATION;
+    const sx = shootStartX + (shootEndX - shootStartX) * prog;
+    const sy = shootStartY + (shootEndY - shootStartY) * prog;
+    const tailLen = 12;
+    const dx = (shootEndX - shootStartX) / 80;
+    const dy = (shootEndY - shootStartY) / 80;
+    const headOp = prog < 0.1 ? prog / 0.1 : prog > 0.8 ? (1 - prog) / 0.2 : 0.7;
+    // Tail
+    shootSvg += '<line x1="' + (sx - dx * tailLen) + '" y1="' + (sy - dy * tailLen) + '" x2="' + sx + '" y2="' + sy + '" stroke="#ffe8a0" stroke-width="0.5" opacity="' + (headOp * 0.4) + '" stroke-linecap="round"/>';
+    // Head
+    shootSvg += '<circle cx="' + sx + '" cy="' + sy + '" r="0.8" fill="#fff" opacity="' + headOp + '"/>';
   }
+  shootingStarEl.innerHTML = shootSvg;
+
+  // Z particles rising with slight rotation and varying font weight
   let zzz = '';
-  for (let i = zParticles.length-1; i >= 0; i--) {
-    const z = zParticles[i];
-    z.age++;
-    z.y -= 0.4;
-    z.x += Math.sin(z.age/10)*0.3 + 0.15;
-    z.size += 0.03;
-    if (z.age > 60) { zParticles.splice(i,1); continue; }
-    const op = z.age < 8 ? z.age/8 : z.age > 45 ? (60-z.age)/15 : 0.5;
-    zzz += `<text x="${z.x}" y="${z.y}" text-anchor="middle" font-family="monospace" font-size="${z.size}" font-weight="bold" fill="#7c3aed" opacity="${op}">Z</text>`;
-  }
+  zParticles.forEach(z => {
+    const age = particleAge(lt, z.spawnT, z.lifetime, LOOP);
+    if (age >= 0) {
+      const x = 15 + Math.sin(age / 10) * 3 + 0.15 * age;
+      const y = -25 - 0.4 * age;
+      const size = 4 + 0.03 * age;
+      const op = age < 8 ? age / 8 : age > 45 ? (60 - age) / 15 : 0.5;
+      const rot = Math.sin(age / 12) * 15;
+      zzz += '<text x="' + x + '" y="' + y + '" text-anchor="middle" font-family="monospace" font-size="' + size + '" font-weight="' + z.fontWeight + '" fill="#7c3aed" opacity="' + op + '" transform="rotate(' + rot + ',' + x + ',' + y + ')">Z</text>';
+    }
+  });
   zzzEl.innerHTML = zzz;
 
-  // Sleep bubble
-  const br = 6 + Math.sin(t/20)*1.5;
-  bubbleEl.innerHTML = `<ellipse cx="14" cy="${3+Math.sin(t/20)*0.5}" rx="${br}" ry="${br*0.6}" fill="none" stroke="rgba(124,186,232,0.15)" stroke-width="0.3"/>`;
+  // Dream bubble (larger ellipse with icon inside)
+  const br = 6 + Math.sin(lt * 2 * Math.PI / BUBBLE_PERIOD) * 1.5;
+  const bubbleY = 3 + Math.sin(lt * 2 * Math.PI / BUBBLE_PERIOD) * 0.5;
+  // Icon changes based on period 150 (divides 300)
+  const iconIdx = Math.floor((lt % 300) / 150);
+  const iconChar = dreamIcons[iconIdx];
+  let bubSvg = '';
+  // Larger dream bubble above and to the right
+  const dbX = 30;
+  const dbY = -35 + Math.sin(lt * 2 * Math.PI / 150) * 2;
+  const dbR = 8 + Math.sin(lt * 2 * Math.PI / 100) * 1;
+  bubSvg += '<ellipse cx="' + dbX + '" cy="' + dbY + '" rx="' + dbR + '" ry="' + (dbR * 0.75) + '" fill="none" stroke="rgba(124,186,232,0.15)" stroke-width="0.4"/>';
+  bubSvg += '<ellipse cx="' + dbX + '" cy="' + dbY + '" rx="' + (dbR - 1) + '" ry="' + (dbR * 0.75 - 1) + '" fill="rgba(124,186,232,0.03)"/>';
+  // Connector dots from lobster to dream bubble
+  bubSvg += '<circle cx="20" cy="-22" r="1" fill="rgba(124,186,232,0.12)"/>';
+  bubSvg += '<circle cx="24" cy="-27" r="1.5" fill="rgba(124,186,232,0.1)"/>';
+  // Icon inside bubble
+  const iconOp = 0.3 + Math.sin(lt * 2 * Math.PI / 75) * 0.1;
+  bubSvg += '<text x="' + dbX + '" y="' + (dbY + 2) + '" text-anchor="middle" font-size="5" fill="#c4b5fd" opacity="' + iconOp + '">' + iconChar + '</text>';
+  // Original small sleep bubble
+  bubSvg += '<ellipse cx="14" cy="' + bubbleY + '" rx="' + br + '" ry="' + (br * 0.6) + '" fill="none" stroke="rgba(124,186,232,0.15)" stroke-width="0.3"/>';
+  bubbleEl.innerHTML = bubSvg;
 
-  // Stars
+  // Stars with secondary twinkle pulse
   let starSvg = '';
-  stars.forEach(s => {
-    const twinkle = 0.15 + Math.sin(t*s.speed+s.phase)*0.15;
-    starSvg += `<circle cx="${s.x}" cy="${s.y}" r="${s.size}" fill="#c4b5fd" opacity="${twinkle}"/>`;
+  starData.forEach(s => {
+    let twinkle = 0.15 + Math.sin(lt * 2 * Math.PI / s.period + s.phase) * 0.15;
+    if (s.hasDoublePulse) {
+      // Secondary faster flicker overlaid
+      twinkle += Math.sin(lt * 2 * Math.PI / s.secondPeriod + s.secondPhase) * 0.08;
+    }
+    twinkle = Math.max(0.03, Math.min(0.4, twinkle));
+    starSvg += '<circle cx="' + s.x + '" cy="' + s.y + '" r="' + s.size + '" fill="#c4b5fd" opacity="' + twinkle + '"/>';
+    // Cross sparkle on brighter stars
+    if (s.size > 0.7 && twinkle > 0.2) {
+      const sparkOp = (twinkle - 0.2) * 0.5;
+      starSvg += '<line x1="' + (s.x - s.size * 1.5) + '" y1="' + s.y + '" x2="' + (s.x + s.size * 1.5) + '" y2="' + s.y + '" stroke="#c4b5fd" stroke-width="0.2" opacity="' + sparkOp + '"/>';
+      starSvg += '<line x1="' + s.x + '" y1="' + (s.y - s.size * 1.5) + '" x2="' + s.x + '" y2="' + (s.y + s.size * 1.5) + '" stroke="#c4b5fd" stroke-width="0.2" opacity="' + sparkOp + '"/>';
+    }
   });
   starsEl.innerHTML = starSvg;
 });

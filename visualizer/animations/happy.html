@@ -17,51 +17,135 @@
       <stop offset="0%" stop-color="#F5D831" stop-opacity="0.12"/>
       <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
     </radialGradient>
+    <filter id="sparkGlow">
+      <feGaussianBlur stdDeviation="1.5"/>
+    </filter>
   </defs>
   <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <g id="bokeh"></g>
+  <g id="aura"></g>
   <g id="sparkles"></g>
   <g id="lob"></g>
 </svg>
 <div class="label">happy</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 240 ticks = 4s at 60fps
+const LOOP = 240;
+const BOUNCE_PERIOD = 30; // 8 bounces per loop
 const el = document.getElementById('lob');
 const sparkEl = document.getElementById('sparkles');
+const auraEl = document.getElementById('aura');
+const bokehEl = document.getElementById('bokeh');
 
-const sparkles = [];
-for (let i = 0; i < 12; i++) {
-  sparkles.push({
-    angle: (i / 12) * Math.PI * 2,
-    dist: 30 + Math.random() * 20,
-    speed: 0.01 + Math.random() * 0.02,
-    size: 1 + Math.random() * 2,
-    phase: Math.random() * Math.PI * 2
+// Deterministic sparkles — increased to 24
+const N_SPARK = 24;
+const sparks = [];
+for (let i = 0; i < N_SPARK; i++) {
+  const rng = mulberry32(i * 3571 + 17);
+  sparks.push({
+    spawnT: Math.floor(rng() * LOOP),
+    angle0: rng() * Math.PI * 2,
+    dist: 26 + rng() * 24,
+    rotSpeed: 0.015 + rng() * 0.025,
+    size: 1 + rng() * 2,
+    lifetime: 45 + Math.floor(rng() * 35),
+    wobbleFreq: 6 + rng() * 8,
+    color: rng() > 0.5 ? '#F5D831' : rng() > 0.5 ? '#fff' : '#ffe066'
+  });
+}
+
+// Deterministic bokeh circles — 6 soft background orbs
+const N_BOKEH = 6;
+const bokehCircles = [];
+for (let i = 0; i < N_BOKEH; i++) {
+  const rng = mulberry32(i * 8831 + 101);
+  bokehCircles.push({
+    x0: (rng() - 0.5) * 100,
+    y0: (rng() - 0.5) * 110 - 10,
+    r: 10 + rng() * 15,
+    driftX: (rng() - 0.5) * 0.08,
+    driftY: (rng() - 0.5) * 0.06,
+    phase: rng() * Math.PI * 2,
+    // period must divide LOOP (240): use 60, 80, 120
+    period: [60, 80, 120][Math.floor(rng() * 3)],
+    color: rng() > 0.5 ? '#F5D831' : '#ffe066'
   });
 }
 
 startLoop(t => {
-  // Happy bounce
-  const bounce = Math.abs(Math.sin(t / 8)) * 6;
-  const squish = 1 + Math.sin(t / 8) * 0.05;
-  const stretch = 1 - Math.sin(t / 8) * 0.03;
+  const lt = t % LOOP;
+
+  // Bounce: sin with exact period divisor
+  const bouncePhase = (lt % BOUNCE_PERIOD) / BOUNCE_PERIOD;
+  const bounce = Math.sin(bouncePhase * Math.PI) * 7;
+  const velocity = Math.cos(bouncePhase * Math.PI);
+  // Squash on landing, stretch at peak
+  const squash = 1 + clamp(velocity, -1, 0) * -0.07;
+  const stretch = 1 + clamp(velocity, -1, 0) * 0.04;
 
   el.innerHTML = `<g transform="translate(0,${-bounce})">` +
-    drawLobster({ t, mood: 'happy', squash: squish, stretch }) + '</g>';
+    drawLobster({ t: lt, mood: 'happy', squash, stretch }) + '</g>';
 
-  // Sparkle particles
+  // Bokeh background circles
+  let bk = '';
+  bokehCircles.forEach(b => {
+    const ox = Math.sin(lt * 2 * Math.PI / b.period + b.phase) * 8 * b.driftX / 0.04;
+    const oy = Math.cos(lt * 2 * Math.PI / b.period + b.phase) * 6 * b.driftY / 0.03;
+    const op = 0.03 + Math.sin(lt * 2 * Math.PI / b.period + b.phase + 1) * 0.015;
+    bk += `<circle cx="${b.x0 + ox}" cy="${b.y0 + oy}" r="${b.r}" fill="${b.color}" opacity="${op}"/>`;
+  });
+  bokehEl.innerHTML = bk;
+
+  // Golden aura pulse + second glow ring at opposite phase
+  const auraOp = 0.05 + Math.sin(lt * 2 * Math.PI / 60) * 0.03;
+  const auraR = 20 + bounce * 0.4 + Math.sin(lt * 2 * Math.PI / 40) * 2;
+  const aura2Op = 0.03 + Math.sin(lt * 2 * Math.PI / 60 + Math.PI) * 0.02;
+  const aura2R = auraR + 8 + Math.sin(lt * 2 * Math.PI / 40 + Math.PI) * 3;
+  let auraSvg = '';
+  auraSvg += `<ellipse cx="0" cy="${3 - bounce}" rx="${aura2R}" ry="${aura2R * 0.85}" fill="none" stroke="#F5D831" stroke-width="0.8" opacity="${aura2Op}"/>`;
+  auraSvg += `<ellipse cx="0" cy="${3 - bounce}" rx="${auraR}" ry="${auraR * 0.85}" fill="#F5D831" opacity="${auraOp}"/>`;
+  auraEl.innerHTML = auraSvg;
+
+  // Sparkle particles with trailing glow
   let sp = '';
-  sparkles.forEach(s => {
-    const a = s.angle + t * s.speed;
-    const d = s.dist + Math.sin(t / 10 + s.phase) * 5;
-    const x = Math.cos(a) * d;
-    const y = Math.sin(a) * d - 5;
-    const op = 0.3 + Math.sin(t / 5 + s.phase) * 0.3;
-    const sz = s.size * (0.7 + Math.sin(t / 4 + s.phase) * 0.3);
-    // 4-point star
-    sp += `<g transform="translate(${x},${y}) rotate(${t*2+s.phase*57})" opacity="${op}">`;
-    sp += `<path d="M0,${-sz} L${sz*0.3},0 L0,${sz} L${-sz*0.3},0 Z" fill="#F5D831"/>`;
-    sp += `<path d="M${-sz},0 L0,${sz*0.3} L${sz},0 L0,${-sz*0.3} Z" fill="#F5D831"/>`;
-    sp += `</g>`;
+  sparks.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / p.lifetime;
+      const op = prog < 0.12 ? prog / 0.12 : prog > 0.65 ? (1 - prog) / 0.35 : 1;
+      const a = p.angle0 + age * p.rotSpeed;
+      const d = p.dist + Math.sin(age / p.wobbleFreq) * 5;
+      const x = Math.cos(a) * d;
+      const y = Math.sin(a) * d - 5;
+      const sz = p.size * (0.5 + Math.sin(age / 3) * 0.5);
+      const rot = age * 2.5;
+
+      // Fading trails: 2-3 circles at slightly older positions
+      for (let tr = 3; tr >= 1; tr--) {
+        const trailAge = age - tr * 3;
+        if (trailAge >= 0) {
+          const trA = p.angle0 + trailAge * p.rotSpeed;
+          const trD = p.dist + Math.sin(trailAge / p.wobbleFreq) * 5;
+          const trX = Math.cos(trA) * trD;
+          const trY = Math.sin(trA) * trD - 5;
+          const trOp = op * (0.15 - tr * 0.04);
+          const trSz = sz * (0.6 - tr * 0.12);
+          if (trSz > 0.1) {
+            sp += `<circle cx="${trX}" cy="${trY}" r="${trSz}" fill="${p.color}" opacity="${trOp}"/>`;
+          }
+        }
+      }
+
+      // Soft glow behind sparkle
+      sp += `<circle cx="${x}" cy="${y}" r="${sz * 2.5}" fill="${p.color}" opacity="${op * 0.12}" filter="url(#sparkGlow)"/>`;
+
+      // 4-point star sparkle
+      sp += `<g transform="translate(${x},${y}) rotate(${rot})" opacity="${op * 0.75}">`;
+      sp += `<path d="M0,${-sz} L${sz*0.22},0 L0,${sz} L${-sz*0.22},0 Z" fill="${p.color}"/>`;
+      sp += `<path d="M${-sz},0 L0,${sz*0.22} L${sz},0 L0,${-sz*0.22} Z" fill="${p.color}"/>`;
+      sp += `</g>`;
+    }
   });
   sparkEl.innerHTML = sp;
 });

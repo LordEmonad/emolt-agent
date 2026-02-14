@@ -17,8 +17,19 @@
       <stop offset="0%" stop-color="#E04848" stop-opacity="0.08"/>
       <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="redGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E04848" stop-opacity="0.15"/>
+      <stop offset="40%" stop-color="#E04848" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <!-- inner red glow that pulses -->
+  <g id="innerGlow"></g>
+  <!-- veins/arteries -->
+  <g id="veins"></g>
+  <!-- blood cells -->
+  <g id="bloodCells"></g>
   <g id="ecg"></g>
   <g id="pulse"></g>
   <g id="lob"></g>
@@ -26,55 +37,135 @@
 <div class="label">heartbeat cycle</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 200 ticks = 3.3s at 60fps (5 heartbeats)
+const LOOP = 200;
+const BEAT_PERIOD = 40; // 5 beats per 200
 const el = document.getElementById('lob');
 const ecgEl = document.getElementById('ecg');
 const pulseEl = document.getElementById('pulse');
+const innerGlowEl = document.getElementById('innerGlow');
+const veinsEl = document.getElementById('veins');
+const bloodCellsEl = document.getElementById('bloodCells');
 
+// Pre-generate pulse rings: one per beat at beatCycle===2
 const pulseRings = [];
+for (let i = 0; i < 5; i++) {
+  pulseRings.push({ spawnT: i * BEAT_PERIOD + 2, lifetime: 30 });
+}
+
+// Blood cell orbital paths: 8 cells in 2 circular orbits
+const N_CELLS = 8;
+const bloodCells = [];
+for (let i = 0; i < N_CELLS; i++) {
+  const rng = mulberry32(i * 6113 + 19);
+  const orbit = i < 4 ? 0 : 1; // 2 orbits
+  bloodCells.push({
+    orbit,
+    angleOffset: (i % 4) / 4 * Math.PI * 2 + rng() * 0.3,
+    radius: orbit === 0 ? 28 + rng() * 4 : 38 + rng() * 4,
+    size: 0.6 + rng() * 0.4,
+    speed: orbit === 0 ? 1 : -0.7, // opposite directions
+    yScale: 0.5 + rng() * 0.2
+  });
+}
+
+// Vein/artery branch patterns: 3 branching lines
+const veinPaths = [
+  // Right artery (curves up-right)
+  { points: [[5,10],[12,5],[20,-2],[28,-8],[34,-15]], branches: [[20,-2,26,-10]] },
+  // Left artery (curves up-left)
+  { points: [[-5,10],[-14,3],[-22,-5],[-30,-14]], branches: [[-14,3,-20,-8],[-22,-5,-28,-12]] },
+  // Lower vein
+  { points: [[0,15],[8,22],[15,28],[20,35]], branches: [[8,22,14,30]] }
+];
 
 startLoop(t => {
-  // Heartbeat rhythm: normal, then strong beat
-  const beatCycle = t % 40;
+  const lt = t % LOOP;
+
+  const beatCycle = lt % BEAT_PERIOD;
   let beatScale = 1;
-  if (beatCycle < 3) beatScale = 1 + beatCycle*0.02;
-  else if (beatCycle < 6) beatScale = 1.06 - (beatCycle-3)*0.015;
+  if (beatCycle < 3) beatScale = 1 + beatCycle * 0.02;
+  else if (beatCycle < 6) beatScale = 1.06 - (beatCycle - 3) * 0.015;
   else if (beatCycle === 12) beatScale = 1.03;
   else if (beatCycle === 13) beatScale = 1.01;
 
-  // Pulse ring on beat
-  if (beatCycle === 2) pulseRings.push({ age: 0 });
+  // Inner red glow pulsing with heartbeat
+  const glowIntensity = beatCycle < 5 ? 0.08 + (5 - beatCycle) * 0.02 : beatCycle < 14 ? 0.06 : 0.04;
+  const glowR = 25 + (beatCycle < 5 ? (5 - beatCycle) * 1.5 : 0);
+  innerGlowEl.innerHTML = '<circle cx="0" cy="3" r="' + glowR + '" fill="#E04848" opacity="' + glowIntensity + '"/>';
 
-  el.innerHTML = `<g transform="scale(${beatScale})">` +
-    drawLobster({ t }) + '</g>';
+  // Veins/arteries with pulsing opacity
+  let veinSvg = '';
+  const veinPulse = beatCycle < 6 ? 0.15 + (6 - beatCycle) * 0.03 : 0.08 + Math.sin(beatCycle * 0.2) * 0.02;
+  veinPaths.forEach(v => {
+    // Main path
+    let path = '';
+    v.points.forEach((p, idx) => {
+      path += (idx === 0 ? 'M' : 'L') + p[0] + ',' + p[1];
+    });
+    veinSvg += '<path d="' + path + '" fill="none" stroke="#E04848" stroke-width="0.5" opacity="' + veinPulse + '" stroke-linecap="round"/>';
+    // Branches
+    v.branches.forEach(b => {
+      veinSvg += '<line x1="' + b[0] + '" y1="' + b[1] + '" x2="' + b[2] + '" y2="' + b[3] + '" stroke="#E04848" stroke-width="0.3" opacity="' + (veinPulse * 0.7) + '" stroke-linecap="round"/>';
+    });
+  });
+  veinsEl.innerHTML = veinSvg;
 
-  // ECG line across bottom
-  let ecg = '<path d="';
+  // Blood cells traveling in circular paths
+  let cellSvg = '';
+  bloodCells.forEach(bc => {
+    const a = bc.angleOffset + lt * 2 * Math.PI / LOOP * bc.speed * 2;
+    const cx = Math.cos(a) * bc.radius;
+    const cy = Math.sin(a) * bc.radius * bc.yScale + 3;
+    // Pulse size with heartbeat
+    const cellPulse = beatCycle < 5 ? 1.2 : 1;
+    cellSvg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (bc.size * cellPulse) + '" fill="#E04848" opacity="0.35"/>';
+    // Faint glow
+    cellSvg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (bc.size * cellPulse * 2) + '" fill="#E04848" opacity="0.06"/>';
+  });
+  bloodCellsEl.innerHTML = cellSvg;
+
+  el.innerHTML = '<g transform="scale(' + beatScale + ')">' +
+    drawLobster({ t: lt }) + '</g>';
+
+  // ECG line with bright leading dot
+  let ecgSvg = '<path d="';
+  let leadDotX = -50, leadDotY = 45;
   for (let x = -50; x <= 50; x += 1) {
-    const px = (x + 50 + t*1.5) % 100;
+    const px = (x + 50 + lt * 1.5) % 100;
     let y = 45;
-    // ECG wave pattern
-    if (px > 35 && px < 40) y = 45 - (px-35)*3;      // P wave up
-    if (px >= 40 && px < 45) y = 30 + (px-40)*3;      // P wave down
-    if (px >= 48 && px < 50) y = 45 - (px-48)*12;     // QRS up
-    if (px >= 50 && px < 52) y = 21 + (px-50)*14;      // QRS down
-    if (px >= 52 && px < 54) y = 49 - (px-52)*2;      // QRS recover
-    if (px >= 60 && px < 68) y = 45 - Math.sin((px-60)/8*Math.PI)*6; // T wave
-
-    ecg += (x === -50 ? 'M' : 'L') + `${x},${y}`;
+    if (px > 35 && px < 40) y = 45 - (px - 35) * 3;
+    if (px >= 40 && px < 45) y = 30 + (px - 40) * 3;
+    if (px >= 48 && px < 50) y = 45 - (px - 48) * 12;
+    if (px >= 50 && px < 52) y = 21 + (px - 50) * 14;
+    if (px >= 52 && px < 54) y = 49 - (px - 52) * 2;
+    if (px >= 60 && px < 68) y = 45 - Math.sin((px - 60) / 8 * Math.PI) * 6;
+    ecgSvg += (x === -50 ? 'M' : 'L') + x + ',' + y;
+    // Track the leading edge (where px is closest to 0, i.e., the drawing front)
+    if (x === 50 || (px < 3)) {
+      leadDotX = x;
+      leadDotY = y;
+    }
   }
-  ecg += `" fill="none" stroke="#E04848" stroke-width="0.6" opacity="0.4"/>`;
-  ecgEl.innerHTML = ecg;
+  ecgSvg += '" fill="none" stroke="#E04848" stroke-width="0.6" opacity="0.4"/>';
+  // Bright leading dot on the ECG line
+  ecgSvg += '<circle cx="' + leadDotX + '" cy="' + leadDotY + '" r="1.2" fill="#E04848" opacity="0.8"/>';
+  ecgSvg += '<circle cx="' + leadDotX + '" cy="' + leadDotY + '" r="2.5" fill="#E04848" opacity="0.2"/>';
+  ecgEl.innerHTML = ecgSvg;
 
-  // Expanding pulse rings
+  // Expanding pulse rings via particleAge (with gradient fade - thicker near center)
   let pulse = '';
-  for (let i = pulseRings.length-1; i >= 0; i--) {
-    const r = pulseRings[i];
-    r.age++;
-    if (r.age > 30) { pulseRings.splice(i,1); continue; }
-    const radius = 15 + r.age*1.2;
-    const op = (1-r.age/30)*0.15;
-    pulse += `<circle cx="0" cy="3" r="${radius}" fill="none" stroke="#E04848" stroke-width="0.5" opacity="${op}"/>`;
-  }
+  pulseRings.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const radius = 15 + age * 1.2;
+      const progress = age / p.lifetime;
+      const op = (1 - progress) * 0.15;
+      // Thicker near center, thinner at edge
+      const strokeW = 1.2 - progress * 0.8;
+      pulse += '<circle cx="0" cy="3" r="' + radius + '" fill="none" stroke="#E04848" stroke-width="' + Math.max(0.2, strokeW) + '" opacity="' + op + '"/>';
+    }
+  });
   pulseEl.innerHTML = pulse;
 });
 </script>

@@ -21,94 +21,213 @@
       <stop offset="100%" stop-color="#140808" stop-opacity="0"/>
     </radialGradient>
     <filter id="fireGlow"><feGaussianBlur stdDeviation="2"/></filter>
+    <filter id="flameWarp">
+      <feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="2" result="turb" seed="3"/>
+      <feDisplacementMap in="SourceGraphic" in2="turb" scale="3" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
   </defs>
   <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <g id="borderGlow"></g>
   <g id="fire"></g>
+  <g id="innerFire"></g>
   <g id="lob"></g>
   <g id="fx"></g>
+  <g id="debris"></g>
 </svg>
 <div class="label">rage (anger + anticipation)</div>
 <script src="lobster.js"></script>
 <script>
 const el = document.getElementById('lob');
 const fireEl = document.getElementById('fire');
+const innerFireEl = document.getElementById('innerFire');
 const fxEl = document.getElementById('fx');
 const flashEl = document.getElementById('flash');
+const borderGlowEl = document.getElementById('borderGlow');
+const debrisEl = document.getElementById('debris');
 
+const LOOP = 250;
+
+// Outer flames
 const flames = [];
+for (let i = 0; i < 125; i++) {
+  const rng = mulberry32(i * 7919 + 31);
+  const spawnT = i * 2;
+  const angle = rng() * Math.PI * 2;
+  const dist = 12 + rng() * 5;
+  flames.push({
+    spawnT,
+    lifetime: 25,
+    baseX: Math.cos(angle) * dist,
+    baseY: Math.sin(angle) * dist * 1.3,
+    vy: -0.8 - rng() * 0.8,
+    vx: (rng() - 0.5) * 0.4,
+    size: 1.5 + rng() * 2
+  });
+}
+
+// Inner flame layer (brighter orange/yellow, smaller, closer to body)
+const innerFlames = [];
+for (let i = 0; i < 60; i++) {
+  const rng = mulberry32(i * 4271 + 97);
+  const spawnT = Math.floor(rng() * LOOP);
+  const angle = rng() * Math.PI * 2;
+  const dist = 8 + rng() * 4;
+  innerFlames.push({
+    spawnT,
+    lifetime: 18,
+    baseX: Math.cos(angle) * dist,
+    baseY: Math.sin(angle) * dist * 1.1,
+    vy: -1.0 - rng() * 0.6,
+    vx: (rng() - 0.5) * 0.3,
+    size: 0.8 + rng() * 1.2
+  });
+}
+
+// Ground cracks (fork-shaped lines that grow from slam points)
 const cracks = [];
+for (let s = 0; s < 5; s++) {
+  const slamT = s * 50 + 4;
+  for (let i = 0; i < 4; i++) {
+    const rng = mulberry32(s * 1013 + i * 3571 + 77);
+    const baseAngle = -0.3 + rng() * 0.6 + Math.PI * 0.5; // mostly downward/outward
+    const len = 8 + rng() * 15;
+    const forkAngle = (rng() - 0.5) * 0.6;
+    const forkLen = 3 + rng() * 6;
+    cracks.push({
+      spawnT: slamT,
+      lifetime: 35,
+      x0: 15 + rng() * 15,
+      y0: 35,
+      dx: Math.cos(baseAngle) * len,
+      dy: Math.sin(baseAngle) * len * 0.3,
+      // Fork branch
+      forkDx: Math.cos(baseAngle + forkAngle) * forkLen,
+      forkDy: Math.sin(baseAngle + forkAngle) * forkLen * 0.3
+    });
+  }
+}
+
+// Flying debris (5 per slam = 25 total)
+const debris = [];
+for (let s = 0; s < 5; s++) {
+  const slamT = s * 50 + 4;
+  for (let i = 0; i < 5; i++) {
+    const rng = mulberry32(s * 8837 + i * 2311 + 53);
+    debris.push({
+      spawnT: slamT,
+      lifetime: 28,
+      x0: 15 + rng() * 20,
+      y0: 35,
+      vx: (rng() - 0.5) * 2.5,
+      vy: -1.5 - rng() * 2.0,
+      rot: rng() * 360,
+      rotSpeed: (rng() - 0.5) * 15,
+      size: 0.8 + rng() * 1.5
+    });
+  }
+}
 
 startLoop(t => {
-  // Violent shaking
-  const shakeX = (Math.random()-0.5)*4;
-  const shakeY = (Math.random()-0.5)*3;
-  const grow = 1 + Math.sin(t/10)*0.04;
+  const lt = t % LOOP;
 
-  // Periodic claw slam
-  const slamCycle = t % 50;
+  const shakeX = Math.sin(lt * 2 * Math.PI * 290 / 250)*1.5 + Math.sin(lt * 2 * Math.PI * 521 / 250)*0.5 + Math.sin(lt * 2 * Math.PI * 943 / 250)*0.3;
+  const shakeY = Math.sin(lt * 2 * Math.PI * 235 / 250)*1.2 + Math.sin(lt * 2 * Math.PI * 450 / 250)*0.4 + Math.sin(lt * 2 * Math.PI * 760 / 250)*0.2;
+  const grow = 1 + Math.sin(lt * 2 * Math.PI / 50)*0.04;
+
+  const slamCycle = lt % 50;
   const slamming = slamCycle < 5;
   const slamClawR = slamming ? 30+slamCycle*4 : 0;
 
-  if (slamming && slamCycle === 4) {
-    flashEl.style.opacity = '0.1';
-    setTimeout(() => flashEl.style.opacity = '0', 80);
-    // Ground cracks
-    for (let i = 0; i < 3; i++) {
-      cracks.push({
-        x: 15+Math.random()*20, y: 35,
-        dx: (Math.random()-0.5)*15, dy: Math.random()*5,
-        age: 0
-      });
-    }
-  }
+  const flashOn = (slamCycle >= 4 && slamCycle < 6);
+  flashEl.style.opacity = flashOn ? '0.1' : '0';
+
+  // Screen border glow that pulses red with each slam
+  const borderPulse = slamCycle < 8 ? (1 - slamCycle / 8) * 0.5 : 0.05 + Math.sin(lt * 2 * Math.PI / 50) * 0.03;
+  let borderSvg = `<rect x="-60" y="-70" width="120" height="140" fill="none" stroke="#E04848" stroke-width="2" opacity="${borderPulse}" rx="2"/>`;
+  borderSvg += `<rect x="-59" y="-69" width="118" height="138" fill="none" stroke="#ff6644" stroke-width="1" opacity="${borderPulse * 0.5}" rx="2"/>`;
+  borderGlowEl.innerHTML = borderSvg;
 
   el.innerHTML = `<g transform="translate(${shakeX},${shakeY}) scale(${grow})">` +
     drawLobster({
-      t, mood: 'angry',
-      clawOpenL: -5+Math.sin(t/3)*8,
+      t: lt, mood: 'angry',
+      clawOpenL: -5+Math.sin(lt * 2 * Math.PI / 25)*8,
       clawOpenR: slamClawR
     }) + '</g>';
 
-  // Fire particles around body
-  if (t % 2 === 0) {
-    const angle = Math.random()*Math.PI*2;
-    const dist = 12+Math.random()*5;
-    flames.push({
-      x: Math.cos(angle)*dist+shakeX,
-      y: Math.sin(angle)*dist*1.3+shakeY,
-      vy: -0.8-Math.random()*0.8,
-      vx: (Math.random()-0.5)*0.4,
-      age: 0,
-      size: 1.5+Math.random()*2
-    });
-  }
+  // Outer flame layer
   let fire = '';
-  for (let i = flames.length-1; i >= 0; i--) {
-    const f = flames[i];
-    f.age++;
-    f.y += f.vy;
-    f.x += f.vx;
-    f.size *= 0.97;
-    if (f.age > 25) { flames.splice(i,1); continue; }
-    const p = f.age/25;
-    const r = Math.round(228 + 27*p);
-    const g = Math.round(72*(1-p));
-    const b = 0;
-    const op = (1-p)*0.5;
-    fire += `<circle cx="${f.x}" cy="${f.y}" r="${f.size}" fill="rgb(${r},${g},${b})" opacity="${op}"/>`;
-  }
+  flames.forEach(f => {
+    const age = particleAge(lt, f.spawnT, f.lifetime, LOOP);
+    if (age >= 0) {
+      const p = age / 25;
+      const sz = f.size * Math.pow(0.97, age);
+      const fx = f.baseX + f.vx * age + shakeX;
+      const fy = f.baseY + f.vy * age + shakeY;
+      const r = Math.round(228 + 27*p);
+      const g = Math.round(72*(1-p));
+      const op = (1-p)*0.5;
+      fire += `<circle cx="${fx}" cy="${fy}" r="${sz}" fill="rgb(${r},${g},0)" opacity="${op}"/>`;
+    }
+  });
   fireEl.innerHTML = fire;
 
-  // Ground cracks
+  // Inner flame layer (brighter orange/yellow with warp filter)
+  let innerFire = '';
+  innerFlames.forEach(f => {
+    const age = particleAge(lt, f.spawnT, f.lifetime, LOOP);
+    if (age >= 0) {
+      const p = age / f.lifetime;
+      const sz = f.size * Math.pow(0.95, age);
+      const fx = f.baseX + f.vx * age + shakeX;
+      const fy = f.baseY + f.vy * age + shakeY;
+      // Brighter: orange to yellow
+      const r = 255;
+      const g = Math.round(160 + 95 * p);
+      const b = Math.round(60 * (1 - p));
+      const op = (1 - p) * 0.45;
+      innerFire += `<circle cx="${fx}" cy="${fy}" r="${sz}" fill="rgb(${r},${g},${b})" opacity="${op}"/>`;
+    }
+  });
+  innerFireEl.innerHTML = `<g filter="url(#flameWarp)">${innerFire}</g>`;
+
+  // Cracks (fork-shaped lines that grow)
   let fx = '';
-  for (let i = cracks.length-1; i >= 0; i--) {
-    const c = cracks[i];
-    c.age++;
-    if (c.age > 30) { cracks.splice(i,1); continue; }
-    const op = (1-c.age/30)*0.4;
-    fx += `<line x1="${c.x}" y1="${c.y}" x2="${c.x+c.dx}" y2="${c.y+c.dy}" stroke="#E04848" stroke-width="0.5" opacity="${op}"/>`;
-  }
+  cracks.forEach(c => {
+    const age = particleAge(lt, c.spawnT, c.lifetime, LOOP);
+    if (age >= 0) {
+      const growP = Math.min(1, age / 8); // grow over first 8 ticks
+      const op = age < 8 ? 0.5 : (1 - (age - 8) / (c.lifetime - 8)) * 0.4;
+      const endX = c.x0 + c.dx * growP;
+      const endY = c.y0 + c.dy * growP;
+      // Main crack line
+      fx += `<line x1="${c.x0}" y1="${c.y0}" x2="${endX}" y2="${endY}" stroke="#E04848" stroke-width="0.6" opacity="${op}"/>`;
+      // Fork branch (starts at 60% of main line)
+      if (growP > 0.6) {
+        const forkP = (growP - 0.6) / 0.4;
+        const forkX0 = c.x0 + c.dx * 0.6;
+        const forkY0 = c.y0 + c.dy * 0.6;
+        fx += `<line x1="${forkX0}" y1="${forkY0}" x2="${forkX0 + c.forkDx * forkP}" y2="${forkY0 + c.forkDy * forkP}" stroke="#E04848" stroke-width="0.4" opacity="${op * 0.7}"/>`;
+      }
+    }
+  });
   fxEl.innerHTML = fx;
+
+  // Flying debris
+  let debSvg = '';
+  debris.forEach(d => {
+    const age = particleAge(lt, d.spawnT, d.lifetime, LOOP);
+    if (age >= 0) {
+      const dx = d.x0 + d.vx * age;
+      const dy = d.y0 + d.vy * age + 0.08 * age * age; // gravity
+      const dop = age < 3 ? age / 3 : (1 - age / d.lifetime) * 0.6;
+      const drot = d.rot + d.rotSpeed * age;
+      // Angular shard shape
+      debSvg += `<g transform="translate(${dx},${dy}) rotate(${drot})" opacity="${dop}">`;
+      debSvg += `<polygon points="0,${-d.size} ${d.size*0.6},${d.size*0.3} ${-d.size*0.4},${d.size*0.5}" fill="#8b3030"/>`;
+      debSvg += `</g>`;
+    }
+  });
+  debrisEl.innerHTML = debSvg;
 });
 </script>
 </body>

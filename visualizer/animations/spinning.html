@@ -19,58 +19,138 @@
     </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="bgSpiral"></g>
   <g id="trail"></g>
+  <g id="speedRings"></g>
+  <g id="centrifuge"></g>
   <g id="lob"></g>
   <g id="dizzy"></g>
 </svg>
 <div class="label">spinning</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 360 ticks = 6s at 60fps (4 full spins)
+const LOOP = 360;
+const SPIN_PERIOD = 90;
 const el = document.getElementById('lob');
 const trailEl = document.getElementById('trail');
 const dizzyEl = document.getElementById('dizzy');
+const speedRingsEl = document.getElementById('speedRings');
+const centrifugeEl = document.getElementById('centrifuge');
+const bgSpiralEl = document.getElementById('bgSpiral');
 
-const trails = [];
+// Centrifugal force particles (14 particles)
+const centrifugeParts = [];
+for (let i = 0; i < 14; i++) {
+  const rng = mulberry32(i * 8291 + 37);
+  centrifugeParts.push({
+    spawnT: Math.floor(rng() * LOOP),
+    lifetime: 35,
+    angle0: rng() * Math.PI * 2,
+    angSpeed: 0.08 + rng() * 0.04,
+    r0: 8 + rng() * 5,
+    rSpeed: 0.8 + rng() * 0.6,
+    size: 0.4 + rng() * 0.4,
+    color: rng() > 0.5 ? '#22AACC' : '#7c3aed'
+  });
+}
 
 startLoop(t => {
-  const angle = (t % 90) * 4;  // 90*4=360° exactly one full rotation per loop
-  const scaleX = Math.cos(t/15*Math.PI);
+  const lt = t % LOOP;
 
-  // Store trail positions
-  if (t % 2 === 0) {
-    trails.push({ scaleX, angle, age: 0, t });
-  }
+  const angle = (lt % SPIN_PERIOD) * 4;
+  const scaleX = Math.cos(lt * 2 * Math.PI / 30);
 
-  el.innerHTML = `<g transform="rotate(${angle%360})">` +
-    drawLobster({ t, stretch: Math.abs(scaleX)*0.4+0.6, mood: 'surprised' }) + '</g>';
+  el.innerHTML = `<g transform="rotate(${angle % 360})">` +
+    drawLobster({ t: lt, stretch: Math.abs(scaleX) * 0.4 + 0.6, mood: 'surprised' }) + '</g>';
 
-  // After-image trail
+  // Motion blur trail: a smeared ellipse ring instead of 6x drawLobster
   let trail = '';
-  for (let i = trails.length-1; i >= 0; i--) {
-    const tr = trails[i];
-    tr.age++;
-    if (tr.age > 12) { trails.splice(i,1); continue; }
-    const op = (1-tr.age/12)*0.12;
-    trail += `<g transform="rotate(${tr.angle%360})" opacity="${op}">` +
-      drawLobster({ t: tr.t, stretch: Math.abs(tr.scaleX)*0.4+0.6 }) + '</g>';
+  const trailR = 12; // approximate lobster center radius
+  for (let j = 1; j <= 8; j++) {
+    const pastAngle = ((angle - j * 15) % 360 + 360) % 360;
+    const op = (1 - j / 9) * 0.08;
+    const rad = pastAngle * Math.PI / 180;
+    const tx = Math.cos(rad) * 2; // slight offset for smear
+    const ty = Math.sin(rad) * 2;
+    trail += `<ellipse cx="${tx}" cy="${ty}" rx="${trailR + 2}" ry="${trailR}" fill="none" stroke="#22AACC" stroke-width="${3 - j * 0.3}" opacity="${op}" transform="rotate(${pastAngle})"/>`;
   }
   trailEl.innerHTML = trail;
 
-  // Dizzy stars orbiting
+  // Concentric speed rings that rotate with the spin
+  let ringsSvg = '';
+  for (let i = 0; i < 3; i++) {
+    const rr = 28 + i * 8;
+    const ringAngle = lt * 2 * Math.PI / (90 * (i + 1));
+    const rop = 0.05 + Math.sin(lt * 2 * Math.PI / 90 + i * 2) * 0.03;
+    // Dashed ring effect via partial arcs
+    for (let seg = 0; seg < 4; seg++) {
+      const sa = ringAngle + (seg / 4) * Math.PI * 2;
+      const ea = sa + Math.PI * 0.3;
+      const sx = Math.cos(sa) * rr;
+      const sy = Math.sin(sa) * rr;
+      const ex = Math.cos(ea) * rr;
+      const ey = Math.sin(ea) * rr;
+      // Arc from sa to ea
+      ringsSvg += `<path d="M${sx},${sy} A${rr},${rr} 0 0 1 ${ex},${ey}" fill="none" stroke="#22AACC" stroke-width="0.4" opacity="${rop}"/>`;
+    }
+  }
+  speedRingsEl.innerHTML = ringsSvg;
+
+  // Centrifugal force particles flying outward
+  let centSvg = '';
+  centrifugeParts.forEach(cp => {
+    const age = particleAge(lt, cp.spawnT, cp.lifetime, LOOP);
+    if (age >= 0) {
+      const a = cp.angle0 + cp.angSpeed * age;
+      const r = cp.r0 + cp.rSpeed * age;
+      const cx = Math.cos(a) * r;
+      const cy = Math.sin(a) * r;
+      const cop = age < 5 ? age / 5 : (1 - age / cp.lifetime) * 0.5;
+      centSvg += `<circle cx="${cx}" cy="${cy}" r="${cp.size}" fill="${cp.color}" opacity="${cop}"/>`;
+    }
+  });
+  centrifugeEl.innerHTML = centSvg;
+
+  // Dizzy stars orbiting with trail effects
   let dizzy = '';
   const dizzyCount = 5;
   for (let i = 0; i < dizzyCount; i++) {
-    const da = (i/dizzyCount)*Math.PI*2 + (t%90)*0.1;
-    const dr = 38 + Math.sin(t/10+i)*3;
-    const dx = Math.cos(da)*dr;
-    const dy = Math.sin(da)*dr*0.4 - 15;
-    const dop = 0.3+Math.sin(t/5+i)*0.2;
-    // Star shape
-    dizzy += `<g transform="translate(${dx},${dy}) rotate(${(t%90)*3+i*72})" opacity="${dop}">`;
+    const da = (i / dizzyCount) * Math.PI * 2 + (lt % SPIN_PERIOD) * 0.1;
+    const dr = 38 + Math.sin(lt * 2 * Math.PI / 60 + i) * 3;
+    const dx = Math.cos(da) * dr;
+    const dy = Math.sin(da) * dr * 0.4 - 15;
+    const dop = 0.3 + Math.sin(lt * 2 * Math.PI / 30 + i) * 0.2;
+    const starRot = (lt % SPIN_PERIOD) * 3 + i * 72;
+    // Trail dots behind each star (3 dots)
+    for (let ti = 1; ti <= 3; ti++) {
+      const trailA = da - ti * 0.06;
+      const trailDr = dr - ti * 0.5;
+      const trailDx = Math.cos(trailA) * trailDr;
+      const trailDy = Math.sin(trailA) * trailDr * 0.4 - 15;
+      const trailOp = dop * (1 - ti * 0.28);
+      dizzy += `<circle cx="${trailDx}" cy="${trailDy}" r="${1.2 - ti * 0.3}" fill="#F5D831" opacity="${trailOp * 0.5}"/>`;
+    }
+    // Main star
+    dizzy += `<g transform="translate(${dx},${dy}) rotate(${starRot})" opacity="${dop}">`;
     dizzy += `<polygon points="0,-2.5 0.7,-0.8 2.4,-0.8 1.1,0.3 1.5,2 0,1 -1.5,2 -1.1,0.3 -2.4,-0.8 -0.7,-0.8" fill="#F5D831"/>`;
     dizzy += `</g>`;
   }
   dizzyEl.innerHTML = dizzy;
+
+  // Background spiral pattern rotating opposite to spin
+  let spiralSvg = '';
+  const spiralAngle = -(lt * 2 * Math.PI / 360); // opposite direction, full rotation per loop
+  let spiralPath = '';
+  for (let s = 0; s < 80; s++) {
+    const sa = s * 0.15 + spiralAngle;
+    const sr = 5 + s * 0.6;
+    const sx = Math.cos(sa) * sr;
+    const sy = Math.sin(sa) * sr;
+    spiralPath += (s === 0 ? 'M' : 'L') + sx + ',' + sy;
+  }
+  spiralSvg = `<path d="${spiralPath}" fill="none" stroke="#22AACC" stroke-width="0.3" opacity="0.04"/>`;
+  bgSpiralEl.innerHTML = spiralSvg;
 });
 </script>
 </body>

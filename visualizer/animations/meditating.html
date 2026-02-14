@@ -18,9 +18,15 @@
       <stop offset="50%" stop-color="#6ECB3C" stop-opacity="0.03"/>
       <stop offset="100%" stop-color="#0a0e1a" stop-opacity="0"/>
     </radialGradient>
+    <filter id="ringBlur">
+      <feGaussianBlur stdDeviation="0.5"/>
+    </filter>
   </defs>
   <circle cx="0" cy="0" r="55" fill="url(#zen)"/>
+  <!-- lotus/mandala under lobster -->
+  <g id="lotus"></g>
   <g id="rings"></g>
+  <g id="incense"></g>
   <g id="lob"></g>
   <g id="aura"></g>
   <g id="chakra"></g>
@@ -28,55 +34,140 @@
 <div class="label">meditating</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 240 ticks = 4s at 60fps
+const LOOP = 240;
+const BREATHE_PERIOD = 120; // 2 breath cycles per 240
+const AURA_PERIOD = 120;    // divides 240
+const AURA_R_PERIOD = 80;   // 3 aura-radius cycles per 240
+const LOTUS_ROTATE_PERIOD = 240; // 1 full rotation per loop
+const CHAKRA_ORBIT_PERIOD = LOOP; // 1 full orbit per loop (exact)
 const el = document.getElementById('lob');
 const ringsEl = document.getElementById('rings');
 const auraEl = document.getElementById('aura');
 const chakraEl = document.getElementById('chakra');
+const lotusEl = document.getElementById('lotus');
+const incenseEl = document.getElementById('incense');
 
-const expandRings = [];
+// Pre-generate expanding zen rings: one every 40 ticks = 6 per loop
+const N_RINGS = 6;
+const rings = [];
+for (let i = 0; i < N_RINGS; i++) {
+  rings.push({ spawnT: i * 40, lifetime: 80 });
+}
+
+// Pre-generate incense smoke particles: 4 trails, 5 particles each
+const N_INCENSE_TRAILS = 4;
+const N_INCENSE_PER_TRAIL = 5;
+const incenseParticles = [];
+for (let tr = 0; tr < N_INCENSE_TRAILS; tr++) {
+  for (let i = 0; i < N_INCENSE_PER_TRAIL; i++) {
+    const rng = mulberry32(tr * 10000 + i * 1301 + 51);
+    incenseParticles.push({
+      spawnT: (tr * 60 + i * 12) % LOOP, // stagger across loop
+      lifetime: 48,
+      trail: tr,
+      baseX: -28 + tr * 3,
+      drift: (rng() - 0.5) * 0.15,
+      wavAmp: 1.5 + rng() * 2,
+      wavFreq: rng() * 0.12 + 0.06
+    });
+  }
+}
+
+// Lotus petal count and geometry
+const LOTUS_PETALS = 12;
 
 startLoop(t => {
+  const lt = t % LOOP;
+
   // Very gentle, slow breathing
-  const breathe = Math.sin(t/30)*1;
-  const slowTick = Math.floor(t*0.25);
+  const breathe = Math.sin(lt * 2 * Math.PI / BREATHE_PERIOD) * 1;
+  // Subtle scale pulse on lobster synced to breathing
+  const breatheScale = 1 + Math.sin(lt * 2 * Math.PI / BREATHE_PERIOD) * 0.015;
+  el.innerHTML = '<g transform="scale(' + breatheScale + ')">' +
+    drawLobster({ t: lt, extraBob: breathe }) + '</g>';
 
-  el.innerHTML = drawLobster({ t: slowTick, extraBob: breathe });
-
-  // Expanding zen rings
-  if (t % 40 === 0) expandRings.push({ age: 0 });
-  let rings = '';
-  for (let i = expandRings.length-1; i >= 0; i--) {
-    const r = expandRings[i];
-    r.age++;
-    if (r.age > 80) { expandRings.splice(i,1); continue; }
-    const radius = 10 + r.age*0.6;
-    const op = (1-r.age/80)*0.2;
-    rings += `<circle cx="0" cy="3" r="${radius}" fill="none" stroke="#7c3aed" stroke-width="0.3" opacity="${op}"/>`;
+  // Lotus/mandala pattern under lobster (slowly rotating)
+  let lotusSvg = '';
+  const lotusAngle = lt * 2 * Math.PI / LOTUS_ROTATE_PERIOD;
+  const lotusOp = 0.06 + Math.sin(lt * 2 * Math.PI / BREATHE_PERIOD) * 0.02;
+  lotusSvg += '<g transform="translate(0,32) rotate(' + (lotusAngle * 180 / Math.PI) + ')" opacity="' + lotusOp + '">';
+  for (let i = 0; i < LOTUS_PETALS; i++) {
+    const pa = (i / LOTUS_PETALS) * 360;
+    // Each petal is an ellipse rotated around center
+    lotusSvg += '<ellipse cx="0" cy="-8" rx="3" ry="8" fill="none" stroke="#7c3aed" stroke-width="0.4" transform="rotate(' + pa + ',0,0)"/>';
   }
-  ringsEl.innerHTML = rings;
+  // Center circle
+  lotusSvg += '<circle cx="0" cy="0" r="3" fill="none" stroke="#6ECB3C" stroke-width="0.3"/>';
+  // Inner ring
+  lotusSvg += '<circle cx="0" cy="0" r="5.5" fill="none" stroke="#7c3aed" stroke-width="0.2"/>';
+  lotusSvg += '</g>';
+  lotusEl.innerHTML = lotusSvg;
 
-  // Aura glow
-  const auraOp = 0.04 + Math.sin(t/25)*0.02;
-  const auraR = 22 + Math.sin(t/20)*2;
-  auraEl.innerHTML = `<ellipse cx="0" cy="3" rx="${auraR}" ry="${auraR*1.2}" fill="#7c3aed" opacity="${auraOp}"/>`;
+  // Expanding zen rings via particleAge (with blur filter)
+  let ringsSvg = '';
+  rings.forEach(r => {
+    const age = particleAge(lt, r.spawnT, r.lifetime, LOOP);
+    if (age >= 0) {
+      const radius = 10 + age * 0.6;
+      const op = (1 - age / 80) * 0.2;
+      ringsSvg += '<circle cx="0" cy="3" r="' + radius + '" fill="none" stroke="#7c3aed" stroke-width="0.4" opacity="' + op + '" filter="url(#ringBlur)"/>';
+    }
+  });
+  ringsEl.innerHTML = ringsSvg;
 
-  // Floating chakra dots (Plutchik colors orbiting)
+  // Incense smoke rising from left side
+  let incSvg = '';
+  incenseParticles.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const ix = p.baseX + p.drift * age + Math.sin(age * p.wavFreq * 2 + p.trail) * p.wavAmp;
+      const iy = 28 - age * 0.6;
+      const fadeIn = age < 6 ? age / 6 : 1;
+      const fadeOut = age > 36 ? (48 - age) / 12 : 1;
+      const iop = fadeIn * fadeOut * 0.12;
+      const isize = 0.5 + age * 0.04;
+      incSvg += '<circle cx="' + ix + '" cy="' + iy + '" r="' + isize + '" fill="#a0a0c0" opacity="' + iop + '"/>';
+    }
+  });
+  // Incense stick
+  incSvg += '<line x1="-27" y1="28" x2="-27" y2="34" stroke="#8b6914" stroke-width="0.4" opacity="0.3"/>';
+  // Tiny ember at top
+  const emberOp = 0.3 + Math.sin(lt * 2 * Math.PI / 24) * 0.15;
+  incSvg += '<circle cx="-27" cy="28" r="0.5" fill="#EF8E20" opacity="' + emberOp + '"/>';
+  incenseEl.innerHTML = incSvg;
+
+  // Aura glow (periods divide 240)
+  const auraOp = 0.04 + Math.sin(lt * 2 * Math.PI / AURA_PERIOD) * 0.02;
+  const auraR = 22 + Math.sin(lt * 2 * Math.PI / AURA_R_PERIOD) * 2;
+  auraEl.innerHTML = '<ellipse cx="0" cy="3" rx="' + auraR + '" ry="' + (auraR * 1.2) + '" fill="#7c3aed" opacity="' + auraOp + '"/>';
+
+  // Floating chakra dots with geometric shapes (Plutchik colors orbiting)
   const chakraColors = ['#F5D831','#6ECB3C','#2BA84A','#22AACC','#4A6BD4','#A85EC0','#E04848','#EF8E20'];
+  const chakraShapes = ['diamond', 'triangle', 'circle', 'diamond', 'triangle', 'circle', 'diamond', 'triangle'];
   let chakra = '';
   chakraColors.forEach((c, i) => {
-    const a = (i/8)*Math.PI*2 + t*0.008;
-    const dist = 35 + Math.sin(t/30+i)*3;
-    const cx = Math.cos(a)*dist;
-    const cy = Math.sin(a)*dist*0.6 + 3;
-    const op = 0.2 + Math.sin(t/15+i*1.5)*0.15;
-    const sz = 1.5 + Math.sin(t/12+i)*0.4;
-    chakra += `<circle cx="${cx}" cy="${cy}" r="${sz}" fill="${c}" opacity="${op}"/>`;
+    const a = (i / 8) * Math.PI * 2 + lt * 2 * Math.PI / CHAKRA_ORBIT_PERIOD;
+    const dist = 35 + Math.sin(lt * 2 * Math.PI / BREATHE_PERIOD + i) * 3;
+    const cx = Math.cos(a) * dist;
+    const cy = Math.sin(a) * dist * 0.6 + 3;
+    const op = 0.2 + Math.sin(lt * 2 * Math.PI / 60 + i * 1.5) * 0.15;
+    const sz = 1.5 + Math.sin(lt * 2 * Math.PI / 48 + i) * 0.4;
+    const shape = chakraShapes[i];
+
+    if (shape === 'diamond') {
+      chakra += '<polygon points="' + cx + ',' + (cy - sz) + ' ' + (cx + sz * 0.7) + ',' + cy + ' ' + cx + ',' + (cy + sz) + ' ' + (cx - sz * 0.7) + ',' + cy + '" fill="' + c + '" opacity="' + op + '"/>';
+    } else if (shape === 'triangle') {
+      chakra += '<polygon points="' + cx + ',' + (cy - sz) + ' ' + (cx + sz * 0.8) + ',' + (cy + sz * 0.6) + ' ' + (cx - sz * 0.8) + ',' + (cy + sz * 0.6) + '" fill="' + c + '" opacity="' + op + '"/>';
+    } else {
+      chakra += '<circle cx="' + cx + '" cy="' + cy + '" r="' + sz + '" fill="' + c + '" opacity="' + op + '"/>';
+    }
     // Faint trail
     for (let j = 1; j <= 3; j++) {
-      const ta = a - j*0.04;
-      const tx = Math.cos(ta)*dist;
-      const ty = Math.sin(ta)*dist*0.6+3;
-      chakra += `<circle cx="${tx}" cy="${ty}" r="${sz*0.5}" fill="${c}" opacity="${op*0.2/j}"/>`;
+      const ta = a - j * 0.04;
+      const tx = Math.cos(ta) * dist;
+      const ty = Math.sin(ta) * dist * 0.6 + 3;
+      chakra += '<circle cx="' + tx + '" cy="' + ty + '" r="' + (sz * 0.5) + '" fill="' + c + '" opacity="' + (op * 0.2 / j) + '"/>';
     }
   });
   chakraEl.innerHTML = chakra;

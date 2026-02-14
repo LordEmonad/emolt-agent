@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMOLT Animation Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0e18; color: #c4b5fd; font-family: 'Courier New', monospace; height: 100vh; overflow: hidden; }
+
+  .top-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; background: rgba(124,58,237,0.08);
+    border-bottom: 1px solid rgba(124,58,237,0.15);
+  }
+  .top-bar h1 { font-size: 16px; color: #7c3aed; letter-spacing: 2px; }
+  .top-bar .mode-btns { display: flex; gap: 8px; }
+  .top-bar button {
+    background: rgba(124,58,237,0.12); border: 1px solid rgba(124,58,237,0.25);
+    color: #c4b5fd; padding: 6px 14px; cursor: pointer; font-family: inherit;
+    font-size: 12px; border-radius: 4px; transition: all 0.2s;
+  }
+  .top-bar button:hover, .top-bar button.active {
+    background: rgba(124,58,237,0.3); border-color: #7c3aed; color: #fff;
+  }
+
+  /* Single view */
+  .single-view {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; height: calc(100vh - 52px); position: relative;
+  }
+  .single-view iframe {
+    width: 500px; height: 500px; border: 1px solid rgba(124,58,237,0.15);
+    border-radius: 8px; background: #0e1420;
+  }
+  .nav-area {
+    display: flex; align-items: center; gap: 20px; margin-top: 16px;
+  }
+  .nav-area button {
+    background: rgba(124,58,237,0.15); border: 1px solid rgba(124,58,237,0.3);
+    color: #c4b5fd; padding: 10px 20px; cursor: pointer; font-family: inherit;
+    font-size: 18px; border-radius: 6px; transition: all 0.15s;
+  }
+  .nav-area button:hover { background: rgba(124,58,237,0.35); color: #fff; }
+  .anim-name {
+    font-size: 20px; color: #7c3aed; min-width: 220px; text-align: center;
+    font-weight: bold; letter-spacing: 1px;
+  }
+  .counter { font-size: 12px; color: rgba(196,181,253,0.5); margin-top: 4px; text-align: center; }
+  .hint { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: rgba(196,181,253,0.3); }
+
+  /* Grid view */
+  .grid-view {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px; padding: 16px; height: calc(100vh - 52px); overflow-y: auto;
+  }
+  .grid-view::-webkit-scrollbar { width: 6px; }
+  .grid-view::-webkit-scrollbar-track { background: transparent; }
+  .grid-view::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.3); border-radius: 3px; }
+  .grid-cell {
+    display: flex; flex-direction: column; align-items: center;
+    background: rgba(124,58,237,0.04); border: 1px solid rgba(124,58,237,0.1);
+    border-radius: 6px; padding: 8px; cursor: pointer; transition: all 0.2s;
+  }
+  .grid-cell:hover {
+    border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.08);
+  }
+  .grid-cell iframe {
+    width: 100%; height: 240px; border: none; pointer-events: none;
+    border-radius: 4px; background: #0e1420;
+  }
+  .grid-cell .cell-label {
+    margin-top: 6px; font-size: 12px; color: #7c3aed; letter-spacing: 1px;
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>EMOLT ANIMATION VIEWER</h1>
+  <div class="mode-btns">
+    <button id="btnSingle" class="active" onclick="setMode('single')">SINGLE</button>
+    <button id="btnGrid" onclick="setMode('grid')">GRID</button>
+  </div>
+</div>
+
+<div class="single-view" id="singleView">
+  <iframe id="frame" src=""></iframe>
+  <div class="nav-area">
+    <button onclick="prev()">&larr;</button>
+    <div>
+      <div class="anim-name" id="animName"></div>
+      <div class="counter" id="counter"></div>
+    </div>
+    <button onclick="next()">&rarr;</button>
+  </div>
+</div>
+
+<div class="grid-view hidden" id="gridView"></div>
+
+<div class="hint">Arrow keys or click to navigate &middot; G for grid &middot; S for single</div>
+
+<script>
+const anims = [
+  // Plutchik primary emotions
+  { file: 'happy.html', name: 'Happy', category: 'emotion' },
+  { file: 'sad.html', name: 'Sad', category: 'emotion' },
+  { file: 'angry.html', name: 'Angry', category: 'emotion' },
+  { file: 'fearful.html', name: 'Fearful', category: 'emotion' },
+  { file: 'trust.html', name: 'Trust', category: 'emotion' },
+  { file: 'disgust.html', name: 'Disgust', category: 'emotion' },
+  { file: 'surprised.html', name: 'Surprised', category: 'emotion' },
+  { file: 'anticipation.html', name: 'Anticipation', category: 'emotion' },
+  // Compound emotions
+  { file: 'love.html', name: 'Love', category: 'compound' },
+  { file: 'awe.html', name: 'Awe', category: 'compound' },
+  { file: 'rage.html', name: 'Rage', category: 'compound' },
+  { file: 'contemplating.html', name: 'Contemplating', category: 'compound' },
+  // Activities
+  { file: 'idle.html', name: 'Idle', category: 'activity' },
+  { file: 'walking.html', name: 'Walking', category: 'activity' },
+  { file: 'waving.html', name: 'Waving', category: 'activity' },
+  { file: 'dancing.html', name: 'Dancing', category: 'activity' },
+  { file: 'celebration.html', name: 'Celebration', category: 'activity' },
+  { file: 'spinning.html', name: 'Spinning', category: 'activity' },
+  { file: 'headbang.html', name: 'Headbang', category: 'activity' },
+  { file: 'sleeping.html', name: 'Sleeping', category: 'activity' },
+  { file: 'meditating.html', name: 'Meditating', category: 'activity' },
+  { file: 'heartbeat.html', name: 'Heartbeat', category: 'activity' },
+  { file: 'evolving.html', name: 'Evolving', category: 'activity' },
+  // Tech / web3
+  { file: 'scanning.html', name: 'Scanning', category: 'tech' },
+  { file: 'posting.html', name: 'Posting', category: 'tech' },
+  { file: 'onchain.html', name: 'On-Chain', category: 'tech' },
+  { file: 'thinking.html', name: 'Thinking', category: 'tech' },
+  { file: 'chess.html', name: 'Chess', category: 'tech' },
+  { file: 'glitching.html', name: 'Glitching', category: 'tech' },
+];
+
+let idx = 0;
+let mode = 'single';
+
+const frame = document.getElementById('frame');
+const animName = document.getElementById('animName');
+const counter = document.getElementById('counter');
+const singleView = document.getElementById('singleView');
+const gridView = document.getElementById('gridView');
+
+function load(i) {
+  idx = ((i % anims.length) + anims.length) % anims.length;
+  frame.src = anims[idx].file;
+  animName.textContent = anims[idx].name;
+  counter.textContent = `${idx + 1} / ${anims.length}  [${anims[idx].category}]`;
+}
+
+function next() { load(idx + 1); }
+function prev() { load(idx - 1); }
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btnSingle').classList.toggle('active', m === 'single');
+  document.getElementById('btnGrid').classList.toggle('active', m === 'grid');
+  singleView.classList.toggle('hidden', m !== 'single');
+  gridView.classList.toggle('hidden', m !== 'grid');
+  if (m === 'grid') buildGrid();
+}
+
+function buildGrid() {
+  gridView.innerHTML = '';
+  anims.forEach((a, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'grid-cell';
+    cell.innerHTML = `<iframe src="${a.file}" loading="lazy"></iframe><div class="cell-label">${a.name}</div>`;
+    cell.addEventListener('click', () => { idx = i; setMode('single'); load(i); });
+    gridView.appendChild(cell);
+  });
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); next(); }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prev(); }
+  if (e.key === 'g' || e.key === 'G') setMode('grid');
+  if (e.key === 's' || e.key === 'S') setMode('single');
+});
+
+load(0);
+</script>
+</body>
+</html>

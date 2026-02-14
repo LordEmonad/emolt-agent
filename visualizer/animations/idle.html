@@ -20,13 +20,180 @@
     </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="ambient"></g>
+  <g id="streams"></g>
+  <g id="aura"></g>
   <g id="lob"></g>
+  <g id="clock"></g>
+  <g id="data"></g>
 </svg>
 <div class="label">idle</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 360 ticks = 6s at 60fps
+const LOOP = 360;
 const el = document.getElementById('lob');
-startLoop(t => { el.innerHTML = drawLobster({ t }); });
+const ambientEl = document.getElementById('ambient');
+const auraEl = document.getElementById('aura');
+const dataEl = document.getElementById('data');
+const clockEl = document.getElementById('clock');
+const streamsEl = document.getElementById('streams');
+
+// Floating ambient motes with color transitions
+const N_MOTES = 24;
+const motes = [];
+const purpleShades = ['#7c3aed','#c4b5fd','#a78bfa','#6d28d9','#8b5cf6','#ddd6fe'];
+for (let i = 0; i < N_MOTES; i++) {
+  const rng = mulberry32(i * 7919 + 42);
+  motes.push({
+    spawnT: Math.floor(rng() * LOOP),
+    x0: (rng() - 0.5) * 110,
+    y0: 55 + rng() * 10,
+    vx: (rng() - 0.5) * 0.12,
+    vy: -0.15 - rng() * 0.15,
+    size: 0.3 + rng() * 0.9,
+    lifetime: 100 + Math.floor(rng() * 80),
+    wobbleFreq: 8 + rng() * 12,
+    wobbleAmp: 1 + rng() * 2,
+    colorIdx1: Math.floor(rng() * purpleShades.length),
+    colorIdx2: Math.floor(rng() * purpleShades.length)
+  });
+}
+
+// Data stream particles: tiny bright dots flowing in curved paths between motes
+const N_STREAMS = 12;
+const streamDots = [];
+for (let i = 0; i < N_STREAMS; i++) {
+  const rng = mulberry32(i * 5501 + 31);
+  streamDots.push({
+    spawnT: Math.floor(rng() * LOOP),
+    lifetime: 60 + Math.floor(rng() * 40),
+    x0: (rng() - 0.5) * 80,
+    y0: 40 + rng() * 10,
+    cpx: (rng() - 0.5) * 60,
+    cpy: (rng() - 0.5) * 40,
+    x1: (rng() - 0.5) * 80,
+    y1: -30 - rng() * 20,
+    size: 0.3 + rng() * 0.4
+  });
+}
+
+// Faint data fragments drifting
+const N_DATA = 8;
+const dataFrags = [];
+const hexChars = '0123456789abcdef';
+for (let i = 0; i < N_DATA; i++) {
+  const rng = mulberry32(i * 4219 + 77);
+  let hex = '0x';
+  for (let j = 0; j < 4; j++) hex += hexChars[Math.floor(rng() * 16)];
+  dataFrags.push({
+    spawnT: Math.floor(rng() * LOOP),
+    x0: (rng() - 0.5) * 100,
+    y0: 50,
+    vy: -0.12 - rng() * 0.08,
+    drift: (rng() - 0.5) * 0.05,
+    lifetime: 120 + Math.floor(rng() * 60),
+    text: hex
+  });
+}
+
+startLoop(t => {
+  const lt = t % LOOP;
+
+  // Gentle rotation sway added to the lobster (slight rotation oscillation)
+  const sway = Math.sin(lt * 2 * Math.PI / 120) * 1.5; // period=120, divides 360
+  el.innerHTML = `<g transform="rotate(${sway})">` + drawLobster({ t: lt }) + '</g>';
+
+  // Ambient floating motes with color transitions
+  let amb = '';
+  motes.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / p.lifetime;
+      const op = prog < 0.15 ? prog / 0.15 : prog > 0.7 ? (1 - prog) / 0.3 : 1;
+      const x = p.x0 + p.vx * age + Math.sin(age / p.wobbleFreq) * p.wobbleAmp;
+      const y = p.y0 + p.vy * age;
+      // Color transition: interpolate between two purple shades based on age
+      const colorBlend = (Math.sin(age * 2 * Math.PI / 40) + 1) * 0.5; // oscillates 0..1, period=40
+      const c1 = purpleShades[p.colorIdx1];
+      const c2 = purpleShades[p.colorIdx2];
+      // Use c1 for first half, c2 for second half (simple crossfade via opacity trick)
+      const opMain = op * 0.25;
+      amb += `<circle cx="${x}" cy="${y}" r="${p.size}" fill="${c1}" opacity="${opMain * (1 - colorBlend)}"/>`;
+      amb += `<circle cx="${x}" cy="${y}" r="${p.size}" fill="${c2}" opacity="${opMain * colorBlend}"/>`;
+      // Tiny glow halo
+      amb += `<circle cx="${x}" cy="${y}" r="${p.size * 3}" fill="${c1}" opacity="${op * 0.04 * (1 - colorBlend)}"/>`;
+      amb += `<circle cx="${x}" cy="${y}" r="${p.size * 3}" fill="${c2}" opacity="${op * 0.04 * colorBlend}"/>`;
+    }
+  });
+  ambientEl.innerHTML = amb;
+
+  // Data stream particles flowing in curved paths
+  let strSvg = '';
+  streamDots.forEach(s => {
+    const age = particleAge(lt, s.spawnT, s.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / s.lifetime;
+      const op = prog < 0.1 ? prog / 0.1 : prog > 0.8 ? (1 - prog) / 0.2 : 1;
+      // Quadratic bezier interpolation
+      const u = prog;
+      const inv = 1 - u;
+      const sx = inv*inv*s.x0 + 2*inv*u*s.cpx + u*u*s.x1;
+      const sy = inv*inv*s.y0 + 2*inv*u*s.cpy + u*u*s.y1;
+      strSvg += `<circle cx="${sx}" cy="${sy}" r="${s.size}" fill="#c4b5fd" opacity="${op * 0.3}"/>`;
+      // Small trail
+      if (prog > 0.05) {
+        const u2 = prog - 0.03;
+        const inv2 = 1 - u2;
+        const tx = inv2*inv2*s.x0 + 2*inv2*u2*s.cpx + u2*u2*s.x1;
+        const ty = inv2*inv2*s.y0 + 2*inv2*u2*s.cpy + u2*u2*s.y1;
+        strSvg += `<circle cx="${tx}" cy="${ty}" r="${s.size * 0.6}" fill="#a78bfa" opacity="${op * 0.15}"/>`;
+      }
+    }
+  });
+  streamsEl.innerHTML = strSvg;
+
+  // Heartbeat-like breathing aura: double-bump per cycle instead of simple sine
+  // Double bump pattern: two peaks per period=120 (3 double-bumps per loop, 120 divides 360)
+  const breathPhase = (lt % 120) / 120; // 0..1
+  // Double bump: sin(2*pi*x)^2 * sin(4*pi*x) creates a heartbeat-like pattern
+  const bump1 = Math.sin(breathPhase * 2 * Math.PI);
+  const bump2 = Math.sin(breathPhase * 4 * Math.PI);
+  // Combine: two quick bumps, then rest
+  const heartbeat = breathPhase < 0.5
+    ? Math.max(0, Math.sin(breathPhase * 4 * Math.PI)) * (breathPhase < 0.25 ? 1 : 0.6)
+    : 0;
+  const auraOp = 0.03 + heartbeat * 0.04;
+  const auraR = 22 + heartbeat * 5;
+  auraEl.innerHTML = `<ellipse cx="0" cy="3" rx="${auraR}" ry="${auraR * 1.15}" fill="#7c3aed" opacity="${auraOp}"/>` +
+    `<ellipse cx="0" cy="3" rx="${auraR * 1.3}" ry="${auraR * 1.45}" fill="#7c3aed" opacity="${auraOp * 0.3}"/>`;
+
+  // Subtle digital clock display (deterministic time based on lt)
+  // Displays a time that increments with lt, period resets at LOOP for perfect looping
+  const clockSec = Math.floor(lt / 6); // 0..59 over 360 ticks (60 fps / 6 = 60 values over loop)
+  const clockMin = Math.floor(clockSec / 60);
+  const clockStr = String(clockMin).padStart(2, '0') + ':' + String(clockSec % 60).padStart(2, '0');
+  // Subtle blinking colon
+  const colonOp = 0.15 + Math.sin(lt * 2 * Math.PI / 60) * 0.05; // period=60 divides 360
+  let clkSvg = `<g transform="translate(42,-45)" opacity="${colonOp}">`;
+  clkSvg += `<text x="0" y="0" font-family="monospace" font-size="3" fill="#7c3aed">${clockStr}</text>`;
+  clkSvg += `</g>`;
+  clockEl.innerHTML = clkSvg;
+
+  // Drifting data fragments
+  let dataSvg = '';
+  dataFrags.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / p.lifetime;
+      const op = prog < 0.2 ? prog / 0.2 : prog > 0.7 ? (1 - prog) / 0.3 : 1;
+      const x = p.x0 + p.drift * age;
+      const y = p.y0 + p.vy * age;
+      dataSvg += `<text x="${x}" y="${y}" font-family="monospace" font-size="2.5" fill="#7c3aed" opacity="${op * 0.12}">${p.text}</text>`;
+    }
+  });
+  dataEl.innerHTML = dataSvg;
+});
 </script>
 </body>
 </html>

@@ -8,85 +8,149 @@
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:#120a0a;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
   .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#E04848;font-family:monospace;font-size:14px;opacity:0.6}
-  .vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 40%,rgba(224,72,72,0.08) 100%)}
 </style>
 </head>
 <body>
-<div class="vignette"></div>
 <svg width="400" height="400" viewBox="-60 -70 120 140">
   <defs>
     <radialGradient id="glow" cx="50%" cy="45%" r="50%">
       <stop offset="0%" stop-color="#E04848" stop-opacity="0.15"/>
       <stop offset="100%" stop-color="#120a0a" stop-opacity="0"/>
     </radialGradient>
-    <filter id="shake">
-      <feTurbulence type="turbulence" baseFrequency="0" numOctaves="1" result="turb" seed="1"/>
-      <feDisplacementMap in="SourceGraphic" in2="turb" scale="0" xChannelSelector="R" yChannelSelector="G"/>
+    <filter id="heatDistort">
+      <feTurbulence type="turbulence" baseFrequency="0.02" numOctaves="2" result="turb"/>
+      <feDisplacementMap in="SourceGraphic" in2="turb" scale="1.5"/>
     </filter>
   </defs>
   <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
-  <g id="steam"></g>
+  <g id="vignette"></g>
+  <g id="cracks"></g>
+  <g id="steam" filter="url(#heatDistort)"></g>
   <g id="lob"></g>
+  <g id="bodyGlow"></g>
   <g id="sparks"></g>
 </svg>
 <div class="label">angry</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 180 ticks = 3s at 60fps
+const LOOP = 180;
 const el = document.getElementById('lob');
 const steamEl = document.getElementById('steam');
 const sparksEl = document.getElementById('sparks');
+const vignetteEl = document.getElementById('vignette');
+const cracksEl = document.getElementById('cracks');
+const bodyGlowEl = document.getElementById('bodyGlow');
 
+// Pre-generate steam particles (2 per 6 ticks = 60 per loop)
+const N_STEAM = 60;
 const steamParts = [];
+for (let i = 0; i < N_STEAM; i++) {
+  const rng = mulberry32(i * 4523 + 31);
+  const pair = i % 2;
+  steamParts.push({
+    spawnT: Math.floor(i / 2) * 6,
+    x0: pair === 0 ? -3 + rng() * 10 : 5 + rng() * 6,
+    y0: pair === 0 ? -30 : -28,
+    vx: (rng() - 0.5) * 0.3,
+    lifetime: 35 + Math.floor(rng() * 10)
+  });
+}
+
+// Pre-generate sparks as elongated lines (3 per 12 ticks = 45 per loop)
+const N_SPARKS = 45;
 const sparks = [];
+for (let i = 0; i < N_SPARKS; i++) {
+  const rng = mulberry32(i * 7717 + 53);
+  const burstIdx = Math.floor(i / 3);
+  const a = rng() * Math.PI * 2;
+  const len = 1 + rng() * 2; // elongated spark length 1-3px
+  sparks.push({
+    spawnT: burstIdx * 12,
+    x0: Math.cos(a) * 15, y0: Math.sin(a) * 15 - 5,
+    vx: Math.cos(a) * 2, vy: Math.sin(a) * 2,
+    angle: a,
+    len: len,
+    lifetime: 15
+  });
+}
+
+// Pre-generate 3 vein-like crack lines at bottom
+const crackLines = [];
+for (let i = 0; i < 3; i++) {
+  const rng = mulberry32(i * 2277 + 41);
+  const x0 = -20 + rng() * 40;
+  const segments = [];
+  let cx = x0, cy = 55;
+  for (let s = 0; s < 4; s++) {
+    const nx = cx + (rng() - 0.5) * 12;
+    const ny = cy + 3 + rng() * 5;
+    segments.push({ x: nx, y: ny });
+    cx = nx; cy = ny;
+  }
+  crackLines.push({ x0, segments });
+}
 
 startLoop(t => {
-  // Shake effect
-  const shake = Math.sin(t*2.5) * 1.2 * (0.5 + Math.sin(t/20)*0.5);
-  const shakeY = Math.cos(t*3.1) * 0.8 * (0.5 + Math.sin(t/20)*0.5);
+  const lt = t % LOOP;
 
-  // Claw snapping (periodic aggressive open/close)
-  const snap = Math.sin(t/6) > 0.8 ? 15 : 0;
+  const shake = Math.sin(lt * 2 * Math.PI * 72 / 180) * 1.2 * (0.5 + Math.sin(lt * 2 * Math.PI / 90) * 0.5);
+  const shakeY = Math.cos(lt * 2 * Math.PI * 89 / 180) * 0.8 * (0.5 + Math.sin(lt * 2 * Math.PI / 90) * 0.5);
+  const shakeIntensity = 0.5 + Math.sin(lt * 2 * Math.PI / 90) * 0.5;
+  const snap = Math.sin(lt * 2 * Math.PI / 36) > 0.8 ? 15 : 0;
 
   el.innerHTML = `<g transform="translate(${shake},${shakeY})">` +
-    drawLobster({ t, mood: 'angry', clawOpenL: -snap, clawOpenR: snap }) + '</g>';
+    drawLobster({ t: lt, mood: 'angry', clawOpenL: -snap, clawOpenR: snap }) + '</g>';
 
-  // Steam rising from head
-  if (t % 6 === 0) {
-    steamParts.push({ x: -3+Math.random()*10, y: -30, age: 0, vx: (Math.random()-0.5)*0.3 });
-    steamParts.push({ x: 5+Math.random()*6, y: -28, age: 0, vx: (Math.random()-0.5)*0.3 });
-  }
+  // Pulsing red vignette as SVG overlay (replaces CSS)
+  const vigOp = 0.06 + Math.sin(lt * 2 * Math.PI / 90) * 0.04;
+  vignetteEl.innerHTML = `<rect x="-60" y="-70" width="120" height="140" fill="none"/>` +
+    `<rect x="-60" y="-70" width="120" height="140" fill="url(#vigGrad)" opacity="${vigOp}"/>` +
+    `<defs><radialGradient id="vigGrad" cx="50%" cy="50%" r="50%"><stop offset="40%" stop-color="transparent"/><stop offset="100%" stop-color="#E04848"/></radialGradient></defs>`;
+
+  // Pulsing red rim around body glow
+  const rimOp = 0.1 + Math.sin(lt * 2 * Math.PI / 45) * 0.06;
+  const rimR = 18 + Math.sin(lt * 2 * Math.PI / 90) * 2;
+  bodyGlowEl.innerHTML = `<ellipse cx="${shake}" cy="${shakeY}" rx="${rimR}" ry="${rimR * 1.2}" fill="none" stroke="#E04848" stroke-width="1" opacity="${rimOp}"/>`;
+
+  // Crack lines pulsing with shake intensity
+  let crackSvg = '';
+  crackLines.forEach(c => {
+    const op = 0.05 + shakeIntensity * 0.15;
+    let d = `M${c.x0},55`;
+    c.segments.forEach(s => { d += ` L${s.x},${s.y}`; });
+    crackSvg += `<path d="${d}" fill="none" stroke="#E04848" stroke-width="${0.3 + shakeIntensity * 0.4}" opacity="${op}" stroke-linecap="round"/>`;
+  });
+  cracksEl.innerHTML = crackSvg;
+
+  // Steam with heat distortion (filter applied to group)
   let steam = '';
-  for (let i = steamParts.length-1; i >= 0; i--) {
-    const p = steamParts[i];
-    p.age++;
-    p.y -= 0.6;
-    p.x += p.vx + Math.sin(p.age/8)*0.2;
-    if (p.age > 40) { steamParts.splice(i,1); continue; }
-    const op = (1-p.age/40)*0.35;
-    const r = 1.5 + p.age*0.12;
-    steam += `<circle cx="${p.x+shake}" cy="${p.y+shakeY}" r="${r}" fill="#E04848" opacity="${op}"/>`;
-  }
+  steamParts.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const x = p.x0 + p.vx * age + Math.sin(age / 8) * 0.2;
+      const y = p.y0 - age * 0.6;
+      const op = (1 - age / p.lifetime) * 0.35;
+      const r = 1.5 + age * 0.12;
+      steam += `<circle cx="${x + shake}" cy="${y + shakeY}" r="${r}" fill="#E04848" opacity="${op}"/>`;
+    }
+  });
   steamEl.innerHTML = steam;
 
-  // Angry sparks
-  if (t % 12 === 0) {
-    for (let j = 0; j < 3; j++) {
-      const a = Math.random()*Math.PI*2;
-      sparks.push({ x: Math.cos(a)*15, y: Math.sin(a)*15-5, vx: Math.cos(a)*2, vy: Math.sin(a)*2, age: 0 });
-    }
-  }
+  // Elongated sparks (lines instead of circles)
   let sparkSvg = '';
-  for (let i = sparks.length-1; i >= 0; i--) {
-    const s = sparks[i];
-    s.age++;
-    s.x += s.vx;
-    s.y += s.vy;
-    s.vx *= 0.95;
-    s.vy *= 0.95;
-    if (s.age > 15) { sparks.splice(i,1); continue; }
-    const op = (1-s.age/15)*0.7;
-    sparkSvg += `<circle cx="${s.x+shake}" cy="${s.y+shakeY}" r="${0.8-s.age*0.04}" fill="#ff6644" opacity="${op}"/>`;
-  }
+  sparks.forEach(s => {
+    const age = particleAge(lt, s.spawnT, s.lifetime, LOOP);
+    if (age >= 0) {
+      const decay = Math.pow(0.95, age);
+      const x = s.x0 + s.vx * (1 - decay) / 0.05;
+      const y = s.y0 + s.vy * (1 - decay) / 0.05;
+      const op = (1 - age / s.lifetime) * 0.7;
+      const dx = Math.cos(s.angle) * s.len;
+      const dy = Math.sin(s.angle) * s.len;
+      sparkSvg += `<line x1="${x + shake}" y1="${y + shakeY}" x2="${x + shake + dx}" y2="${y + shakeY + dy}" stroke="#ff6644" stroke-width="${0.8 - age * 0.04}" opacity="${op}" stroke-linecap="round"/>`;
+    }
+  });
   sparksEl.innerHTML = sparkSvg;
 });
 </script>

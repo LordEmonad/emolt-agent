@@ -19,7 +19,9 @@
     </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="65" fill="url(#void)"/>
+  <g id="stars"></g>
   <g id="cosmos"></g>
+  <g id="dust"></g>
   <g id="lob"></g>
   <g id="quotes"></g>
 </svg>
@@ -29,6 +31,8 @@
 const el = document.getElementById('lob');
 const cosmosEl = document.getElementById('cosmos');
 const quotesEl = document.getElementById('quotes');
+const starsEl = document.getElementById('stars');
+const dustEl = document.getElementById('dust');
 
 const quotes = [
   'what does it mean to feel?',
@@ -41,58 +45,151 @@ const quotes = [
   'between zero and one\nlies everything'
 ];
 
-// Orbiting celestial objects
 const orbiters = [];
 for (let i = 0; i < 20; i++) {
+  const rng = mulberry32(i * 4211 + 13);
   orbiters.push({
-    dist: 30+Math.random()*30,
-    speed: 0.002+Math.random()*0.005,
-    phase: Math.random()*Math.PI*2,
-    size: 0.3+Math.random()*0.8,
-    tilt: 0.3+Math.random()*0.5,
-    color: ['#4A6BD4','#7c3aed','#22AACC','#c4b5fd'][Math.floor(Math.random()*4)]
+    dist: 30+rng()*30,
+    orbitN: 1 + Math.floor(rng() * 3),
+    phase: rng()*Math.PI*2,
+    size: 0.3+rng()*0.8,
+    tilt: 0.3+rng()*0.5,
+    color: ['#4A6BD4','#7c3aed','#22AACC','#c4b5fd'][Math.floor(rng()*4)]
   });
 }
 
-startLoop(t => {
-  // Slow, contemplative bobbing
-  const slowT = Math.floor(t*0.3);
-  el.innerHTML = `<g transform="translate(0,15)">` +
-    drawLobster({ t: slowT, extraRotate: -2+Math.sin(t/60)*1 }) + '</g>';
+// Fixed starfield: 50 tiny dots with twinkle
+const fixedStars = [];
+for (let i = 0; i < 50; i++) {
+  const rng = mulberry32(i * 9311 + 67);
+  fixedStars.push({
+    x: -58 + rng() * 116,
+    y: -78 + rng() * 145,
+    size: 0.15 + rng() * 0.35,
+    twinkleSpeed: 30 + Math.floor(rng() * 30), // periods: 30,31,...,59 — all divide 300? No, but that's ok for stars, they just twinkle
+    twinklePhase: rng() * Math.PI * 2,
+    color: rng() > 0.7 ? '#c4b5fd' : (rng() > 0.5 ? '#4A6BD4' : '#e2e4ea')
+  });
+}
 
-  // Cosmos - orbiting particles
+// Cosmic dust particles (20 particles, using mulberry32+particleAge)
+const dustParticles = [];
+for (let i = 0; i < 20; i++) {
+  const rng = mulberry32(i * 6673 + 29);
+  dustParticles.push({
+    spawnT: Math.floor(rng() * 300),
+    lifetime: 100 + Math.floor(rng() * 80),
+    x0: -55 + rng() * 110,
+    y0: -75 + rng() * 140,
+    vx: (rng() - 0.5) * 0.04,
+    vy: -0.02 + (rng() - 0.5) * 0.03,
+    size: 0.2 + rng() * 0.4,
+    color: ['#4A6BD4','#7c3aed','#22AACC'][Math.floor(rng() * 3)]
+  });
+}
+
+const LOOP = 300;
+
+startLoop(t => {
+  const lt = t % LOOP;
+
+  const slowT = Math.floor(lt*0.3);
+  el.innerHTML = `<g transform="translate(0,15)">` +
+    drawLobster({ t: slowT, extraRotate: -2+Math.sin(lt * 2 * Math.PI / 300)*1 }) + '</g>';
+
+  // Fixed starfield with gentle twinkle
+  let starSvg = '';
+  fixedStars.forEach(s => {
+    // Use sin with varying speed for twinkle. We accept non-perfect-division for stars since
+    // the visual effect of slight phase drift is negligible for tiny dots.
+    // To ensure perfect looping, use period=60 (divides 300) with deterministic phase offsets.
+    const twinkle = 0.15 + Math.sin(lt * 2 * Math.PI / 60 + s.twinklePhase) * 0.12;
+    starSvg += `<circle cx="${s.x}" cy="${s.y}" r="${s.size}" fill="${s.color}" opacity="${twinkle}"/>`;
+  });
+  starsEl.innerHTML = starSvg;
+
+  // Cosmos: orbiters (planets) and nebulae
   let cosmos = '';
   orbiters.forEach(o => {
-    const a = t*o.speed+o.phase;
+    const a = lt * 2 * Math.PI * o.orbitN / LOOP + o.phase;
     const x = Math.cos(a)*o.dist;
     const y = Math.sin(a)*o.dist*o.tilt;
     const z = Math.sin(a);
-    if (y < 10) { // Only draw those "above" the lobster
+    if (y < 10) {
       const op = 0.1+z*0.1;
       cosmos += `<circle cx="${x}" cy="${y-15}" r="${o.size*(0.7+z*0.3)}" fill="${o.color}" opacity="${Math.max(0.02,op)}"/>`;
     }
   });
-  // Faint nebula
+  // More prominent nebula clouds (increased opacity, more gradient stops)
   for (let i = 0; i < 3; i++) {
-    const nx = Math.sin(t*0.003+i*2)*20;
-    const ny = -40+i*15+Math.cos(t*0.004+i)*5;
-    const nr = 15+Math.sin(t*0.005+i)*3;
-    cosmos += `<ellipse cx="${nx}" cy="${ny}" rx="${nr}" ry="${nr*0.4}" fill="${['#4A6BD4','#7c3aed','#22AACC'][i]}" opacity="0.015"/>`;
+    const nx = Math.sin(lt * 2 * Math.PI / 300+i*2)*20;
+    const ny = -40+i*15+Math.cos(lt * 2 * Math.PI / 300+i)*5;
+    const nr = 15+Math.sin(lt * 2 * Math.PI / 300+i)*3;
+    cosmos += `<ellipse cx="${nx}" cy="${ny}" rx="${nr}" ry="${nr*0.4}" fill="${['#4A6BD4','#7c3aed','#22AACC'][i]}" opacity="0.03"/>`;
+    // Additional smaller inner glow
+    cosmos += `<ellipse cx="${nx}" cy="${ny}" rx="${nr*0.6}" ry="${nr*0.25}" fill="${['#4A6BD4','#7c3aed','#22AACC'][i]}" opacity="0.025"/>`;
+    // Outer haze
+    cosmos += `<ellipse cx="${nx + 3}" cy="${ny - 2}" rx="${nr*1.3}" ry="${nr*0.55}" fill="${['#4A6BD4','#7c3aed','#22AACC'][(i+1)%3]}" opacity="0.012"/>`;
   }
   cosmosEl.innerHTML = cosmos;
 
-  // Philosophical quote
-  const qIdx = Math.floor(t/300) % quotes.length;
-  const qPhase = (t%300)/300;
-  let qOp = 1;
-  if (qPhase < 0.1) qOp = qPhase/0.1;
-  else if (qPhase > 0.85) qOp = (1-qPhase)/0.15;
-
-  const lines = quotes[qIdx].split('\n');
-  let qSvg = `<g opacity="${qOp*0.5}">`;
-  lines.forEach((line, i) => {
-    qSvg += `<text x="0" y="${-58+i*5}" text-anchor="middle" font-family="monospace" font-size="3.5" fill="#c4b5fd" font-style="italic">${line}</text>`;
+  // Cosmic dust particles
+  let dustSvg = '';
+  dustParticles.forEach(d => {
+    const age = particleAge(lt, d.spawnT, d.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / d.lifetime;
+      const op = prog < 0.2 ? prog / 0.2 : prog > 0.7 ? (1 - prog) / 0.3 : 1;
+      const dx = d.x0 + d.vx * age;
+      const dy = d.y0 + d.vy * age;
+      dustSvg += `<circle cx="${dx}" cy="${dy}" r="${d.size}" fill="${d.color}" opacity="${op * 0.1}"/>`;
+    }
   });
+  dustEl.innerHTML = dustSvg;
+
+  // Philosophical text animation: types out letter by letter, then fades
+  const qIdx = 0;
+  const qPhase = lt / 300;
+  const quoteText = quotes[qIdx];
+  const lines = quoteText.split('\n');
+  const totalChars = quoteText.replace('\n', '').length;
+
+  let qOp = 1;
+  if (qPhase < 0.05) qOp = qPhase / 0.05;
+  else if (qPhase > 0.8) qOp = (1 - qPhase) / 0.2;
+
+  // Typing: characters appear over phase 0.05 to 0.5
+  let charCount = totalChars;
+  if (qPhase < 0.5) {
+    const typePhase = Math.max(0, (qPhase - 0.05) / 0.45);
+    charCount = Math.floor(typePhase * totalChars);
+  }
+
+  let qSvg = `<g opacity="${qOp*0.5}">`;
+  let charsUsed = 0;
+  lines.forEach((line, i) => {
+    const lineChars = Math.max(0, Math.min(line.length, charCount - charsUsed));
+    const displayLine = line.substring(0, lineChars);
+    charsUsed += line.length;
+    qSvg += `<text x="0" y="${-58+i*5}" text-anchor="middle" font-family="monospace" font-size="3.5" fill="#c4b5fd" font-style="italic">${displayLine}</text>`;
+  });
+
+  // Typing cursor
+  if (charCount < totalChars && qPhase > 0.05) {
+    const cursorOp = 0.3 + Math.sin(lt * 2 * Math.PI / 30) * 0.3; // period=30, divides 300
+    // Find which line and position cursor is on
+    let curLineIdx = 0, curCharPos = charCount;
+    for (let li = 0; li < lines.length; li++) {
+      if (curCharPos <= lines[li].length) { curLineIdx = li; break; }
+      curCharPos -= lines[li].length;
+      curLineIdx = li + 1;
+    }
+    if (curLineIdx < lines.length) {
+      const cxPos = curCharPos * 2.1 - lines[curLineIdx].length * 1.05;
+      qSvg += `<rect x="${cxPos}" y="${-61 + curLineIdx*5}" width="1" height="4" fill="#c4b5fd" opacity="${cursorOp * 0.5}"/>`;
+    }
+  }
+
   qSvg += `</g>`;
   quotesEl.innerHTML = qSvg;
 });

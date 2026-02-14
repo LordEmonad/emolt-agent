@@ -21,11 +21,20 @@
       <stop offset="0%" stop-color="#7c3aed"/>
       <stop offset="100%" stop-color="#4A6BD4"/>
     </linearGradient>
+    <linearGradient id="beamGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.4"/>
+      <stop offset="50%" stop-color="#7c3aed" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#4A6BD4" stop-opacity="0.05"/>
+    </linearGradient>
   </defs>
   <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <g id="monadlogo"></g>
   <g id="blocks"></g>
   <g id="lob"></g>
   <g id="beam"></g>
+  <g id="beamparticles"></g>
+  <g id="txhash"></g>
+  <g id="checkmark"></g>
   <g id="data"></g>
 </svg>
 <div class="label">recording on-chain</div>
@@ -35,65 +44,183 @@ const el = document.getElementById('lob');
 const blocksEl = document.getElementById('blocks');
 const beamEl = document.getElementById('beam');
 const dataEl = document.getElementById('data');
+const monadEl = document.getElementById('monadlogo');
+const beamPartEl = document.getElementById('beamparticles');
+const txhashEl = document.getElementById('txhash');
+const checkmarkEl = document.getElementById('checkmark');
 
-const dataParticles = [];
 const emotions = ['joy','trust','fear','surprise','sadness','disgust','anger','anticipation'];
 const emotionColors = ['#F5D831','#6ECB3C','#2BA84A','#22AACC','#4A6BD4','#A85EC0','#E04848','#EF8E20'];
 
-startLoop(t => {
-  el.innerHTML = `<g transform="translate(0,-8)">` +
-    drawLobster({ t }) + '</g>';
+const LOOP = 240;
 
-  // Blockchain blocks floating below
+// Generate deterministic tx hashes for each cycle
+const txHashes = [];
+for (let c = 0; c < 3; c++) {
+  const rng = mulberry32(c * 7723 + 31);
+  let h = '0x';
+  for (let j = 0; j < 8; j++) h += Math.floor(rng() * 16).toString(16);
+  txHashes.push(h);
+}
+
+// Generate deterministic mini-hashes for blocks
+const blockHashes = [];
+for (let i = 0; i < 5; i++) {
+  const rng = mulberry32(i * 5501 + 89);
+  let h = '';
+  for (let j = 0; j < 6; j++) h += Math.floor(rng() * 16).toString(16);
+  blockHashes.push(h);
+}
+
+const dataParticles = [];
+for (let cycle = 0; cycle < 3; cycle++) {
+  const base = cycle * 80;
+  for (let tick = 24; tick <= 56; tick += 3) {
+    const rng = mulberry32(cycle * 9973 + tick * 2341 + 17);
+    const beamPhase = tick / 80;
+    const bp = (beamPhase - 0.3) / 0.4;
+    const ei = Math.floor(rng() * 8);
+    dataParticles.push({
+      spawnT: (base + tick) % LOOP,
+      lifetime: 25,
+      startX: (rng() - 0.5) * 6,
+      startY: 25 + 21 * bp,
+      vx: (rng() - 0.5) * 0.8,
+      vy: 0.3 + rng() * 0.3,
+      color: emotionColors[ei]
+    });
+  }
+}
+
+// Beam particles (dots flowing along the beam path)
+const beamDots = [];
+for (let c = 0; c < 3; c++) {
+  for (let i = 0; i < 6; i++) {
+    const rng = mulberry32(c * 4001 + i * 311 + 7);
+    beamDots.push({
+      cycle: c,
+      offset: rng() * 0.8 + 0.1, // position along beam 0..1
+      xJitter: (rng() - 0.5) * 2,
+      size: 0.4 + rng() * 0.5,
+      color: emotionColors[Math.floor(rng() * 8)]
+    });
+  }
+}
+
+startLoop(t => {
+  const lt = t % LOOP;
+
+  el.innerHTML = `<g transform="translate(0,-8)">` +
+    drawLobster({ t: lt }) + '</g>';
+
+  // Monad-inspired symbol above beam area (faint geometric shape)
+  const monadOp = 0.04 + Math.sin(lt * 2 * Math.PI / 120) * 0.02; // period=120 divides 240
+  let monad = '';
+  monad += `<g opacity="${monadOp}" transform="translate(0,18)">`;
+  // Simple geometric M-like shape
+  monad += `<path d="M-8,0 L-4,-6 L0,0 L4,-6 L8,0" fill="none" stroke="#7c3aed" stroke-width="0.8" stroke-linecap="round"/>`;
+  monad += `<circle cx="0" cy="-3" r="9" fill="none" stroke="#7c3aed" stroke-width="0.4"/>`;
+  monad += `</g>`;
+  monadEl.innerHTML = monad;
+
+  // Blocks with hash text and chain links
   let blocks = '';
   for (let i = 0; i < 5; i++) {
-    const bx = -30 + i*15 + Math.sin(t/30+i)*2;
-    const by = 50 + Math.sin(t/20+i*2)*2;
-    const op = 0.15 + Math.sin(t/15+i)*0.08;
-    const pulse = (t%60===i*12) ? 0.3 : 0;
+    const bx = -30 + i*15 + Math.sin(lt * 2 * Math.PI / 240 + i)*2;
+    const by = 50 + Math.sin(lt * 2 * Math.PI / 120 + i*2)*2;
+    const op = 0.15 + Math.sin(lt * 2 * Math.PI / 80 + i)*0.08;
+    const pulse = (lt%60===i*12) ? 0.3 : 0;
     blocks += `<g transform="translate(${bx},${by})">`;
     blocks += `<rect x="-5" y="-4" width="10" height="8" rx="1.5" fill="rgba(124,58,237,${op+pulse})" stroke="#7c3aed" stroke-width="0.3" opacity="${0.4+pulse}"/>`;
-    blocks += `<text x="0" y="1" text-anchor="middle" font-family="monospace" font-size="2.5" fill="#c4b5fd" opacity="${0.4+pulse}">#${(1000+i+Math.floor(t/60)*5).toString()}</text>`;
-    // Chain links
-    if (i < 4) blocks += `<line x1="6" y1="0" x2="9" y2="0" stroke="#7c3aed" stroke-width="0.3" opacity="0.2"/>`;
+    const blockNum = 1000 + i + Math.floor(lt/60) * 5;
+    blocks += `<text x="0" y="-0.5" text-anchor="middle" font-family="monospace" font-size="2.2" fill="#c4b5fd" opacity="${0.4+pulse}">#${blockNum}</text>`;
+    // Small hash text inside block
+    blocks += `<text x="0" y="2.5" text-anchor="middle" font-family="monospace" font-size="1.3" fill="#7c3aed" opacity="${0.2+pulse*0.3}">${blockHashes[i]}</text>`;
+    // Chain links between blocks (small oval links)
+    if (i < 4) {
+      const nextBx = -30 + (i+1)*15 + Math.sin(lt * 2 * Math.PI / 240 + (i+1))*2;
+      const nextBy = 50 + Math.sin(lt * 2 * Math.PI / 120 + (i+1)*2)*2;
+      const linkMidX = (bx + nextBx) / 2 - bx; // relative to current block
+      const linkMidY = (by + nextBy) / 2 - by;
+      // Draw 2 interlocking oval links
+      const lx1 = 5 + (linkMidX - 5) * 0.33;
+      const lx2 = 5 + (linkMidX - 5) * 0.66;
+      blocks += `<ellipse cx="${lx1}" cy="${linkMidY * 0.33}" rx="2" ry="1.2" fill="none" stroke="#7c3aed" stroke-width="0.3" opacity="0.25" transform="rotate(15,${lx1},${linkMidY*0.33})"/>`;
+      blocks += `<ellipse cx="${lx2}" cy="${linkMidY * 0.66}" rx="2" ry="1.2" fill="none" stroke="#7c3aed" stroke-width="0.3" opacity="0.25" transform="rotate(-15,${lx2},${linkMidY*0.66})"/>`;
+    }
     blocks += `</g>`;
   }
   blocksEl.innerHTML = blocks;
 
-  // Beam from lobster to blockchain
-  const beamPhase = (t%80)/80;
+  const beamPhase = (lt%80)/80;
   const beamActive = beamPhase > 0.3 && beamPhase < 0.7;
   let beam = '';
   if (beamActive) {
     const bp = (beamPhase-0.3)/0.4;
     const op = Math.sin(bp*Math.PI)*0.3;
     beam += `<line x1="0" y1="25" x2="0" y2="46" stroke="#7c3aed" stroke-width="1.5" opacity="${op}" stroke-linecap="round"/>`;
+    // Wider glow along beam
+    beam += `<rect x="-2" y="25" width="4" height="21" fill="url(#beamGlow)" opacity="${op * 0.5}"/>`;
     beam += `<circle cx="0" cy="${25+21*bp}" r="2" fill="#7c3aed" opacity="${op*1.5}"/>`;
-
-    // Emit data particles during beam
-    if (t % 3 === 0) {
-      const ei = Math.floor(Math.random()*8);
-      dataParticles.push({
-        x: (Math.random()-0.5)*6, y: 25+21*bp,
-        vx: (Math.random()-0.5)*0.8, vy: 0.3+Math.random()*0.3,
-        age: 0, color: emotionColors[ei]
-      });
-    }
   }
   beamEl.innerHTML = beam;
 
-  // Data flow particles
-  let data = '';
-  for (let i = dataParticles.length-1; i >= 0; i--) {
-    const p = dataParticles[i];
-    p.age++;
-    p.x += p.vx;
-    p.y += p.vy;
-    p.vx *= 0.95;
-    if (p.age > 25) { dataParticles.splice(i,1); continue; }
-    const op = (1-p.age/25)*0.6;
-    data += `<circle cx="${p.x}" cy="${p.y}" r="0.8" fill="${p.color}" opacity="${op}"/>`;
+  // Beam particles flowing along the beam path
+  let bpSvg = '';
+  if (beamActive) {
+    const currentCycle = Math.floor(lt / 80) % 3;
+    const bp = (beamPhase-0.3)/0.4;
+    const beamOp = Math.sin(bp*Math.PI);
+    beamDots.forEach(d => {
+      if (d.cycle === currentCycle) {
+        // Dot travels along beam from y=25 to y=46
+        const dotProgress = (bp + d.offset * 0.6) % 1;
+        const dy = 25 + dotProgress * 21;
+        if (dy >= 25 && dy <= 46) {
+          const dop = beamOp * 0.4 * Math.sin(dotProgress * Math.PI);
+          bpSvg += `<circle cx="${d.xJitter}" cy="${dy}" r="${d.size}" fill="${d.color}" opacity="${dop}"/>`;
+        }
+      }
+    });
   }
+  beamPartEl.innerHTML = bpSvg;
+
+  // Transaction hash scrolling upward near blocks after beam fires
+  let txSvg = '';
+  const txCycle = Math.floor(lt / 80) % 3;
+  const txLocal = (lt % 80);
+  if (txLocal >= 56 && txLocal < 78) {
+    const txAge = txLocal - 56;
+    const txOp = txAge < 5 ? txAge / 5 : txAge > 16 ? (22 - txAge) / 6 : 1;
+    const txY = 50 - txAge * 0.8;
+    txSvg += `<text x="15" y="${txY}" font-family="monospace" font-size="2" fill="#c4b5fd" opacity="${txOp * 0.35}">${txHashes[txCycle]}</text>`;
+  }
+  txhashEl.innerHTML = txSvg;
+
+  // Confirmation checkmark after each beam cycle
+  let chk = '';
+  if (txLocal >= 58 && txLocal < 75) {
+    const chkAge = txLocal - 58;
+    const chkOp = chkAge < 4 ? chkAge / 4 : chkAge > 12 ? (17 - chkAge) / 5 : 1;
+    const chkScale = chkAge < 4 ? 0.5 + chkAge / 4 * 0.5 : 1;
+    chk += `<g transform="translate(0,42) scale(${chkScale})" opacity="${chkOp * 0.5}">`;
+    chk += `<circle cx="0" cy="0" r="3" fill="rgba(110,203,60,0.15)" stroke="#6ECB3C" stroke-width="0.4"/>`;
+    chk += `<path d="M-1.5,0 L-0.5,1.2 L1.5,-1.2" fill="none" stroke="#6ECB3C" stroke-width="0.6" stroke-linecap="round"/>`;
+    chk += `</g>`;
+  }
+  checkmarkEl.innerHTML = chk;
+
+  let data = '';
+  dataParticles.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const decay = Math.pow(0.95, age);
+      const px = p.startX + p.vx * age * decay;
+      const py = p.startY + p.vy * age;
+      const op = (1 - age/25) * 0.6;
+      data += `<circle cx="${px}" cy="${py}" r="0.8" fill="${p.color}" opacity="${op}"/>`;
+    }
+  });
   dataEl.innerHTML = data;
 });
 </script>

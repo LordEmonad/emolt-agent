@@ -17,42 +17,135 @@
       <stop offset="0%" stop-color="#6ECB3C" stop-opacity="0.06"/>
       <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="warmGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#6ECB3C" stop-opacity="0.1"/>
+      <stop offset="60%" stop-color="#6ECB3C" stop-opacity="0.03"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <!-- warm pulsing glow behind lobster -->
+  <g id="warmPulse"></g>
   <g id="lob"></g>
+  <g id="arcs"></g>
+  <g id="sparkles"></g>
+  <g id="waveLines"></g>
   <g id="greeting"></g>
 </svg>
 <div class="label">waving</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 120 ticks = 2s at 60fps
+const LOOP = 120;
+const WAVE_PERIOD = 24; // 5 wave cycles per 120
 const el = document.getElementById('lob');
 const greetEl = document.getElementById('greeting');
+const arcsEl = document.getElementById('arcs');
+const sparklesEl = document.getElementById('sparkles');
+const waveLinesEl = document.getElementById('waveLines');
+const warmPulseEl = document.getElementById('warmPulse');
+
+// Pre-generate sparkle particles: 6 sparkles, repeating
+const N_SPARKLES = 6;
+const sparkles = [];
+for (let i = 0; i < N_SPARKLES; i++) {
+  const rng = mulberry32(i * 4219 + 17);
+  sparkles.push({
+    spawnT: i * 20, // every 20 ticks = 6 per 120
+    lifetime: 30,
+    angle0: rng() * Math.PI * 0.8 - Math.PI * 0.4, // spread above claw
+    speed: 0.5 + rng() * 0.8,
+    size: 1 + rng() * 1.2,
+    phase: rng() * Math.PI * 2
+  });
+}
 
 startLoop(t => {
-  // Right claw waves up and down
-  const wave = Math.sin(t / 4) * 20;
+  const lt = t % LOOP;
+  const wave = Math.sin(lt * 2 * Math.PI / WAVE_PERIOD) * 20;
+  const wavePhase = (lt * 2 * Math.PI / WAVE_PERIOD) % (2 * Math.PI);
 
   el.innerHTML = drawLobster({
-    t, mood: 'happy',
+    t: lt, mood: 'happy',
     clawOpenR: -30 + wave
   });
 
-  // "Hey!" text that fades in and out
-  const cycle = t % 120;
+  // Warm pulsing glow behind lobster (period 40 divides 120)
+  const glowPulse = 0.06 + Math.sin(lt * 2 * Math.PI / 40) * 0.03;
+  const glowR = 30 + Math.sin(lt * 2 * Math.PI / 40) * 3;
+  warmPulseEl.innerHTML = '<circle cx="0" cy="0" r="' + glowR + '" fill="#6ECB3C" opacity="' + glowPulse + '"/>';
+
+  // Motion arc lines near the waving claw (3 arcs that follow wave motion)
+  let arcsSvg = '';
+  for (let i = 0; i < 3; i++) {
+    // Arcs follow the wave with slight delay per arc
+    const arcDelay = i * 0.3;
+    const arcPhase = wavePhase - arcDelay;
+    // Arc visibility based on wave velocity (most visible at peak motion)
+    const velocity = Math.abs(Math.cos(arcPhase));
+    const arcOp = velocity * 0.3 * (1 - i * 0.25);
+    const arcOffset = i * 3;
+    // Approximate claw tip position when waving
+    const clawBaseX = 38;
+    const clawBaseY = -8;
+    const arcY = clawBaseY + Math.sin(arcPhase) * 8;
+    const arcR = 5 + arcOffset;
+    arcsSvg += '<path d="M' + (clawBaseX - arcR) + ',' + arcY + ' Q' + clawBaseX + ',' + (arcY - arcR * 0.8) + ' ' + (clawBaseX + arcR) + ',' + arcY + '" fill="none" stroke="#6ECB3C" stroke-width="0.5" opacity="' + arcOp + '" stroke-linecap="round"/>';
+  }
+  arcsEl.innerHTML = arcsSvg;
+
+  // Sparkle particles from claw tip
+  let sparkSvg = '';
+  sparkles.forEach(s => {
+    const age = particleAge(lt, s.spawnT, s.lifetime, LOOP);
+    if (age >= 0) {
+      const cx = 38 + Math.cos(s.angle0) * s.speed * age;
+      const cy = -8 + Math.sin(s.angle0) * s.speed * age - 0.3 * age;
+      const fadeIn = age < 4 ? age / 4 : 1;
+      const fadeOut = age > 22 ? (30 - age) / 8 : 1;
+      const op = fadeIn * fadeOut * 0.6;
+      const twinkle = 0.5 + Math.sin(age * 2 * Math.PI / 6 + s.phase) * 0.5;
+      const sz = s.size * twinkle;
+      // 4-pointed star shape
+      sparkSvg += '<g transform="translate(' + cx + ',' + cy + ') rotate(' + (age * 8) + ')" opacity="' + op + '">';
+      sparkSvg += '<line x1="' + (-sz) + '" y1="0" x2="' + sz + '" y2="0" stroke="#F5D831" stroke-width="0.4"/>';
+      sparkSvg += '<line x1="0" y1="' + (-sz) + '" x2="0" y2="' + sz + '" stroke="#F5D831" stroke-width="0.4"/>';
+      sparkSvg += '</g>';
+    }
+  });
+  sparklesEl.innerHTML = sparkSvg;
+
+  // Friendly wave lines ))) radiating from claw (period 24 divides 120)
+  let wlSvg = '';
+  for (let i = 0; i < 4; i++) {
+    const linePhase = (lt * 2 * Math.PI / WAVE_PERIOD + i * 0.6);
+    const expansion = (linePhase % (2 * Math.PI)) / (2 * Math.PI);
+    const lineOp = (1 - expansion) * 0.25;
+    const lineR = 4 + expansion * 10;
+    const lx = 42 + expansion * 5;
+    const ly = -5;
+    wlSvg += '<path d="M' + lx + ',' + (ly - lineR) + ' Q' + (lx + lineR * 0.5) + ',' + ly + ' ' + lx + ',' + (ly + lineR) + '" fill="none" stroke="#6ECB3C" stroke-width="0.4" opacity="' + lineOp + '" stroke-linecap="round"/>';
+  }
+  waveLinesEl.innerHTML = wlSvg;
+
+  // Greeting text with spring bounce
   let greet = '';
-  if (cycle < 60) {
-    const op = cycle < 10 ? cycle/10 : cycle > 45 ? (60-cycle)/15 : 0.8;
-    const gy = -48 + Math.sin(t/8)*1.5;
-    greet += `<g opacity="${op}">`;
-    greet += `<text x="30" y="${gy}" text-anchor="middle" font-family="monospace" font-size="8" font-weight="bold" fill="#6ECB3C">hey!</text>`;
-    // Small motion lines near the waving claw
+  if (lt < 60) {
+    const op = lt < 10 ? lt / 10 : lt > 45 ? (60 - lt) / 15 : 0.8;
+    // Spring bounce: overshoot then settle (period 30 divides 120)
+    const springT = lt / 30;
+    const springBounce = springT < 0.3 ? Math.sin(springT / 0.3 * Math.PI) * 3 : Math.sin(springT * Math.PI * 2) * 1.2 * Math.max(0, 1 - springT * 0.5);
+    const gy = -48 + Math.sin(lt * 2 * Math.PI / 40) * 1.5 - springBounce;
+    const textScale = 1 + (lt < 8 ? (8 - lt) / 8 * 0.15 : 0);
+    greet += '<g opacity="' + op + '">';
+    greet += '<text x="30" y="' + gy + '" text-anchor="middle" font-family="monospace" font-size="' + (8 * textScale) + '" font-weight="bold" fill="#6ECB3C">hey!</text>';
     const lineOp = op * 0.4;
     for (let i = 0; i < 3; i++) {
-      const ly = -10 + i*5 + Math.sin(t/3+i)*2;
-      const lx = 42 + Math.sin(t/4+i)*3;
-      greet += `<line x1="${lx}" y1="${ly}" x2="${lx+4}" y2="${ly}" stroke="#6ECB3C" stroke-width="0.5" opacity="${lineOp}" stroke-linecap="round"/>`;
+      const ly = -10 + i * 5 + Math.sin(lt * 2 * Math.PI / 20 + i) * 2;
+      const lx = 42 + Math.sin(lt * 2 * Math.PI / WAVE_PERIOD + i) * 3;
+      greet += '<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 4) + '" y2="' + ly + '" stroke="#6ECB3C" stroke-width="0.5" opacity="' + lineOp + '" stroke-linecap="round"/>';
     }
-    greet += `</g>`;
+    greet += '</g>';
   }
   greetEl.innerHTML = greet;
 });

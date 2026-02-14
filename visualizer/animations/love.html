@@ -17,58 +17,177 @@
       <stop offset="0%" stop-color="#e84393" stop-opacity="0.1"/>
       <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="pinkPulse" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff6b9d" stop-opacity="0.18"/>
+      <stop offset="50%" stop-color="#e84393" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0e1420" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="heartGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff6b9d"/>
+      <stop offset="100%" stop-color="#e84393"/>
+    </linearGradient>
+    <linearGradient id="heartGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff9dbf"/>
+      <stop offset="100%" stop-color="#ff6b9d"/>
+    </linearGradient>
+    <linearGradient id="heartGrad3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e84393"/>
+      <stop offset="100%" stop-color="#c2185b"/>
+    </linearGradient>
   </defs>
   <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <circle id="pulseGlow" cx="0" cy="0" r="55" fill="url(#pinkPulse)"/>
+  <g id="petals"></g>
+  <g id="arrow"></g>
   <g id="hearts"></g>
   <g id="lob"></g>
 </svg>
 <div class="label">love (joy + trust)</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 240 ticks = 4s at 60fps
+const LOOP = 240;
 const el = document.getElementById('lob');
 const heartsEl = document.getElementById('hearts');
-
-const hearts = [];
+const petalsEl = document.getElementById('petals');
+const arrowEl = document.getElementById('arrow');
+const pulseGlowEl = document.getElementById('pulseGlow');
 
 function heartPath(x, y, size) {
   const s = size;
   return `M${x},${y-s*0.3} C${x-s*0.5},${y-s} ${x-s},${y-s*0.3} ${x},${y+s*0.4} C${x+s},${y-s*0.3} ${x+s*0.5},${y-s} ${x},${y-s*0.3} Z`;
 }
 
+// Pre-generate hearts (every 10 ticks = 24 per loop)
+const N_HEARTS = 24;
+const hearts = [];
+const heartGrads = ['url(#heartGrad1)', 'url(#heartGrad2)', 'url(#heartGrad3)'];
+for (let i = 0; i < N_HEARTS; i++) {
+  const rng = mulberry32(i * 8431 + 67);
+  const spawnT = i * 10;
+  const swayAtSpawn = Math.sin(spawnT * 2 * Math.PI / 90) * 2;
+  hearts.push({
+    spawnT,
+    x0: -10 + rng() * 20 + swayAtSpawn,
+    y0: -10 + rng() * 10,
+    size: 1.5 + rng() * 2.5,
+    drift: (rng() - 0.5) * 0.6,
+    spin: (rng() - 0.5) * 2,
+    gradIdx: Math.floor(rng() * 3),
+    lifetime: 55 + Math.floor(rng() * 10),
+    sparkPhase1: rng() * Math.PI * 2,
+    sparkPhase2: rng() * Math.PI * 2,
+    sparkDist1: 2 + rng() * 2,
+    sparkDist2: 2.5 + rng() * 1.5
+  });
+}
+
+// Rose petals (8 particles, teardrop shapes)
+const N_PETALS = 8;
+const petals = [];
+for (let i = 0; i < N_PETALS; i++) {
+  const rng = mulberry32(i * 5573 + 113);
+  petals.push({
+    spawnT: Math.floor(rng() * LOOP),
+    x0: -25 + rng() * 50,
+    y0: -70 + rng() * 20,
+    vx: (rng() - 0.5) * 0.3,
+    vy: 0.4 + rng() * 0.4,
+    wobble: rng() * Math.PI * 2,
+    rotSpeed: (rng() - 0.5) * 4,
+    size: 1.5 + rng() * 1.5,
+    color: rng() > 0.5 ? '#c2185b' : '#d63384',
+    lifetime: 80 + Math.floor(rng() * 30)
+  });
+}
+
+// Cupid's arrow path — arcs across once per loop (period 240)
+// Arrow appears from lt=40 to lt=120
+const ARROW_START = 40;
+const ARROW_DUR = 80;
+
 startLoop(t => {
-  // Gentle swaying, happy mood
-  const sway = Math.sin(t/15)*2;
-  const pulse = 1 + Math.sin(t/8)*0.02;
+  const lt = t % LOOP;
+
+  const sway = Math.sin(lt * 2 * Math.PI / 90) * 2;
+  const pulse = 1 + Math.sin(lt * 2 * Math.PI / 48) * 0.02;
+
+  // Pulsing pink glow synced to heartbeat pulse
+  const glowOp = 0.5 + Math.sin(lt * 2 * Math.PI / 48) * 0.3;
+  pulseGlowEl.setAttribute('opacity', glowOp.toFixed(3));
 
   el.innerHTML = `<g transform="translate(${sway},0) scale(${pulse})">` +
-    drawLobster({ t, mood: 'happy' }) + '</g>';
+    drawLobster({ t: lt, mood: 'happy' }) + '</g>';
 
-  // Hearts floating up
-  if (t % 10 === 0) {
-    hearts.push({
-      x: -10+Math.random()*20+sway,
-      y: -10+Math.random()*10,
-      age: 0,
-      size: 1.5+Math.random()*2.5,
-      drift: (Math.random()-0.5)*0.6,
-      spin: (Math.random()-0.5)*2,
-      color: Math.random()>0.3 ? '#e84393' : '#ff6b9d'
-    });
-  }
+  // Hearts with gradient fills and sparkle sub-particles
   let heartSvg = '';
-  for (let i = hearts.length-1; i >= 0; i--) {
-    const h = hearts[i];
-    h.age++;
-    h.y -= 0.7;
-    h.x += h.drift + Math.sin(h.age/8)*0.3;
-    if (h.age > 60) { hearts.splice(i,1); continue; }
-    const op = h.age < 5 ? h.age/5 : h.age > 45 ? (60-h.age)/15 : 0.6;
-    const rot = Math.sin(h.age/10)*15 + h.spin*h.age;
-    heartSvg += `<g transform="translate(${h.x},${h.y}) rotate(${rot})" opacity="${op}">`;
-    heartSvg += `<path d="${heartPath(0,0,h.size)}" fill="${h.color}"/>`;
-    heartSvg += `</g>`;
-  }
+  hearts.forEach(h => {
+    const age = particleAge(lt, h.spawnT, h.lifetime, LOOP);
+    if (age >= 0) {
+      const x = h.x0 + h.drift * age + Math.sin(age / 8) * 0.3;
+      const y = h.y0 - age * 0.7;
+      const op = age < 5 ? age / 5 : age > h.lifetime - 15 ? (h.lifetime - age) / 15 : 0.6;
+      const rot = Math.sin(age / 10) * 15 + h.spin * age;
+      heartSvg += `<g transform="translate(${x},${y}) rotate(${rot})" opacity="${op}">`;
+      heartSvg += `<path d="${heartPath(0, 0, h.size)}" fill="${heartGrads[h.gradIdx]}"/>`;
+      // Sparkle sub-particles (2 per heart)
+      const sp1a = h.sparkPhase1 + age * 0.3;
+      const sp1x = Math.cos(sp1a) * h.sparkDist1;
+      const sp1y = Math.sin(sp1a) * h.sparkDist1;
+      const sp1op = (0.3 + Math.sin(age * 0.5 + h.sparkPhase1) * 0.3) * op;
+      heartSvg += `<circle cx="${sp1x}" cy="${sp1y}" r="0.3" fill="#fff" opacity="${sp1op}"/>`;
+      const sp2a = h.sparkPhase2 + age * 0.25;
+      const sp2x = Math.cos(sp2a) * h.sparkDist2;
+      const sp2y = Math.sin(sp2a) * h.sparkDist2;
+      const sp2op = (0.25 + Math.sin(age * 0.4 + h.sparkPhase2) * 0.25) * op;
+      heartSvg += `<circle cx="${sp2x}" cy="${sp2y}" r="0.25" fill="#ffb6c1" opacity="${sp2op}"/>`;
+      heartSvg += `</g>`;
+    }
+  });
   heartsEl.innerHTML = heartSvg;
+
+  // Rose petals
+  let petalSvg = '';
+  petals.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const x = p.x0 + p.vx * age + Math.sin(age * 0.08 + p.wobble) * 6;
+      const y = p.y0 + p.vy * age;
+      const op = age < 10 ? age / 10 : age > p.lifetime - 20 ? (p.lifetime - age) / 20 : 0.35;
+      const rot = p.rotSpeed * age;
+      // Teardrop shape for rose petal
+      petalSvg += `<g transform="translate(${x},${y}) rotate(${rot})" opacity="${op}">`;
+      petalSvg += `<path d="M0,${-p.size} C${p.size*0.6},${-p.size*0.5} ${p.size*0.5},${p.size*0.3} 0,${p.size} C${-p.size*0.5},${p.size*0.3} ${-p.size*0.6},${-p.size*0.5} 0,${-p.size} Z" fill="${p.color}"/>`;
+      petalSvg += `</g>`;
+    }
+  });
+  petalsEl.innerHTML = petalSvg;
+
+  // Cupid's arrow arc (once per loop)
+  let arrowSvg = '';
+  if (lt >= ARROW_START && lt < ARROW_START + ARROW_DUR) {
+    const p = (lt - ARROW_START) / ARROW_DUR;
+    // Arrow flies from left to right in a parabolic arc
+    const ax = -55 + p * 110;
+    const ay = -20 - Math.sin(p * Math.PI) * 40;
+    const angle = Math.atan2(
+      -Math.cos(p * Math.PI) * 40 * Math.PI / ARROW_DUR,
+      110 / ARROW_DUR
+    ) * 180 / Math.PI;
+    const aop = p < 0.1 ? p / 0.1 : p > 0.85 ? (1 - p) / 0.15 : 0.25;
+    arrowSvg += `<g transform="translate(${ax},${ay}) rotate(${angle})" opacity="${aop}">`;
+    // Arrow shaft
+    arrowSvg += `<line x1="-8" y1="0" x2="8" y2="0" stroke="#ffb6c1" stroke-width="0.5"/>`;
+    // Arrowhead
+    arrowSvg += `<polygon points="8,0 5,-1.5 5,1.5" fill="#e84393"/>`;
+    // Tail feathers
+    arrowSvg += `<line x1="-8" y1="0" x2="-10" y2="-1.5" stroke="#ff6b9d" stroke-width="0.4"/>`;
+    arrowSvg += `<line x1="-8" y1="0" x2="-10" y2="1.5" stroke="#ff6b9d" stroke-width="0.4"/>`;
+    // Small heart at the tip
+    arrowSvg += `<path d="${heartPath(9, 0, 1)}" fill="#e84393" opacity="0.6"/>`;
+    arrowSvg += `</g>`;
+  }
+  arrowEl.innerHTML = arrowSvg;
 });
 </script>
 </body>

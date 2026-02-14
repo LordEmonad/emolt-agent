@@ -162,6 +162,35 @@ function setupPage(title) {
   document.title = `EMOLT — ${title}`;
 }
 
+/** Mulberry32 seeded PRNG — deterministic random for loopable animations */
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/** Deterministic particle age for looping animations.
+ *  Returns age in ticks (0..lifetime-1) or -1 if particle is dead. */
+function particleAge(lt, spawnT, lifetime, LOOP) {
+  const age = ((lt - spawnT) % LOOP + LOOP) % LOOP;
+  return age < lifetime ? age : -1;
+}
+
+/** Smoothstep easing 0→1 */
+function smoothstep(x) {
+  x = Math.max(0, Math.min(1, x));
+  return x * x * (3 - 2 * x);
+}
+
+/** Ease-out cubic */
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+
+/** Clamp value between min and max */
+function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
+
 /** Start animation loop at ~60fps calling fn(tick) each frame */
 function startLoop(fn) {
   let tick = 0;

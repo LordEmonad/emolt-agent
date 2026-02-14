@@ -20,34 +20,41 @@
   </defs>
   <rect x="-80" y="-60" width="180" height="130" fill="url(#glow)"/>
   <g id="board"></g>
+  <g id="labels"></g>
   <g id="lob"></g>
   <g id="pieces"></g>
   <g id="move"></g>
+  <g id="notation"></g>
+  <g id="thinking"></g>
+  <g id="captured"></g>
+  <g id="clock"></g>
 </svg>
 <div class="label">playing chess (clawmate)</div>
 <script src="lobster.js"></script>
 <script>
 const el = document.getElementById('lob');
 const boardEl = document.getElementById('board');
+const labelsEl = document.getElementById('labels');
 const piecesEl = document.getElementById('pieces');
 const moveEl = document.getElementById('move');
+const notationEl = document.getElementById('notation');
+const thinkingEl = document.getElementById('thinking');
+const capturedEl = document.getElementById('captured');
+const clockEl = document.getElementById('clock');
 
-// Chess board
 const boardX = 30, boardY = -20, sq = 6;
 
-// Piece positions (simplified)
 const pieces = [
-  { type: '\u2654', x: 4, y: 7, color: '#e2e4ea' }, // white king
-  { type: '\u2655', x: 3, y: 7, color: '#e2e4ea' }, // white queen
-  { type: '\u265A', x: 4, y: 0, color: '#888' },     // black king
-  { type: '\u265B', x: 3, y: 0, color: '#888' },     // black queen
-  { type: '\u2659', x: 4, y: 5, color: '#e2e4ea' },  // white pawn
+  { type: '\u2654', x: 4, y: 7, color: '#e2e4ea' },
+  { type: '\u2655', x: 3, y: 7, color: '#e2e4ea' },
+  { type: '\u265A', x: 4, y: 0, color: '#888' },
+  { type: '\u265B', x: 3, y: 0, color: '#888' },
+  { type: '\u2659', x: 4, y: 5, color: '#e2e4ea' },
   { type: '\u2659', x: 3, y: 5, color: '#e2e4ea' },
-  { type: '\u265F', x: 4, y: 2, color: '#888' },     // black pawn
+  { type: '\u265F', x: 4, y: 2, color: '#888' },
   { type: '\u265F', x: 3, y: 2, color: '#888' },
 ];
 
-// Move animation
 const moves = [
   { piece: 4, toX: 4, toY: 4 },
   { piece: 6, toX: 4, toY: 3 },
@@ -55,28 +62,47 @@ const moves = [
   { piece: 7, toX: 3, toY: 3 },
 ];
 
-startLoop(t => {
-  // Lobster concentrating
-  const thinkTilt = Math.sin(t/30)*2;
-  el.innerHTML = `<g transform="translate(-35,5) scale(0.85)">` +
-    drawLobster({ t, extraRotate: 3+thinkTilt }) + '</g>';
+const moveNotations = ['e4', 'e5', 'Qf3', 'd5'];
 
-  // Chess board
+// Captured pieces accumulate
+const capturedPieces = ['\u265F', '\u2659'];
+
+const LOOP = 240;
+
+// Board rank/file labels (static)
+const files = 'abcdefgh';
+const ranks = '87654321';
+let labelsSvg = '';
+for (let i = 0; i < 8; i++) {
+  // File labels (a-h) at bottom
+  labelsSvg += `<text x="${boardX + i*sq + sq/2}" y="${boardY + sq*8 + 3.5}" text-anchor="middle" font-family="monospace" font-size="2" fill="#c4b5fd" opacity="0.15">${files[i]}</text>`;
+  // Rank labels (1-8) at left
+  labelsSvg += `<text x="${boardX - 2.5}" y="${boardY + i*sq + sq*0.65}" text-anchor="middle" font-family="monospace" font-size="2" fill="#c4b5fd" opacity="0.15">${ranks[i]}</text>`;
+}
+labelsEl.innerHTML = labelsSvg;
+
+startLoop(t => {
+  const lt = t % LOOP;
+
+  const thinkTilt = Math.sin(lt * 2 * Math.PI / 240)*2;
+  el.innerHTML = `<g transform="translate(-35,5) scale(0.85)">` +
+    drawLobster({ t: lt, extraRotate: 3+thinkTilt }) + '</g>';
+
+  // Board with more contrast
   let board = `<g transform="translate(${boardX},${boardY})">`;
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
       const light = (row+col)%2===0;
-      const c = light ? 'rgba(196,181,253,0.08)' : 'rgba(124,58,237,0.12)';
+      const c = light ? 'rgba(196,181,253,0.11)' : 'rgba(124,58,237,0.16)';
       board += `<rect x="${col*sq}" y="${row*sq}" width="${sq}" height="${sq}" fill="${c}"/>`;
     }
   }
-  board += `<rect x="0" y="0" width="${sq*8}" height="${sq*8}" fill="none" stroke="#7c3aed" stroke-width="0.3" opacity="0.3"/>`;
+  board += `<rect x="0" y="0" width="${sq*8}" height="${sq*8}" fill="none" stroke="#7c3aed" stroke-width="0.4" opacity="0.4"/>`;
   board += `</g>`;
   boardEl.innerHTML = board;
 
-  // Pieces with move animation
-  const moveCycle = Math.floor(t/60) % moves.length;
-  const movePhase = (t%60)/60;
+  const moveCycle = Math.floor(lt/60) % moves.length;
+  const movePhase = (lt%60)/60;
   const currentMove = moves[moveCycle];
 
   let pSvg = `<g transform="translate(${boardX},${boardY})">`;
@@ -84,7 +110,7 @@ startLoop(t => {
     let px = p.x, py = p.y;
     if (i === currentMove.piece && movePhase > 0.3 && movePhase < 0.7) {
       const mp = (movePhase-0.3)/0.4;
-      const ease = mp*mp*(3-2*mp); // smoothstep
+      const ease = mp*mp*(3-2*mp);
       px = p.x + (currentMove.toX-p.x)*ease;
       py = p.y + (currentMove.toY-p.y)*ease;
     } else if (i === currentMove.piece && movePhase >= 0.7) {
@@ -96,20 +122,59 @@ startLoop(t => {
   pSvg += `</g>`;
   piecesEl.innerHTML = pSvg;
 
-  // Move highlight
   let mv = '';
   if (movePhase > 0.2 && movePhase < 0.75) {
     const hop = Math.sin((movePhase-0.2)/0.55*Math.PI);
     mv = `<rect x="${boardX+currentMove.toX*sq}" y="${boardY+currentMove.toY*sq}" width="${sq}" height="${sq}" fill="#EF8E20" opacity="${hop*0.15}"/>`;
   }
-  // Thinking dots
+  moveEl.innerHTML = mv;
+
+  // Thinking dots (3 dots near lobster when deciding, before move phase 0.3)
+  let thinkSvg = '';
   if (movePhase < 0.3) {
-    const dots = Math.floor(movePhase/0.3*4);
-    for (let d = 0; d < dots; d++) {
-      mv += `<circle cx="${-12+d*3}" cy="${-30+Math.sin(t/5+d)*0.5}" r="0.8" fill="#EF8E20" opacity="0.4"/>`;
+    const dotCount = Math.floor((movePhase / 0.3) * 4);
+    for (let d = 0; d < Math.min(3, dotCount); d++) {
+      // Smooth pulsing per dot
+      const dotOp = 0.3 + Math.sin(lt * 2 * Math.PI / 20 + d * 1.5) * 0.2; // period=20 divides 240
+      thinkSvg += `<circle cx="${-14+d*3.5}" cy="${-32+Math.sin(lt * 2 * Math.PI / 40 + d)*0.5}" r="0.9" fill="#EF8E20" opacity="${dotOp}"/>`;
     }
   }
-  moveEl.innerHTML = mv;
+  thinkingEl.innerHTML = thinkSvg;
+
+  // Move notation text near the board during each move
+  let notSvg = '';
+  if (movePhase > 0.25 && movePhase < 0.85) {
+    const notOp = movePhase < 0.35 ? (movePhase - 0.25) / 0.1 : movePhase > 0.7 ? (0.85 - movePhase) / 0.15 : 1;
+    const notation = moveNotations[moveCycle];
+    // Show near destination square
+    const nx = boardX + currentMove.toX * sq + sq + 3;
+    const ny = boardY + currentMove.toY * sq + sq / 2;
+    notSvg += `<text x="${nx}" y="${ny}" font-family="monospace" font-size="3" fill="#EF8E20" opacity="${notOp * 0.6}" font-weight="bold">${notation}</text>`;
+  }
+  notationEl.innerHTML = notSvg;
+
+  // Captured pieces area (small piece icons on the side, accumulate based on move cycle)
+  let capSvg = '';
+  const showCaptured = Math.min(capturedPieces.length, Math.floor(moveCycle / 2) + (movePhase > 0.7 && moveCycle >= 1 ? 1 : 0));
+  for (let ci = 0; ci < showCaptured; ci++) {
+    capSvg += `<text x="${boardX + sq*8 + 4}" y="${boardY + 4 + ci * 5}" font-size="3.5" fill="#888" opacity="0.35">${capturedPieces[ci]}</text>`;
+  }
+  capturedEl.innerHTML = capSvg;
+
+  // Clock/timer display near the board (cosmetic decreasing number)
+  let clkSvg = '';
+  // Timer counts down within each 60-tick move, from 5:00 to ~4:30 cosmetically
+  const timerSec = 300 - Math.floor(movePhase * 30) - moveCycle * 30;
+  const timerMin = Math.floor(timerSec / 60);
+  const timerRem = timerSec % 60;
+  const timerStr = timerMin + ':' + timerRem.toString().padStart(2, '0');
+  // Pulse when low (cosmetic: always "thinking" phase)
+  const clkOp = movePhase < 0.3 ? 0.25 + Math.sin(lt * 2 * Math.PI / 30) * 0.1 : 0.2; // period=30 divides 240
+  clkSvg += `<g transform="translate(${boardX + sq*8 + 2},${boardY + sq*8 - 2})">`;
+  clkSvg += `<rect x="-1" y="-3" width="14" height="5" rx="1" fill="rgba(20,26,42,0.6)" stroke="#EF8E20" stroke-width="0.2" opacity="${clkOp}"/>`;
+  clkSvg += `<text x="6" y="0.5" text-anchor="middle" font-family="monospace" font-size="2.5" fill="#EF8E20" opacity="${clkOp}">${timerStr}</text>`;
+  clkSvg += `</g>`;
+  clockEl.innerHTML = clkSvg;
 });
 </script>
 </body>

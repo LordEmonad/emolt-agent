@@ -19,72 +19,179 @@
       <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.12"/>
       <stop offset="100%" stop-color="#0a0a12" stop-opacity="0"/>
     </radialGradient>
+    <filter id="streakGlow">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
   <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
+  <g id="bgAmp"></g>
   <g id="streaks"></g>
+  <g id="speedLines"></g>
   <g id="lob"></g>
   <g id="hairfx"></g>
+  <g id="shockwaves"></g>
+  <g id="groundCrack"></g>
 </svg>
 <div class="label">headbang</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 180 ticks = 3s at 60fps
+const LOOP = 180;
+const BANG_PERIOD = 30;  // 6 bang cycles per 180 ticks
 const el = document.getElementById('lob');
 const streaksEl = document.getElementById('streaks');
 const hairfxEl = document.getElementById('hairfx');
+const speedLinesEl = document.getElementById('speedLines');
+const shockwavesEl = document.getElementById('shockwaves');
+const groundCrackEl = document.getElementById('groundCrack');
+const bgAmpEl = document.getElementById('bgAmp');
 
+// Pre-generate hair sparks with mulberry32
+const N_SPARKS = 80;
 const sparks = [];
-
-startLoop(t => {
-  // Headbanging: aggressive forward-back tilt
-  const bangSpeed = 5;
-  const bangAngle = Math.sin(t / bangSpeed) * 18;
-  const headDip = Math.max(0, Math.sin(t / bangSpeed)) * 4;
-  const squash = 1 + Math.sin(t / bangSpeed) * 0.04;
-
-  el.innerHTML = drawLobster({
-    t, extraRotate: bangAngle, extraBob: headDip,
-    squash, stretch: 2 - squash,
-    clawOpenL: Math.sin(t/bangSpeed)*8,
-    clawOpenR: -Math.sin(t/bangSpeed)*8
+for (let i = 0; i < N_SPARKS; i++) {
+  const rng = mulberry32(i * 6173 + 43);
+  sparks.push({
+    spawnT: Math.floor(rng() * LOOP),
+    x0: -5 + rng() * 10,
+    y0: -20 + rng() * 5,
+    vx: (rng() - 0.5) * 2,
+    vy: -0.5 - rng(),
+    lifetime: 20
   });
+}
 
-  // Hair motion streaks
-  if (Math.abs(Math.cos(t/bangSpeed)) > 0.7) {
-    sparks.push({
-      x: -5+Math.random()*10,
-      y: -20+Math.random()*5,
-      vx: (Math.random()-0.5)*2,
-      vy: -0.5-Math.random(),
-      age: 0
+// Shockwave rings: emitted at each forward peak (bangPhase ~ PI/2, i.e. max sin)
+// Forward peaks occur at BANG_PERIOD * (n + 0.25) for n=0..5 => ticks 7,37,67,97,127,157
+const shockwaveRings = [];
+for (let n = 0; n < 6; n++) {
+  const spawnT = Math.round(BANG_PERIOD * n + BANG_PERIOD * 0.25);
+  shockwaveRings.push({ spawnT, lifetime: 22 });
+}
+
+// Ground impact cracks at each forward slam
+const groundCracks = [];
+for (let n = 0; n < 6; n++) {
+  const slamT = Math.round(BANG_PERIOD * n + BANG_PERIOD * 0.25);
+  for (let i = 0; i < 3; i++) {
+    const rng = mulberry32(n * 5501 + i * 3119 + 83);
+    groundCracks.push({
+      spawnT: slamT,
+      lifetime: 20,
+      x0: -4 + rng() * 8,
+      y0: 32,
+      dx: (rng() - 0.5) * 12,
+      dy: rng() * 4
     });
   }
+}
+
+// Static guitar/amp icon (drawn once in background, very faint)
+let ampSvg = '';
+// Amp body
+ampSvg += `<rect x="32" y="15" width="18" height="22" rx="2" fill="none" stroke="#7c3aed" stroke-width="0.4" opacity="0.06"/>`;
+// Speaker grille
+ampSvg += `<circle cx="41" cy="28" r="5" fill="none" stroke="#7c3aed" stroke-width="0.3" opacity="0.05"/>`;
+ampSvg += `<circle cx="41" cy="28" r="2" fill="none" stroke="#7c3aed" stroke-width="0.2" opacity="0.04"/>`;
+// Knobs
+ampSvg += `<circle cx="36" cy="19" r="1" fill="#7c3aed" opacity="0.05"/>`;
+ampSvg += `<circle cx="41" cy="19" r="1" fill="#7c3aed" opacity="0.05"/>`;
+ampSvg += `<circle cx="46" cy="19" r="1" fill="#7c3aed" opacity="0.05"/>`;
+// Guitar silhouette (simple)
+ampSvg += `<g opacity="0.05" transform="translate(-42,10) rotate(-15)">`;
+ampSvg += `<ellipse cx="0" cy="8" rx="5" ry="7" fill="none" stroke="#7c3aed" stroke-width="0.4"/>`;
+ampSvg += `<ellipse cx="0" cy="-2" rx="4" ry="5" fill="none" stroke="#7c3aed" stroke-width="0.4"/>`;
+ampSvg += `<line x1="0" y1="-7" x2="0" y2="-28" stroke="#7c3aed" stroke-width="0.5"/>`;
+ampSvg += `<rect x="-2" y="-30" width="4" height="4" rx="1" fill="none" stroke="#7c3aed" stroke-width="0.3"/>`;
+ampSvg += `</g>`;
+bgAmpEl.innerHTML = ampSvg;
+
+startLoop(t => {
+  const lt = t % LOOP;
+
+  // Headbanging: exact-period forward-back tilt
+  const bangPhase = lt * 2 * Math.PI / BANG_PERIOD;
+  const bangAngle = Math.sin(bangPhase) * 18;
+  const headDip = Math.max(0, Math.sin(bangPhase)) * 4;
+  const squash = 1 + Math.sin(bangPhase) * 0.04;
+
+  el.innerHTML = drawLobster({
+    t: lt, extraRotate: bangAngle, extraBob: headDip,
+    squash, stretch: 2 - squash,
+    clawOpenL: Math.sin(bangPhase) * 8,
+    clawOpenR: -Math.sin(bangPhase) * 8
+  });
+
+  // Hair motion sparks
   let sparkSvg = '';
-  for (let i = sparks.length-1; i >= 0; i--) {
-    const s = sparks[i];
-    s.age++;
-    s.x += s.vx;
-    s.y += s.vy;
-    s.vy += 0.05;
-    if (s.age > 20) { sparks.splice(i,1); continue; }
-    const op = (1-s.age/20)*0.5;
-    sparkSvg += `<circle cx="${s.x}" cy="${s.y}" r="0.6" fill="#7c3aed" opacity="${op}"/>`;
-  }
+  sparks.forEach(s => {
+    const spawnBangPhase = s.spawnT * 2 * Math.PI / BANG_PERIOD;
+    if (Math.abs(Math.cos(spawnBangPhase)) <= 0.7) return;
+    const age = particleAge(lt, s.spawnT, s.lifetime, LOOP);
+    if (age >= 0) {
+      const x = s.x0 + s.vx * age;
+      const y = s.y0 + s.vy * age + 0.05 * age * age;
+      const op = (1 - age / 20) * 0.5;
+      sparkSvg += '<circle cx="' + x + '" cy="' + y + '" r="0.6" fill="#7c3aed" opacity="' + op + '"/>';
+    }
+  });
   hairfxEl.innerHTML = sparkSvg;
 
-  // Energy streaks in background
+  // Energy streaks with glow filter (periods divide 180)
   let streaks = '';
   for (let i = 0; i < 6; i++) {
-    const angle = (i/6)*Math.PI*2 + t*0.05;
-    const r1 = 35 + Math.sin(t/8+i)*5;
-    const r2 = r1 + 8 + Math.sin(t/6+i)*3;
-    const x1 = Math.cos(angle)*r1;
-    const y1 = Math.sin(angle)*r1;
-    const x2 = Math.cos(angle)*r2;
-    const y2 = Math.sin(angle)*r2;
-    const op = 0.1 + Math.sin(t/4+i)*0.08;
-    streaks += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#7c3aed" stroke-width="1" opacity="${op}" stroke-linecap="round"/>`;
+    const angle = (i / 6) * Math.PI * 2 + lt * 2 * Math.PI / 36;
+    const r1 = 35 + Math.sin(lt * 2 * Math.PI / 45 + i) * 5;
+    const r2 = r1 + 8 + Math.sin(lt * 2 * Math.PI / 30 + i) * 3;
+    const x1 = Math.cos(angle) * r1;
+    const y1 = Math.sin(angle) * r1;
+    const x2 = Math.cos(angle) * r2;
+    const y2 = Math.sin(angle) * r2;
+    const op = 0.1 + Math.sin(lt * 2 * Math.PI / 45 + i) * 0.08;
+    streaks += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="#7c3aed" stroke-width="1.2" opacity="' + op + '" stroke-linecap="round" filter="url(#streakGlow)"/>';
   }
   streaksEl.innerHTML = streaks;
+
+  // Speed lines in direction of head motion (vertical lines behind lobster during forward tilt)
+  let speedSvg = '';
+  const forwardAmount = Math.max(0, Math.sin(bangPhase)); // 0 to 1 when tilting forward
+  if (forwardAmount > 0.3) {
+    const lineOp = (forwardAmount - 0.3) * 0.5;
+    for (let i = 0; i < 8; i++) {
+      const lx = -12 + i * 3 + Math.sin(i * 2.7) * 2;
+      const ly1 = -30 - i * 1.5;
+      const ly2 = ly1 + 8 + forwardAmount * 6;
+      speedSvg += `<line x1="${lx}" y1="${ly1}" x2="${lx}" y2="${ly2}" stroke="#7c3aed" stroke-width="0.5" opacity="${lineOp * 0.4}" stroke-linecap="round"/>`;
+    }
+  }
+  speedLinesEl.innerHTML = speedSvg;
+
+  // Shockwave rings at forward peaks
+  let shockSvg = '';
+  shockwaveRings.forEach(sw => {
+    const age = particleAge(lt, sw.spawnT, sw.lifetime, LOOP);
+    if (age >= 0) {
+      const radius = 3 + age * 1.8;
+      const op = (1 - age / sw.lifetime) * 0.3;
+      shockSvg += `<ellipse cx="0" cy="${-15 + headDip}" rx="${radius}" ry="${radius * 0.4}" fill="none" stroke="#7c3aed" stroke-width="0.6" opacity="${op}"/>`;
+    }
+  });
+  shockwavesEl.innerHTML = shockSvg;
+
+  // Ground impact cracks
+  let crackSvg = '';
+  groundCracks.forEach(gc => {
+    const age = particleAge(lt, gc.spawnT, gc.lifetime, LOOP);
+    if (age >= 0) {
+      const growP = Math.min(1, age / 5);
+      const op = age < 5 ? 0.4 : (1 - (age - 5) / (gc.lifetime - 5)) * 0.3;
+      const endX = gc.x0 + gc.dx * growP;
+      const endY = gc.y0 + gc.dy * growP;
+      crackSvg += `<line x1="${gc.x0}" y1="${gc.y0}" x2="${endX}" y2="${endY}" stroke="#7c3aed" stroke-width="0.4" opacity="${op}"/>`;
+    }
+  });
+  groundCrackEl.innerHTML = crackSvg;
 });
 </script>
 </body>

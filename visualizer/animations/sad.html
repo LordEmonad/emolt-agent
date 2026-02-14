@@ -8,75 +8,187 @@
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:#0a0e18;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
   .label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#4A6BD4;font-family:monospace;font-size:14px;opacity:0.6}
+  .darkness{position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 45%,transparent 25%,rgba(0,0,0,0.4) 80%)}
 </style>
 </head>
 <body>
+<div class="darkness"></div>
 <svg width="400" height="450" viewBox="-60 -70 120 150">
   <defs>
     <radialGradient id="glow" cx="50%" cy="40%" r="50%">
       <stop offset="0%" stop-color="#4A6BD4" stop-opacity="0.08"/>
       <stop offset="100%" stop-color="#0a0e18" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="rain" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#4A6BD4" stop-opacity="0.4"/>
-      <stop offset="100%" stop-color="#4A6BD4" stop-opacity="0"/>
-    </linearGradient>
   </defs>
+  <g id="bgFlash"></g>
   <circle cx="0" cy="0" r="60" fill="url(#glow)"/>
   <g id="rain"></g>
   <g id="lob"></g>
   <g id="tears"></g>
   <g id="puddle"></g>
+  <g id="ripples"></g>
+  <g id="extraRipples"></g>
 </svg>
 <div class="label">sad</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 300 ticks = 5s at 60fps
+const LOOP = 300;
 const el = document.getElementById('lob');
 const rainEl = document.getElementById('rain');
 const tearEl = document.getElementById('tears');
 const puddleEl = document.getElementById('puddle');
+const rippleEl = document.getElementById('ripples');
+const extraRippleEl = document.getElementById('extraRipples');
+const bgFlashEl = document.getElementById('bgFlash');
 
-// Rain drops
-const drops = [];
-for (let i = 0; i < 40; i++) {
-  drops.push({ x: -60 + Math.random()*120, y: -70 + Math.random()*150, speed: 1.5+Math.random()*2, len: 3+Math.random()*5 });
+// Deterministic rain drops
+const N_RAIN = 50;
+const rainDrops = [];
+for (let i = 0; i < N_RAIN; i++) {
+  const rng = mulberry32(i * 2131 + 99);
+  const travelTime = 40 + Math.floor(rng() * 30); // ticks to fall
+  rainDrops.push({
+    spawnT: Math.floor(rng() * LOOP),
+    x: -60 + rng() * 120,
+    windDrift: -0.3 - rng() * 0.3,
+    startY: -70,
+    speed: (150 / travelTime),
+    len: 3 + rng() * 5,
+    lifetime: travelTime,
+    opacity: 0.15 + rng() * 0.15,
+    thickness: 0.3 + rng() * 0.3 // varying thickness
+  });
 }
 
-// Tear drops
+// Deterministic tears
+const N_TEARS = 12;
 const tears = [];
+for (let i = 0; i < N_TEARS; i++) {
+  const rng = mulberry32(i * 6337 + 13);
+  tears.push({
+    spawnT: Math.floor(rng() * LOOP),
+    x0: 9 + rng() * 3,
+    lifetime: 35 + Math.floor(rng() * 15),
+    wobble: rng() * Math.PI * 2
+  });
+}
+
+// Deterministic puddle ripples
+const N_RIPPLE = 8;
+const ripples = [];
+for (let i = 0; i < N_RIPPLE; i++) {
+  const rng = mulberry32(i * 4447 + 31);
+  ripples.push({
+    spawnT: Math.floor(rng() * LOOP),
+    x: -2 + rng() * 10,
+    lifetime: 40 + Math.floor(rng() * 20)
+  });
+}
+
+// 3 additional small puddle ripple points
+const extraPuddlePoints = [];
+for (let i = 0; i < 3; i++) {
+  const rng = mulberry32(i * 7753 + 61);
+  extraPuddlePoints.push({
+    cx: -15 + rng() * 30,
+    cy: 43 + rng() * 6,
+    rx: 3 + rng() * 3
+  });
+}
+
+// Extra ripples for scattered puddle points
+const N_EXTRA_RIPPLE = 9; // 3 per extra puddle point
+const extraRipples = [];
+for (let i = 0; i < N_EXTRA_RIPPLE; i++) {
+  const rng = mulberry32(i * 8819 + 77);
+  const ptIdx = Math.floor(i / 3);
+  extraRipples.push({
+    spawnT: Math.floor(rng() * LOOP),
+    ptIdx: ptIdx,
+    lifetime: 35 + Math.floor(rng() * 15)
+  });
+}
 
 startLoop(t => {
-  el.innerHTML = drawLobster({ t, mood: 'sad', extraBob: Math.sin(t/30)*0.5 });
+  const lt = t % LOOP;
 
-  // Rain
+  // Lightning flash at lt===150 for 3 ticks
+  let flashSvg = '';
+  if (lt >= 150 && lt < 153) {
+    const flashOp = 0.12 * (1 - (lt - 150) / 3);
+    flashSvg = `<rect x="-60" y="-70" width="120" height="150" fill="#4A6BD4" opacity="${flashOp}"/>`;
+  }
+  bgFlashEl.innerHTML = flashSvg;
+
+  // Sad lobster with increased sway amplitude and slight droop
+  const sway = Math.sin(lt * 2 * Math.PI / 150) * 1.0;
+  el.innerHTML = drawLobster({ t: lt, mood: 'sad', extraBob: sway, extraRotate: -2 });
+
+  // Rain with varying thickness
   let rain = '';
-  drops.forEach(d => {
-    d.y += d.speed;
-    if (d.y > 80) { d.y = -70; d.x = -60 + Math.random()*120; }
-    rain += `<line x1="${d.x}" y1="${d.y}" x2="${d.x-0.5}" y2="${d.y+d.len}" stroke="#4A6BD4" stroke-width="0.4" opacity="0.25"/>`;
+  rainDrops.forEach(d => {
+    const age = particleAge(lt, d.spawnT, d.lifetime, LOOP);
+    if (age >= 0) {
+      const y = d.startY + d.speed * age;
+      const x = d.x + d.windDrift * age;
+      const op = d.opacity * (age < 5 ? age / 5 : 1);
+      rain += `<line x1="${x}" y1="${y}" x2="${x + d.windDrift * 2}" y2="${y + d.len}" stroke="#4A6BD4" stroke-width="${d.thickness}" opacity="${op}"/>`;
+    }
   });
   rainEl.innerHTML = rain;
 
-  // Tears falling from face
-  if (t % 20 === 0) {
-    tears.push({ x: 10 + Math.random()*2, y: -2, vy: 0.3, age: 0 });
-  }
+  // Tears falling from right eye
   let tearSvg = '';
-  for (let i = tears.length-1; i >= 0; i--) {
-    const tr = tears[i];
-    tr.age++;
-    tr.vy += 0.08;
-    tr.y += tr.vy;
-    tr.x += Math.sin(tr.age/5)*0.15;
-    if (tr.y > 50) { tears.splice(i,1); continue; }
-    const op = Math.max(0, 0.6 - tr.age/60);
-    tearSvg += `<ellipse cx="${tr.x}" cy="${tr.y}" rx="0.8" ry="${1+tr.vy*0.3}" fill="#7caae8" opacity="${op}"/>`;
-  }
+  tears.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / p.lifetime;
+      const gravity = 0.08;
+      const y = -2 + 0.3 * age + 0.5 * gravity * age * age * 0.1;
+      const x = p.x0 + Math.sin(age / 5 + p.wobble) * 0.15;
+      const op = prog < 0.1 ? prog / 0.1 : prog > 0.6 ? (1 - prog) / 0.4 : 0.6;
+      tearSvg += `<ellipse cx="${x}" cy="${y}" rx="0.8" ry="${1 + prog * 0.5}" fill="#7caae8" opacity="${op}"/>`;
+    }
+  });
   tearEl.innerHTML = tearSvg;
 
   // Puddle
-  const pw = 8 + Math.sin(t/30)*1;
-  puddleEl.innerHTML = `<ellipse cx="3" cy="40" rx="${pw}" ry="1.5" fill="#4A6BD4" opacity="${0.08+Math.sin(t/15)*0.03}"/>`;
+  const pw = 8 + Math.sin(lt * 2 * Math.PI / 60) * 1.2;
+  let puddleSvg = `<ellipse cx="3" cy="40" rx="${pw}" ry="1.5" fill="#4A6BD4" opacity="${0.08 + Math.sin(lt * 2 * Math.PI / 30) * 0.03}"/>`;
+  // Extra scattered puddle points
+  extraPuddlePoints.forEach(pp => {
+    const epw = pp.rx + Math.sin(lt * 2 * Math.PI / 60) * 0.6;
+    puddleSvg += `<ellipse cx="${pp.cx}" cy="${pp.cy}" rx="${epw}" ry="0.8" fill="#4A6BD4" opacity="${0.05 + Math.sin(lt * 2 * Math.PI / 30) * 0.02}"/>`;
+  });
+  puddleEl.innerHTML = puddleSvg;
+
+  // Ripples in main puddle
+  let ripSvg = '';
+  ripples.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / p.lifetime;
+      const r = 0.5 + prog * 4;
+      const op = (1 - prog) * 0.15;
+      ripSvg += `<ellipse cx="${p.x}" cy="40" rx="${r}" ry="${r * 0.3}" fill="none" stroke="#7caae8" stroke-width="0.3" opacity="${op}"/>`;
+    }
+  });
+  rippleEl.innerHTML = ripSvg;
+
+  // Ripples in extra puddle points
+  let exRipSvg = '';
+  extraRipples.forEach(er => {
+    const age = particleAge(lt, er.spawnT, er.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / er.lifetime;
+      const r = 0.3 + prog * 2.5;
+      const op = (1 - prog) * 0.1;
+      const pp = extraPuddlePoints[er.ptIdx];
+      exRipSvg += `<ellipse cx="${pp.cx}" cy="${pp.cy}" rx="${r}" ry="${r * 0.3}" fill="none" stroke="#7caae8" stroke-width="0.2" opacity="${op}"/>`;
+    }
+  });
+  extraRippleEl.innerHTML = exRipSvg;
 });
 </script>
 </body>

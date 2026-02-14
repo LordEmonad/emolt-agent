@@ -21,12 +21,21 @@
       <stop offset="0%" stop-color="#22AACC" stop-opacity="0.3"/>
       <stop offset="100%" stop-color="#22AACC" stop-opacity="0"/>
     </linearGradient>
+    <linearGradient id="sweepGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22AACC" stop-opacity="0"/>
+      <stop offset="70%" stop-color="#22AACC" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#22AACC" stop-opacity="0.12"/>
+    </linearGradient>
   </defs>
   <rect x="-80" y="-60" width="180" height="130" fill="url(#glow)"/>
+  <g id="radar"></g>
+  <g id="grid"></g>
   <g id="data"></g>
   <g id="lob"></g>
+  <g id="antenna"></g>
   <g id="scan"></g>
   <g id="hud"></g>
+  <g id="brackets"></g>
 </svg>
 <div class="label">scanning chain data</div>
 <script src="lobster.js"></script>
@@ -35,31 +44,89 @@ const el = document.getElementById('lob');
 const dataEl = document.getElementById('data');
 const scanEl = document.getElementById('scan');
 const hudEl = document.getElementById('hud');
+const radarEl = document.getElementById('radar');
+const gridEl = document.getElementById('grid');
+const antennaEl = document.getElementById('antenna');
+const bracketsEl = document.getElementById('brackets');
 
-// Scrolling data columns
 const columns = [];
 for (let c = 0; c < 5; c++) {
   const col = [];
   for (let r = 0; r < 12; r++) {
+    const rng = mulberry32(c * 3001 + r * 127 + 7);
     col.push({
-      text: Math.random() > 0.5 ? '0x' + Math.floor(Math.random()*0xFFFF).toString(16).padStart(4,'0') :
-            Math.floor(Math.random()*1000).toFixed(2),
+      text: rng() > 0.5 ? '0x' + Math.floor(rng()*0xFFFF).toString(16).padStart(4,'0') :
+            (Math.floor(rng()*100000)/100).toFixed(2),
       color: ['#22AACC','#7c3aed','#6ECB3C','#EF8E20','#F5D831'][c]
     });
   }
   columns.push(col);
 }
 
-startLoop(t => {
-  // Lobster focused, antenna pointing at data
-  el.innerHTML = `<g transform="translate(-30,5)">` +
-    drawLobster({ t, extraRotate: 2 }) + '</g>';
+const LOOP = 300;
 
-  // Scrolling data streams
+// Grid overlay (static, faint dotted lines behind the data columns)
+let gridSvg = '';
+for (let gx = 20; gx <= 100; gx += 10) {
+  gridSvg += `<line x1="${gx}" y1="-55" x2="${gx}" y2="65" stroke="#22AACC" stroke-width="0.15" stroke-dasharray="0.5,2" opacity="0.12"/>`;
+}
+for (let gy = -50; gy <= 60; gy += 10) {
+  gridSvg += `<line x1="20" y1="${gy}" x2="100" y2="${gy}" stroke="#22AACC" stroke-width="0.15" stroke-dasharray="0.5,2" opacity="0.12"/>`;
+}
+gridEl.innerHTML = gridSvg;
+
+startLoop(t => {
+  const lt = t % LOOP;
+
+  el.innerHTML = `<g transform="translate(-30,5)">` +
+    drawLobster({ t: lt, extraRotate: 2 }) + '</g>';
+
+  // Radar sweep (centered roughly on lobster position, rotates with period 60 which divides 300)
+  const radarCx = -30, radarCy = 5;
+  const sweepAngle = (lt % 60) / 60 * 360; // period=60, divides 300 evenly
+  const sweepRad = sweepAngle * Math.PI / 180;
+  const sweepLen = 45;
+  const sx2 = radarCx + Math.cos(sweepRad) * sweepLen;
+  const sy2 = radarCy + Math.sin(sweepRad) * sweepLen;
+
+  let radar = '';
+  // Draw afterglow trail: 10 trailing arcs with decreasing opacity
+  for (let trail = 10; trail >= 1; trail--) {
+    const trailAngle = sweepAngle - trail * 3;
+    const trailRad = trailAngle * Math.PI / 180;
+    const tx2 = radarCx + Math.cos(trailRad) * sweepLen;
+    const ty2 = radarCy + Math.sin(trailRad) * sweepLen;
+    const trailOp = (1 - trail / 11) * 0.04;
+    radar += `<line x1="${radarCx}" y1="${radarCy}" x2="${tx2}" y2="${ty2}" stroke="#22AACC" stroke-width="0.5" opacity="${trailOp}"/>`;
+  }
+  // Main sweep line
+  radar += `<line x1="${radarCx}" y1="${radarCy}" x2="${sx2}" y2="${sy2}" stroke="#22AACC" stroke-width="0.4" opacity="0.15"/>`;
+  // Faint ring
+  radar += `<circle cx="${radarCx}" cy="${radarCy}" r="${sweepLen}" fill="none" stroke="#22AACC" stroke-width="0.15" opacity="0.06"/>`;
+  radar += `<circle cx="${radarCx}" cy="${radarCy}" r="${sweepLen*0.5}" fill="none" stroke="#22AACC" stroke-width="0.15" opacity="0.04"/>`;
+  radarEl.innerHTML = radar;
+
+  // Antenna with pulsing signal dot
+  const antBaseX = -30, antBaseY = -30;
+  const antTipX = -30 + Math.sin(lt * 2 * Math.PI / 150)*2, antTipY = -48;
+  const signalPulse = 0.3 + Math.sin(lt * 2 * Math.PI / 30) * 0.3; // period=30, divides 300
+  let ant = '';
+  ant += `<line x1="${antBaseX}" y1="${antBaseY}" x2="${antTipX}" y2="${antTipY}" stroke="#22AACC" stroke-width="0.6" opacity="0.4"/>`;
+  ant += `<circle cx="${antTipX}" cy="${antTipY}" r="1.2" fill="#22AACC" opacity="${signalPulse}"/>`;
+  ant += `<circle cx="${antTipX}" cy="${antTipY}" r="3" fill="#22AACC" opacity="${signalPulse * 0.15}"/>`;
+  // Small signal arcs radiating from tip
+  const arcOp = signalPulse * 0.25;
+  for (let ai = 1; ai <= 3; ai++) {
+    const ar = 2 + ai * 2;
+    const arcFade = Math.max(0, arcOp - ai * 0.06);
+    ant += `<path d="M${antTipX - ar * 0.7},${antTipY - ar * 0.3} A${ar},${ar} 0 0,1 ${antTipX + ar * 0.7},${antTipY - ar * 0.3}" fill="none" stroke="#22AACC" stroke-width="0.3" opacity="${arcFade}"/>`;
+  }
+  antennaEl.innerHTML = ant;
+
   let data = '';
   columns.forEach((col, c) => {
     const x = 30 + c*15;
-    const scrollY = (t * 0.5 + c*20) % (col.length*6);
+    const scrollY = (lt * 144 / 300 + c*20) % (col.length*6);
     col.forEach((item, r) => {
       const y = -50 + r*6 - scrollY % 6 + (r < scrollY/6 ? col.length*6 : 0);
       if (y > -55 && y < 65) {
@@ -70,32 +137,60 @@ startLoop(t => {
   });
   dataEl.innerHTML = data;
 
-  // Scan line
-  const scanY = -50 + (t % 100);
+  // Scan line with afterglow trail
+  const scanY = -50 + (lt % 100);
   const scanOp = scanY > -40 && scanY < 50 ? 0.15 : 0;
-  scanEl.innerHTML = scanOp > 0 ?
-    `<line x1="20" y1="${scanY}" x2="100" y2="${scanY}" stroke="#22AACC" stroke-width="0.3" opacity="${scanOp}"/>` +
-    `<rect x="20" y="${scanY}" width="80" height="3" fill="url(#scanGrad)" opacity="${scanOp*0.5}"/>` : '';
+  let scanSvg = '';
+  if (scanOp > 0) {
+    // Afterglow trail behind scan line (gradient rect fading over ~10 units)
+    scanSvg += `<rect x="20" y="${scanY - 10}" width="80" height="10" fill="url(#scanGrad)" opacity="${scanOp * 0.3}"/>`;
+    scanSvg += `<line x1="20" y1="${scanY}" x2="100" y2="${scanY}" stroke="#22AACC" stroke-width="0.3" opacity="${scanOp}"/>`;
+    scanSvg += `<rect x="20" y="${scanY}" width="80" height="3" fill="url(#scanGrad)" opacity="${scanOp*0.5}"/>`;
+  }
+  scanEl.innerHTML = scanSvg;
 
-  // HUD overlay
-  const detected = Math.floor(t/30) % 4;
+  const detected = Math.floor(lt/30) % 4;
   const labels = ['gas: 0.042 MON','whale: 500K tx','tvl: +2.3%','vol: 1.2M'];
   let hud = '';
-  // Antenna-to-data connection line
-  const linePhase = (t%40)/40;
+  const linePhase = (lt%40)/40;
   if (linePhase < 0.5) {
     const lx = -12 + linePhase*2*55;
     hud += `<circle cx="${lx}" cy="${-25+linePhase*10}" r="1" fill="#22AACC" opacity="0.4"/>`;
   }
-  // Detection label
-  if (t % 120 > 30 && t % 120 < 90) {
-    const hop = t%120 < 40 ? (t%120-30)/10 : t%120 > 80 ? (90-t%120)/10 : 1;
+  if (lt % 120 > 30 && lt % 120 < 90) {
+    const hop = lt%120 < 40 ? (lt%120-30)/10 : lt%120 > 80 ? (90-lt%120)/10 : 1;
     hud += `<g opacity="${hop*0.6}" transform="translate(60,-35)">`;
     hud += `<rect x="-18" y="-4" width="36" height="8" rx="1" fill="rgba(20,26,42,0.8)" stroke="#22AACC" stroke-width="0.3"/>`;
     hud += `<text x="0" y="1" text-anchor="middle" font-family="monospace" font-size="2.5" fill="#22AACC">${labels[detected]}</text>`;
     hud += `</g>`;
   }
   hudEl.innerHTML = hud;
+
+  // Detection bracket markers around detected values
+  let brk = '';
+  // Show brackets briefly when a value is "detected" (every 30 ticks, visible for 15 ticks)
+  const detPhase = lt % 30;
+  if (detPhase < 15) {
+    const brkOp = detPhase < 5 ? detPhase / 5 : detPhase > 10 ? (15 - detPhase) / 5 : 1;
+    // Place bracket around the center of detected column
+    const detCol = Math.floor(lt / 30) % 5;
+    const bx = 30 + detCol * 15;
+    const by = 0; // roughly center of visible area
+    const bs = 8; // bracket size
+    // Corner brackets (4 corners)
+    const bLen = 2.5;
+    brk += `<g opacity="${brkOp * 0.5}" stroke="#22AACC" stroke-width="0.4" fill="none">`;
+    // top-left
+    brk += `<path d="M${bx - bLen},${by - bs} L${bx - bs},${by - bs} L${bx - bs},${by - bLen}"/>`;
+    // top-right
+    brk += `<path d="M${bx + bLen + 12},${by - bs} L${bx + bs + 12},${by - bs} L${bx + bs + 12},${by - bLen}"/>`;
+    // bottom-left
+    brk += `<path d="M${bx - bLen},${by + bs} L${bx - bs},${by + bs} L${bx - bs},${by + bLen}"/>`;
+    // bottom-right
+    brk += `<path d="M${bx + bLen + 12},${by + bs} L${bx + bs + 12},${by + bs} L${bx + bs + 12},${by + bLen}"/>`;
+    brk += `</g>`;
+  }
+  bracketsEl.innerHTML = brk;
 });
 </script>
 </body>

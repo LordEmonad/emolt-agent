@@ -17,72 +17,130 @@
       <stop offset="0%" stop-color="#A85EC0" stop-opacity="0.06"/>
       <stop offset="100%" stop-color="#0e1218" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="gooGrad" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#5a7a3a" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#3a2a1a" stop-opacity="0.1"/>
+    </radialGradient>
   </defs>
-  <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="bgGlow"></g>
+  <g id="goo"></g>
   <g id="stink"></g>
   <g id="lob"></g>
   <g id="flies"></g>
+  <g id="ugh"></g>
 </svg>
 <div class="label">disgust</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 180 ticks = 3s at 60fps
+const LOOP = 180;
 const el = document.getElementById('lob');
 const stinkEl = document.getElementById('stink');
 const fliesEl = document.getElementById('flies');
+const ughEl = document.getElementById('ugh');
+const gooEl = document.getElementById('goo');
+const bgGlowEl = document.getElementById('bgGlow');
 
+// Pre-generate stink waves (every 12 ticks = 15 per loop) — thicker, more wavy
+const N_STINK = 15;
 const stinkWaves = [];
+for (let i = 0; i < N_STINK; i++) {
+  const rng = mulberry32(i * 5119 + 43);
+  stinkWaves.push({
+    spawnT: i * 12,
+    x0: 20 + rng() * 15,
+    amplitude: 3 + rng() * 4,     // increased from 2+3
+    amplitude2: 1 + rng() * 2,    // second harmonic amplitude
+    freq: 0.1 + rng() * 0.1,
+    freq2: 0.22 + rng() * 0.12,   // second harmonic frequency
+    lifetime: 45 + Math.floor(rng() * 10)
+  });
+}
+
+// Flies — bigger, more detailed (deterministic, no randomness needed)
 const flies = [];
 for (let i = 0; i < 3; i++) {
-  flies.push({ phase: (i/3)*Math.PI*2, dist: 15+i*5, speed: 0.05+i*0.01, y: -15+i*3 });
+  flies.push({ phase: (i / 3) * Math.PI * 2, dist: 15 + i * 5, speed: (2 * Math.PI * (i + 1)) / 180, y: -15 + i * 3 });
 }
 
 startLoop(t => {
-  // Recoil / lean back in disgust
-  const recoil = Math.sin(t/30)*2;
-  const lean = -3 + Math.sin(t/25)*1.5;
+  const lt = t % LOOP;
+
+  const recoil = Math.sin(lt * 2 * Math.PI / 180) * 2;
+  const lean = -3 + Math.sin(lt * 2 * Math.PI / 90) * 1.5;
+
+  // Subtle background color shift between greenish-brown tones via glow
+  const bgShift = Math.sin(lt * 2 * Math.PI / 90);
+  const bgGreenOp = 0.04 + bgShift * 0.02;
+  const bgBrownOp = 0.04 - bgShift * 0.02;
+  bgGlowEl.innerHTML =
+    `<circle cx="0" cy="0" r="55" fill="#5a7a3a" opacity="${bgGreenOp}"/>` +
+    `<circle cx="0" cy="0" r="55" fill="#4a3a2a" opacity="${bgBrownOp}"/>`;
 
   el.innerHTML = drawLobster({
-    t, extraRotate: lean, extraBob: recoil,
-    mood: 'angry' // squinted eyes work for disgust too
+    t: lt, extraRotate: lean, extraBob: recoil,
+    mood: 'angry'
   });
 
-  // Stink waves rising
-  if (t % 12 === 0) {
-    stinkWaves.push({
-      x: 20 + Math.random()*15,
-      y: 10, age: 0,
-      amplitude: 2+Math.random()*3,
-      freq: 0.1+Math.random()*0.1
-    });
-  }
+  // Garbage/goo pool at bottom right
+  const gooPulse = Math.sin(lt * 2 * Math.PI / 60) * 1.5;
+  gooEl.innerHTML =
+    `<ellipse cx="30" cy="42" rx="${12 + gooPulse}" ry="${3.5 + gooPulse * 0.3}" fill="url(#gooGrad)"/>` +
+    `<ellipse cx="30" cy="42" rx="${8 + gooPulse * 0.5}" ry="${2 + gooPulse * 0.2}" fill="#5a7a3a" opacity="0.1"/>` +
+    // Small bubbles in the goo
+    `<circle cx="${27 + Math.sin(lt * 2 * Math.PI / 30) * 2}" cy="${41}" r="${0.5 + Math.sin(lt * 2 * Math.PI / 20) * 0.2}" fill="#7a9a5a" opacity="0.15"/>` +
+    `<circle cx="${33 + Math.cos(lt * 2 * Math.PI / 36) * 1.5}" cy="${40.5}" r="${0.4 + Math.cos(lt * 2 * Math.PI / 30) * 0.15}" fill="#7a9a5a" opacity="0.12"/>`;
+
+  // Stink waves via particleAge — thicker, double harmonic
   let stink = '';
-  for (let i = stinkWaves.length-1; i >= 0; i--) {
-    const s = stinkWaves[i];
-    s.age++;
-    s.y -= 0.4;
-    if (s.age > 50) { stinkWaves.splice(i,1); continue; }
-    const op = (1-s.age/50)*0.2;
-    const x1 = s.x + Math.sin(s.age*s.freq)*s.amplitude;
-    const x2 = s.x + Math.sin((s.age+5)*s.freq)*s.amplitude;
-    const x3 = s.x + Math.sin((s.age+10)*s.freq)*s.amplitude;
-    stink += `<path d="M${x1},${s.y} Q${x2},${s.y-4} ${x3},${s.y-8}" fill="none" stroke="#7a9a5a" stroke-width="0.5" opacity="${op}"/>`;
-  }
+  stinkWaves.forEach(s => {
+    const age = particleAge(lt, s.spawnT, s.lifetime, LOOP);
+    if (age >= 0) {
+      const y = 10 - age * 0.4;
+      const op = (1 - age / s.lifetime) * 0.2;
+      // Double harmonic for wavier motion
+      const wave = (t) => Math.sin(t * s.freq) * s.amplitude + Math.sin(t * s.freq2) * s.amplitude2;
+      const x1 = s.x0 + wave(age);
+      const x2 = s.x0 + wave(age + 5);
+      const x3 = s.x0 + wave(age + 10);
+      const x4 = s.x0 + wave(age + 15);
+      stink += `<path d="M${x1},${y} Q${x2},${y-4} ${x3},${y-8} T${x4},${y-12}" fill="none" stroke="#7a9a5a" stroke-width="0.8" opacity="${op}"/>`;
+    }
+  });
   stinkEl.innerHTML = stink;
 
-  // Buzzing flies
+  // Buzzing flies — bigger, with proboscis/leg detail
   let flySvg = '';
   flies.forEach(f => {
-    const a = t * f.speed + f.phase;
+    const a = lt * f.speed + f.phase;
     const fx = 15 + Math.cos(a) * f.dist;
-    const fy = f.y + Math.sin(a*1.7) * 8;
-    const wingFlap = Math.sin(t*2+f.phase)*2;
+    const fy = f.y + Math.sin(lt * 2 * Math.PI * (2*(flies.indexOf(f))+3) / 180) * 8;
+    const wingFlap = Math.sin(lt * 2 * Math.PI / 3 + f.phase) * 2;
     flySvg += `<g transform="translate(${fx},${fy})">`;
-    flySvg += `<circle cx="0" cy="0" r="0.8" fill="#333"/>`;
-    flySvg += `<ellipse cx="${-wingFlap*0.3}" cy="-0.8" rx="1.2" ry="0.4" fill="rgba(200,200,200,0.3)" transform="rotate(${wingFlap*10})"/>`;
-    flySvg += `<ellipse cx="${wingFlap*0.3}" cy="-0.8" rx="1.2" ry="0.4" fill="rgba(200,200,200,0.3)" transform="rotate(${-wingFlap*10})"/>`;
+    // Body — bigger (r=1.0)
+    flySvg += `<ellipse cx="0" cy="0" rx="1.0" ry="0.8" fill="#333"/>`;
+    // Wings — bigger (1.5)
+    flySvg += `<ellipse cx="${-wingFlap*0.3}" cy="-1.0" rx="1.5" ry="0.5" fill="rgba(200,200,200,0.3)" transform="rotate(${wingFlap*10})"/>`;
+    flySvg += `<ellipse cx="${wingFlap*0.3}" cy="-1.0" rx="1.5" ry="0.5" fill="rgba(200,200,200,0.3)" transform="rotate(${-wingFlap*10})"/>`;
+    // Proboscis
+    flySvg += `<line x1="0" y1="0.8" x2="0" y2="1.8" stroke="#222" stroke-width="0.2" stroke-linecap="round"/>`;
+    // Tiny legs
+    flySvg += `<line x1="-0.5" y1="0.3" x2="-1.2" y2="1" stroke="#222" stroke-width="0.15"/>`;
+    flySvg += `<line x1="0.5" y1="0.3" x2="1.2" y2="1" stroke="#222" stroke-width="0.15"/>`;
     flySvg += `</g>`;
   });
   fliesEl.innerHTML = flySvg;
+
+  // "ugh" text that appears and fades at lt=90 for 30 ticks
+  let ughSvg = '';
+  if (lt >= 90 && lt < 120) {
+    const ughAge = lt - 90;
+    const ughProg = ughAge / 30;
+    const ughOp = ughProg < 0.2 ? ughProg / 0.2 : ughProg > 0.7 ? (1 - ughProg) / 0.3 : 1;
+    const ughY = -45 - ughAge * 0.3;
+    ughSvg = `<text x="0" y="${ughY}" font-family="monospace" font-size="5" fill="#7a9a5a" opacity="${ughOp * 0.4}" text-anchor="middle">ugh</text>`;
+  }
+  ughEl.innerHTML = ughSvg;
 });
 </script>
 </body>

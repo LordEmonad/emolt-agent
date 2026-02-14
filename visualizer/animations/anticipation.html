@@ -19,6 +19,7 @@
     </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="55" fill="url(#glow)"/>
+  <g id="clockParts"></g>
   <g id="clock"></g>
   <g id="lob"></g>
   <g id="impatient"></g>
@@ -26,56 +27,122 @@
 <div class="label">anticipation</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 300 ticks = 5s at 60fps
+const LOOP = 300;
 const el = document.getElementById('lob');
 const clockEl = document.getElementById('clock');
+const clockPartsEl = document.getElementById('clockParts');
 const impEl = document.getElementById('impatient');
 
+// Pre-generate clock particles (5 tiny clock symbols floating up)
+const N_CLOCK_PARTS = 5;
+const clockParts = [];
+for (let i = 0; i < N_CLOCK_PARTS; i++) {
+  const rng = mulberry32(i * 4421 + 67);
+  clockParts.push({
+    spawnT: Math.floor(rng() * LOOP),
+    x0: -5 + rng() * 10,
+    y0: -42,
+    vx: (rng() - 0.5) * 0.15,
+    vy: -0.25 - rng() * 0.2,
+    lifetime: 50 + Math.floor(rng() * 20),
+    wobblePhase: rng() * Math.PI * 2
+  });
+}
+
 startLoop(t => {
-  // Fidgety, leaning forward, foot-tapping
-  const fidget = Math.sin(t/5)*1.5;
-  const lean = 3 + Math.sin(t/20)*1;
-  const tapPhase = t%12;
+  const lt = t % LOOP;
+
+  const fidget = Math.sin(lt * 2 * Math.PI / 30) * 1.5;
+  const lean = 3 + Math.sin(lt * 2 * Math.PI / 120) * 1;
+
+  // Impatient claw snap every 60 ticks (5 snaps per loop, 60 divides 300)
+  const snapCycle = lt % 60;
+  const clawSnap = snapCycle < 4 ? Math.sin(snapCycle / 4 * Math.PI) * 12 : 0;
+
+  const tapPhase = lt % 12;
   const tap = tapPhase < 3 ? -tapPhase*0.3 : tapPhase < 6 ? -(6-tapPhase)*0.3 : 0;
 
   el.innerHTML = `<g transform="translate(${fidget},${tap})">` +
     drawLobster({
-      t, extraRotate: lean,
-      clawOpenL: Math.sin(t/8)*5,
-      clawOpenR: -Math.sin(t/8)*5
+      t: lt, extraRotate: lean,
+      clawOpenL: Math.sin(lt * 2 * Math.PI / 50) * 5 - clawSnap,
+      clawOpenR: -Math.sin(lt * 2 * Math.PI / 50) * 5 + clawSnap
     }) + '</g>';
 
-  // Countdown clock
-  const clockY = -48 + Math.sin(t/15)*1;
-  const seconds = 30 - (t % 300) / 10;
+  // Bigger clock (r=11) with hour marks and countdown
+  const clockR = 11;
+  const clockY = -48 + Math.sin(lt * 2 * Math.PI / 100) * 1;
   let clock = `<g transform="translate(0,${clockY})">`;
-  // Clock circle
-  clock += `<circle cx="0" cy="0" r="8" fill="rgba(20,26,42,0.8)" stroke="#EF8E20" stroke-width="0.4" opacity="0.5"/>`;
+  clock += `<circle cx="0" cy="0" r="${clockR}" fill="rgba(20,26,42,0.8)" stroke="#EF8E20" stroke-width="0.5" opacity="0.5"/>`;
+
+  // 12 hour tick marks
+  for (let h = 0; h < 12; h++) {
+    const ha = (h / 12) * Math.PI * 2 - Math.PI / 2;
+    const innerR = h % 3 === 0 ? clockR - 2.5 : clockR - 1.8;
+    const outerR = clockR - 0.8;
+    const tickW = h % 3 === 0 ? 0.5 : 0.3;
+    clock += `<line x1="${Math.cos(ha)*innerR}" y1="${Math.sin(ha)*innerR}" x2="${Math.cos(ha)*outerR}" y2="${Math.sin(ha)*outerR}" stroke="#EF8E20" stroke-width="${tickW}" opacity="0.4"/>`;
+  }
+
   // Clock hands
-  const secAngle = (t%60)/60*Math.PI*2 - Math.PI/2;
-  const minAngle = (t%600)/600*Math.PI*2 - Math.PI/2;
-  clock += `<line x1="0" y1="0" x2="${Math.cos(minAngle)*4}" y2="${Math.sin(minAngle)*4}" stroke="#EF8E20" stroke-width="0.5" opacity="0.6" stroke-linecap="round"/>`;
-  clock += `<line x1="0" y1="0" x2="${Math.cos(secAngle)*6}" y2="${Math.sin(secAngle)*6}" stroke="#EF8E20" stroke-width="0.3" opacity="0.4" stroke-linecap="round"/>`;
-  clock += `<circle cx="0" cy="0" r="0.6" fill="#EF8E20" opacity="0.5"/>`;
+  const minAngle = lt / LOOP * Math.PI * 2 - Math.PI / 2;
+  const secAngle = (lt % 60) / 60 * Math.PI * 2 - Math.PI / 2;
+  clock += `<line x1="0" y1="0" x2="${Math.cos(minAngle)*5.5}" y2="${Math.sin(minAngle)*5.5}" stroke="#EF8E20" stroke-width="0.6" opacity="0.6" stroke-linecap="round"/>`;
+  clock += `<line x1="0" y1="0" x2="${Math.cos(secAngle)*8}" y2="${Math.sin(secAngle)*8}" stroke="#EF8E20" stroke-width="0.3" opacity="0.4" stroke-linecap="round"/>`;
+  clock += `<circle cx="0" cy="0" r="0.8" fill="#EF8E20" opacity="0.5"/>`;
+
+  // Countdown number in center of clock face
+  // Counts down from 5 to 1 over the loop (each number for 60 ticks)
+  const countNum = 5 - Math.floor(lt / 60);
+  const countFade = (lt % 60) / 60;
+  const countOp = countFade < 0.1 ? countFade / 0.1 : countFade > 0.8 ? (1 - countFade) / 0.2 : 1;
+  clock += `<text x="0" y="1.5" font-family="monospace" font-size="4" fill="#EF8E20" opacity="${countOp * 0.25}" text-anchor="middle">${countNum}</text>`;
+
   // Progress arc
-  const progress = (t%300)/300;
-  const arcAngle = progress*Math.PI*2;
-  const ax = Math.cos(arcAngle-Math.PI/2)*9;
-  const ay = Math.sin(arcAngle-Math.PI/2)*9;
-  clock += `<circle cx="0" cy="0" r="9" fill="none" stroke="rgba(239,142,32,0.1)" stroke-width="0.5"/>`;
+  const progress = lt / LOOP;
+  const arcAngle = progress * Math.PI * 2;
+  const arcR = clockR + 1.5;
+  const ax = Math.cos(arcAngle - Math.PI / 2) * arcR;
+  const ay = Math.sin(arcAngle - Math.PI / 2) * arcR;
+  clock += `<circle cx="0" cy="0" r="${arcR}" fill="none" stroke="rgba(239,142,32,0.1)" stroke-width="0.5"/>`;
   if (progress > 0.01) {
     const large = arcAngle > Math.PI ? 1 : 0;
-    clock += `<path d="M0,-9 A9,9 0 ${large},1 ${ax},${ay}" fill="none" stroke="#EF8E20" stroke-width="0.5" opacity="0.4" stroke-linecap="round"/>`;
+    clock += `<path d="M0,${-arcR} A${arcR},${arcR} 0 ${large},1 ${ax},${ay}" fill="none" stroke="#EF8E20" stroke-width="0.5" opacity="0.4" stroke-linecap="round"/>`;
   }
   clock += `</g>`;
   clockEl.innerHTML = clock;
 
-  // Impatient dots (...) that cycle
-  const dotPhase = Math.floor(t/8) % 4;
+  // Floating clock particles
+  let cpSvg = '';
+  clockParts.forEach(cp => {
+    const age = particleAge(lt, cp.spawnT, cp.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / cp.lifetime;
+      const op = prog < 0.15 ? prog / 0.15 : prog > 0.7 ? (1 - prog) / 0.3 : 1;
+      const x = cp.x0 + cp.vx * age + Math.sin(age / 10 + cp.wobblePhase) * 2;
+      const y = cp.y0 + cp.vy * age;
+      // Tiny clock icon
+      cpSvg += `<g transform="translate(${x},${y})" opacity="${op * 0.3}">`;
+      cpSvg += `<circle cx="0" cy="0" r="2" fill="none" stroke="#EF8E20" stroke-width="0.3"/>`;
+      // Small hand
+      const handA = (age * 0.2) - Math.PI / 2;
+      cpSvg += `<line x1="0" y1="0" x2="${Math.cos(handA)*1.2}" y2="${Math.sin(handA)*1.2}" stroke="#EF8E20" stroke-width="0.2"/>`;
+      cpSvg += `</g>`;
+    }
+  });
+  clockPartsEl.innerHTML = cpSvg;
+
+  // Loading dots with individual bounce wave pattern
   let dots = '';
   const dotY = 42;
   for (let i = 0; i < 3; i++) {
-    const op = i < dotPhase ? 0.4 : 0.1;
-    dots += `<circle cx="${-3+i*3}" cy="${dotY}" r="1" fill="#EF8E20" opacity="${op}"/>`;
+    // Each dot bounces with a phase offset — period 30 divides 300
+    const dotPhase = lt * 2 * Math.PI / 30 - i * 0.8;
+    const bounceY = Math.sin(dotPhase) * 1.5;
+    const bounceOp = 0.15 + (Math.sin(dotPhase) + 1) * 0.15;
+    const bounceR = 0.8 + (Math.sin(dotPhase) + 1) * 0.2;
+    dots += `<circle cx="${-3+i*3}" cy="${dotY + bounceY}" r="${bounceR}" fill="#EF8E20" opacity="${bounceOp}"/>`;
   }
   impEl.innerHTML = dots;
 });

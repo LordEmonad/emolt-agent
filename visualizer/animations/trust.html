@@ -19,71 +19,181 @@
     </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="70" fill="url(#glow)"/>
+  <g id="connections"></g>
   <g id="shield"></g>
   <g id="lob"></g>
-  <g id="handshake"></g>
+  <g id="lockKeys"></g>
   <g id="particles"></g>
 </svg>
 <div class="label">trust</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 240 ticks = 4s at 60fps
+const LOOP = 240;
 const el = document.getElementById('lob');
 const shieldEl = document.getElementById('shield');
 const particlesEl = document.getElementById('particles');
+const connectionsEl = document.getElementById('connections');
+const lockKeysEl = document.getElementById('lockKeys');
 
+const sides = 6;
+
+// Pre-generate trust particles (every 8 ticks = 30 per loop)
+const N_TRUST = 30;
 const trustParts = [];
+for (let i = 0; i < N_TRUST; i++) {
+  const rng = mulberry32(i * 9173 + 29);
+  const a = rng() * Math.PI * 2;
+  trustParts.push({
+    spawnT: i * 8,
+    x0: Math.cos(a) * 28,
+    y0: Math.sin(a) * 30 + 3,
+    angle: a,
+    vy: -0.3 - rng() * 0.3,
+    lifetime: 35 + Math.floor(rng() * 10)
+  });
+}
+
+// Pre-generate lock/key floating symbols (5 total)
+const N_LOCKKEY = 5;
+const lockKeys = [];
+for (let i = 0; i < N_LOCKKEY; i++) {
+  const rng = mulberry32(i * 6271 + 53);
+  const a = rng() * Math.PI * 2;
+  lockKeys.push({
+    spawnT: Math.floor(rng() * LOOP),
+    x0: Math.cos(a) * 20 + (rng() - 0.5) * 10,
+    y0: 10 + rng() * 15,
+    vx: (rng() - 0.5) * 0.15,
+    vy: -0.3 - rng() * 0.2,
+    lifetime: 50 + Math.floor(rng() * 20),
+    isKey: rng() > 0.5
+  });
+}
 
 startLoop(t => {
-  // Confident, calm stance
-  el.innerHTML = drawLobster({ t, mood: 'happy' });
+  const lt = t % LOOP;
 
-  // Shield / aura of trust
-  const shieldPulse = Math.sin(t/20)*2;
-  const shieldOp = 0.08 + Math.sin(t/15)*0.03;
+  el.innerHTML = drawLobster({ t: lt, mood: 'happy' });
+
+  // Shield
+  const shieldPulse = Math.sin(lt * 2 * Math.PI / 120) * 2;
+  const shieldOp = 0.08 + Math.sin(lt * 2 * Math.PI / 80) * 0.03;
   let shield = '';
-  // Hexagonal shield
-  const sides = 6;
+
+  // Outer shield
   const sr = 30 + shieldPulse;
+  const outerVerts = [];
   let points = '';
   for (let i = 0; i < sides; i++) {
-    const a = (i/sides)*Math.PI*2 - Math.PI/2;
-    points += `${Math.cos(a)*sr},${Math.sin(a)*sr*1.1+3} `;
+    const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
+    const vx = Math.cos(a) * sr;
+    const vy = Math.sin(a) * sr * 1.1 + 3;
+    outerVerts.push({ x: vx, y: vy });
+    points += `${vx},${vy} `;
   }
   shield += `<polygon points="${points}" fill="none" stroke="#6ECB3C" stroke-width="0.4" opacity="${shieldOp}"/>`;
-  // Inner hexagon
-  const sr2 = sr-4;
+
+  // Inner shield rotating opposite direction
+  const sr3 = sr - 8;
+  let points3 = '';
+  const innerVerts = [];
+  for (let i = 0; i < sides; i++) {
+    const a = (i / sides) * Math.PI * 2 - Math.PI / 2 - lt * 2 * Math.PI / LOOP * 0.5;
+    const vx = Math.cos(a) * sr3;
+    const vy = Math.sin(a) * sr3 * 1.1 + 3;
+    innerVerts.push({ x: vx, y: vy });
+    points3 += `${vx},${vy} `;
+  }
+  shield += `<polygon points="${points3}" fill="none" stroke="#6ECB3C" stroke-width="0.25" opacity="${shieldOp * 0.5}" stroke-dasharray="2,2"/>`;
+
+  // Second rotating dashed shield (from original)
+  const sr2 = sr - 4;
   let points2 = '';
   for (let i = 0; i < sides; i++) {
-    const a = (i/sides)*Math.PI*2 - Math.PI/2 + t*0.003;
+    const a = (i / sides) * Math.PI * 2 - Math.PI / 2 + lt * 2 * Math.PI / LOOP * 0.5;
     points2 += `${Math.cos(a)*sr2},${Math.sin(a)*sr2*1.1+3} `;
   }
   shield += `<polygon points="${points2}" fill="none" stroke="#6ECB3C" stroke-width="0.2" opacity="${shieldOp*0.6}" stroke-dasharray="3,3"/>`;
-  // Checkmark
-  const checkOp = 0.2 + Math.sin(t/12)*0.1;
+
+  // Node circles at each outer shield vertex — glow when trust particle is near
+  outerVerts.forEach((v, vi) => {
+    let nodeGlow = 0;
+    trustParts.forEach(p => {
+      const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+      if (age >= 0) {
+        const px = p.x0 + Math.sin(age / 8) * 0.2;
+        const py = p.y0 + p.vy * age;
+        const dx = px - v.x, dy = py - v.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 10) nodeGlow = Math.max(nodeGlow, (10 - dist) / 10);
+      }
+    });
+    const baseOp = shieldOp * 0.8;
+    const glowOp = baseOp + nodeGlow * 0.4;
+    const glowR = 1 + nodeGlow * 1.5;
+    shield += `<circle cx="${v.x}" cy="${v.y}" r="${glowR}" fill="#6ECB3C" opacity="${glowOp}"/>`;
+    if (nodeGlow > 0.1) {
+      shield += `<circle cx="${v.x}" cy="${v.y}" r="${glowR * 3}" fill="#6ECB3C" opacity="${nodeGlow * 0.08}"/>`;
+    }
+  });
+
+  // Checkmark with drawing animation (stroke-dashoffset trick)
+  const checkOp = 0.2 + Math.sin(lt * 2 * Math.PI / 80) * 0.1;
+  const checkPathLen = 10; // approximate total length of checkmark path
+  // Drawing reveals over first 60 ticks of cycle, stays visible, then fades/resets
+  const checkCycle = lt % 120; // period=120 divides 240
+  const drawProg = checkCycle < 60 ? checkCycle / 60 : 1;
+  const dashOffset = checkPathLen * (1 - drawProg);
   shield += `<g transform="translate(0,-42)" opacity="${checkOp}">`;
-  shield += `<path d="M-3,0 L-1,2.5 L3,-2" fill="none" stroke="#6ECB3C" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`;
+  shield += `<path d="M-3,0 L-1,2.5 L3,-2" fill="none" stroke="#6ECB3C" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${checkPathLen}" stroke-dashoffset="${dashOffset}"/>`;
   shield += `</g>`;
   shieldEl.innerHTML = shield;
 
-  // Trust particles (green motes drifting up along shield)
-  if (t % 8 === 0) {
-    const a = Math.random()*Math.PI*2;
-    trustParts.push({
-      x: Math.cos(a)*28, y: Math.sin(a)*30+3,
-      vy: -0.3-Math.random()*0.3, age: 0
-    });
-  }
+  // Network connection lines from shield vertices to lobster center
+  let connSvg = '';
+  outerVerts.forEach(v => {
+    connSvg += `<line x1="${v.x}" y1="${v.y}" x2="0" y2="0" stroke="#6ECB3C" stroke-width="0.15" opacity="${shieldOp * 0.4}" stroke-dasharray="1.5,2"/>`;
+  });
+  connectionsEl.innerHTML = connSvg;
+
+  // Trust particles via particleAge
   let parts = '';
-  for (let i = trustParts.length-1; i >= 0; i--) {
-    const p = trustParts[i];
-    p.age++;
-    p.y += p.vy;
-    p.x += Math.sin(p.age/8)*0.2;
-    if (p.age > 40) { trustParts.splice(i,1); continue; }
-    const op = (1-p.age/40)*0.3;
-    parts += `<circle cx="${p.x}" cy="${p.y}" r="0.7" fill="#6ECB3C" opacity="${op}"/>`;
-  }
+  trustParts.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const x = p.x0 + Math.sin(age / 8) * 0.2;
+      const y = p.y0 + p.vy * age;
+      const op = (1 - age / p.lifetime) * 0.3;
+      parts += `<circle cx="${x}" cy="${y}" r="0.7" fill="#6ECB3C" opacity="${op}"/>`;
+    }
+  });
   particlesEl.innerHTML = parts;
+
+  // Floating lock/key symbols
+  let lkSvg = '';
+  lockKeys.forEach(lk => {
+    const age = particleAge(lt, lk.spawnT, lk.lifetime, LOOP);
+    if (age >= 0) {
+      const prog = age / lk.lifetime;
+      const op = prog < 0.15 ? prog / 0.15 : prog > 0.7 ? (1 - prog) / 0.3 : 1;
+      const x = lk.x0 + lk.vx * age;
+      const y = lk.y0 + lk.vy * age;
+      lkSvg += `<g transform="translate(${x},${y}) scale(0.5)" opacity="${op * 0.25}">`;
+      if (lk.isKey) {
+        // Key icon
+        lkSvg += `<circle cx="0" cy="0" r="2" fill="none" stroke="#6ECB3C" stroke-width="0.6"/>`;
+        lkSvg += `<line x1="2" y1="0" x2="5" y2="0" stroke="#6ECB3C" stroke-width="0.6"/>`;
+        lkSvg += `<line x1="4" y1="0" x2="4" y2="1.2" stroke="#6ECB3C" stroke-width="0.5"/>`;
+      } else {
+        // Lock icon
+        lkSvg += `<rect x="-2" y="0" width="4" height="3" rx="0.3" fill="none" stroke="#6ECB3C" stroke-width="0.5"/>`;
+        lkSvg += `<path d="M-1,0 C-1,-2 1,-2 1,0" fill="none" stroke="#6ECB3C" stroke-width="0.5"/>`;
+      }
+      lkSvg += `</g>`;
+    }
+  });
+  lockKeysEl.innerHTML = lkSvg;
 });
 </script>
 </body>

@@ -21,7 +21,15 @@
       <stop offset="100%" stop-color="transparent"/>
     </linearGradient>
   </defs>
+  <!-- parallax background -->
+  <g id="bgLayer"></g>
   <line x1="-90" y1="38" x2="90" y2="38" stroke="rgba(124,58,237,0.12)" stroke-width="0.5"/>
+  <!-- ground texture dashes -->
+  <g id="groundTex"></g>
+  <!-- footprints -->
+  <g id="footprints"></g>
+  <!-- path line -->
+  <g id="pathLine"></g>
   <g id="lob"></g>
   <!-- dust particles -->
   <g id="dust"></g>
@@ -29,32 +37,146 @@
 <div class="label">walking</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 300 ticks = 5s at 60fps (one walk back-and-forth)
+const LOOP = 300;
 const el = document.getElementById('lob');
 const dustEl = document.getElementById('dust');
-const particles = [];
+const bgEl = document.getElementById('bgLayer');
+const groundTexEl = document.getElementById('groundTex');
+const footprintsEl = document.getElementById('footprints');
+const pathLineEl = document.getElementById('pathLine');
+
+// Pre-generate dust particles (every 4 ticks = 75 per loop)
+// Mix of circle dust and square pebbles
+const N_DUST = 75;
+const dustParts = [];
+for (let i = 0; i < N_DUST; i++) {
+  const rng = mulberry32(i * 2341 + 55);
+  const spawnT = i * 4;
+  const walkAngle = spawnT * 2 * Math.PI / LOOP;
+  const walkX = Math.sin(walkAngle) * 40;
+  const facing = Math.cos(walkAngle) > 0;
+  dustParts.push({
+    spawnT,
+    x0: walkX + (facing ? -8 : 8),
+    y0: 34,
+    vx: (rng() - 0.5) * 0.8,
+    vy: -rng() * 0.5,
+    lifetime: 25 + Math.floor(rng() * 10),
+    isPebble: rng() > 0.7,
+    size: rng() > 0.7 ? 0.6 + rng() * 0.6 : 0.5 + rng() * 0.3
+  });
+}
+
+// Pre-generate footprint marks (every 10 ticks = 30 per loop)
+const N_PRINTS = 30;
+const footprints = [];
+for (let i = 0; i < N_PRINTS; i++) {
+  const rng = mulberry32(i * 5501 + 99);
+  const spawnT = i * 10;
+  const walkAngle = spawnT * 2 * Math.PI / LOOP;
+  const walkX = Math.sin(walkAngle) * 40;
+  const side = (i % 2 === 0) ? -2 : 2;
+  footprints.push({
+    spawnT,
+    x: walkX + side + (rng() - 0.5) * 1.5,
+    y: 36 + rng() * 1,
+    lifetime: 50
+  });
+}
+
+// Ground texture dashes: 10 dashes evenly spaced
+const N_DASHES = 10;
+const dashes = [];
+for (let i = 0; i < N_DASHES; i++) {
+  const rng = mulberry32(i * 1117 + 303);
+  dashes.push({
+    baseX: -80 + i * 18 + rng() * 6,
+    y: 38.5 + rng() * 1.5,
+    w: 3 + rng() * 4
+  });
+}
+
+// Parallax background shapes (distant mountains/buildings as triangles/rects)
+const bgShapes = [
+  { type: 'tri', baseX: -40, y: 20, w: 25, h: 18, color: 'rgba(124,58,237,0.04)' },
+  { type: 'tri', baseX: 10, y: 22, w: 20, h: 14, color: 'rgba(74,107,212,0.035)' },
+  { type: 'rect', baseX: 55, y: 25, w: 12, h: 13, color: 'rgba(124,58,237,0.03)' }
+];
 
 startLoop(t => {
-  // Lobster walks back and forth
-  const x = Math.sin(t / 80) * 40;
-  const facing = Math.cos(t / 80) > 0;
-  el.innerHTML = `<g transform="translate(${x},0)">` +
-    drawLobster({ t, walking: true, flipX: !facing }) + '</g>';
+  const lt = t % LOOP;
 
-  // Dust particles behind feet
-  if (t % 4 === 0) {
-    particles.push({ x: x + (facing ? -8 : 8), y: 34, age: 0, vx: (Math.random()-0.5)*0.8, vy: -Math.random()*0.5 });
+  const walkAngle = lt * 2 * Math.PI / LOOP;
+  const x = Math.sin(walkAngle) * 40;
+  const facing = Math.cos(walkAngle) > 0;
+
+  el.innerHTML = '<g transform="translate(' + x + ',0)">' +
+    drawLobster({ t: lt, walking: true, flipX: !facing }) + '</g>';
+
+  // Parallax background (scroll at half speed relative to lobster)
+  let bgSvg = '';
+  bgShapes.forEach(s => {
+    const px = s.baseX - x * 0.3; // half-speed parallax
+    if (s.type === 'tri') {
+      bgSvg += '<polygon points="' + (px - s.w/2) + ',' + s.y + ' ' + px + ',' + (s.y - s.h) + ' ' + (px + s.w/2) + ',' + s.y + '" fill="' + s.color + '"/>';
+    } else {
+      bgSvg += '<rect x="' + (px - s.w/2) + '" y="' + (s.y - s.h) + '" width="' + s.w + '" height="' + s.h + '" fill="' + s.color + '"/>';
+    }
+  });
+  bgEl.innerHTML = bgSvg;
+
+  // Ground texture dashes scrolling opposite to walk direction
+  let gtSvg = '';
+  dashes.forEach(d => {
+    // Scroll opposite to walk: when lobster goes right, dashes go left
+    let dx = ((d.baseX - x * 0.8) % 180 + 270) % 180 - 90;
+    gtSvg += '<line x1="' + dx + '" y1="' + d.y + '" x2="' + (dx + d.w) + '" y2="' + d.y + '" stroke="rgba(124,58,237,0.1)" stroke-width="0.4" stroke-linecap="round"/>';
+  });
+  groundTexEl.innerHTML = gtSvg;
+
+  // Footprints via particleAge
+  let fpSvg = '';
+  footprints.forEach(fp => {
+    const age = particleAge(lt, fp.spawnT, fp.lifetime, LOOP);
+    if (age >= 0) {
+      const op = age < 3 ? age / 3 * 0.2 : (1 - age / fp.lifetime) * 0.2;
+      fpSvg += '<ellipse cx="' + fp.x + '" cy="' + fp.y + '" rx="1.5" ry="0.8" fill="#8b7355" opacity="' + op + '"/>';
+    }
+  });
+  footprintsEl.innerHTML = fpSvg;
+
+  // Faint direction path line showing walk route
+  let pathSvg = '<path d="';
+  for (let i = 0; i <= 40; i++) {
+    const pa = i / 40 * 2 * Math.PI;
+    const px = Math.sin(pa) * 40;
+    pathSvg += (i === 0 ? 'M' : 'L') + px + ',37';
   }
+  pathSvg += '" fill="none" stroke="rgba(124,58,237,0.06)" stroke-width="0.4" stroke-dasharray="2,3"/>';
+  // Direction arrow at lobster position
+  const arrowX = x + (facing ? 6 : -6);
+  const arrowTip = facing ? 4 : -4;
+  pathSvg += '<polygon points="' + arrowX + ',37 ' + (arrowX + arrowTip) + ',37 ' + arrowX + ',35 ' + (arrowX + arrowTip) + ',37 ' + arrowX + ',39" fill="rgba(124,58,237,0.12)"/>';
+  pathLineEl.innerHTML = pathSvg;
+
+  // Dust via particleAge (mix of circles and pebble squares)
   let dust = '';
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.age++;
-    p.x += p.vx;
-    p.y += p.vy;
-    if (p.age > 30) { particles.splice(i, 1); continue; }
-    const op = (1 - p.age / 30) * 0.3;
-    const r = 0.5 + p.age * 0.05;
-    dust += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="#8b7355" opacity="${op}"/>`;
-  }
+  dustParts.forEach(p => {
+    const age = particleAge(lt, p.spawnT, p.lifetime, LOOP);
+    if (age >= 0) {
+      const dx = p.x0 + p.vx * age;
+      const dy = p.y0 + p.vy * age;
+      const op = (1 - age / p.lifetime) * 0.3;
+      const r = p.size + age * 0.05;
+      if (p.isPebble) {
+        const sz = r * 1.4;
+        dust += '<rect x="' + (dx - sz/2) + '" y="' + (dy - sz/2) + '" width="' + sz + '" height="' + sz + '" fill="#6b5e4a" opacity="' + (op * 0.8) + '" transform="rotate(' + (age * 3) + ',' + dx + ',' + dy + ')"/>';
+      } else {
+        dust += '<circle cx="' + dx + '" cy="' + dy + '" r="' + r + '" fill="#8b7355" opacity="' + op + '"/>';
+      }
+    }
+  });
   dustEl.innerHTML = dust;
 });
 </script>

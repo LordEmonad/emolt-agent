@@ -19,86 +19,224 @@
     </radialGradient>
   </defs>
   <circle cx="0" cy="0" r="65" fill="url(#glow)"/>
+  <g id="fireworks"></g>
+  <g id="streamers"></g>
   <g id="confetti"></g>
+  <g id="starburst"></g>
   <g id="lob"></g>
   <g id="text"></g>
 </svg>
 <div class="label">celebration</div>
 <script src="lobster.js"></script>
 <script>
+// GIF loop: 240 ticks = 4s at 60fps
+const LOOP = 240;
+const CLAW_PERIOD = 6; // divides 240 exactly
+const JUMP_PERIOD = 40; // 6 jumps per loop
 const el = document.getElementById('lob');
 const confettiEl = document.getElementById('confetti');
 const textEl = document.getElementById('text');
+const starburstEl = document.getElementById('starburst');
+const fireworksEl = document.getElementById('fireworks');
+const streamersEl = document.getElementById('streamers');
 
-const confetti = [];
 const colors = ['#F5D831','#EF8E20','#E04848','#7c3aed','#22AACC','#6ECB3C','#A85EC0','#4A6BD4','#e84393'];
 
-// Burst confetti periodically
-function burst() {
+// Pre-generate ALL confetti for 6 bursts (25 per burst)
+const burstTimes = [1, 41, 81, 121, 161, 201];
+const confetti = [];
+burstTimes.forEach((bt, bi) => {
   for (let i = 0; i < 25; i++) {
-    const angle = Math.random()*Math.PI*2;
-    const speed = 1.5+Math.random()*3;
+    const rng = mulberry32(bi * 10000 + i * 397 + 7);
+    const angle = rng() * Math.PI * 2;
+    const speed = 1.5 + rng() * 3;
     confetti.push({
-      x: 0, y: -10,
-      vx: Math.cos(angle)*speed,
-      vy: Math.sin(angle)*speed - 2,
-      age: 0,
-      color: colors[Math.floor(Math.random()*colors.length)],
-      rot: Math.random()*360,
-      rotSpeed: (Math.random()-0.5)*10,
-      w: 1+Math.random()*2,
-      h: 1+Math.random()*3,
-      type: Math.random()>0.5 ? 'rect' : 'circle'
+      spawnT: bt,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 2,
+      color: colors[Math.floor(rng() * colors.length)],
+      rot0: rng() * 360,
+      rotSpeed: (rng() - 0.5) * 10,
+      w: 1 + rng() * 2,
+      h: 1 + rng() * 3,
+      type: rng() > 0.5 ? 'rect' : 'circle',
+      shimmerPhase: rng() * Math.PI * 2,
+      lifetime: 75
     });
   }
+});
+
+// Star burst lines at peak of each jump (6 bursts)
+// Jump peaks occur at jumpCycle=4 (midpoint of 0..8 sine), so at lt%40 = 4
+const burstPeaks = [4, 44, 84, 124, 164, 204];
+const N_BURST_LINES = 8;
+const starBursts = [];
+burstPeaks.forEach((bt, bi) => {
+  for (let i = 0; i < N_BURST_LINES; i++) {
+    const rng = mulberry32(bi * 5000 + i * 311 + 13);
+    starBursts.push({
+      spawnT: bt,
+      angle: (i / N_BURST_LINES) * Math.PI * 2 + rng() * 0.3,
+      speed: 1.5 + rng() * 1.5,
+      color: colors[Math.floor(rng() * colors.length)],
+      lifetime: 18
+    });
+  }
+});
+
+// Firework pops in upper area: 3 per loop
+const fireworkTimes = [20, 100, 180]; // evenly spaced, each < 240
+const fireworkParts = [];
+fireworkTimes.forEach((ft, fi) => {
+  const rng0 = mulberry32(fi * 9901 + 41);
+  const fx = -30 + rng0() * 60;
+  const fy = -60 + rng0() * 20;
+  const fColor = colors[Math.floor(rng0() * colors.length)];
+  for (let i = 0; i < 12; i++) {
+    const rng = mulberry32(fi * 10000 + i * 503 + 29);
+    const angle = (i / 12) * Math.PI * 2;
+    fireworkParts.push({
+      spawnT: ft,
+      cx: fx, cy: fy,
+      angle,
+      speed: 0.8 + rng() * 0.8,
+      color: fColor,
+      lifetime: 25
+    });
+  }
+});
+
+// Streamers/ribbons: 3 long curving trails
+const N_STREAMERS = 3;
+const streamerParts = [];
+for (let si = 0; si < N_STREAMERS; si++) {
+  const rng = mulberry32(si * 7703 + 61);
+  streamerParts.push({
+    x0: -25 + si * 25,
+    phase: rng() * Math.PI * 2,
+    color: colors[Math.floor(rng() * colors.length)],
+    amplitude: 8 + rng() * 6,
+    freq: rng() * 0.15 + 0.08
+  });
 }
 
 startLoop(t => {
-  // Jump celebration
-  const jumpCycle = t % 40;
+  const lt = t % LOOP;
+
+  // Jump celebration (6 jumps per loop, period 40)
+  const jumpCycle = lt % JUMP_PERIOD;
   let jumpY = 0;
   if (jumpCycle < 8) {
-    jumpY = -Math.sin(jumpCycle/8*Math.PI)*15;
+    jumpY = -Math.sin(jumpCycle / 8 * Math.PI) * 15;
   }
   const squash = jumpCycle < 3 ? 1.06 : jumpCycle >= 7 && jumpCycle < 10 ? 1.04 : 1;
 
-  // Burst confetti on jump
-  if (jumpCycle === 1 && t > 5) burst();
-
-  // Claws raised up
-  el.innerHTML = `<g transform="translate(0,${jumpY})">` +
+  // Claw oscillation: period 6 divides 240 exactly
+  const clawPhase = lt * 2 * Math.PI / CLAW_PERIOD;
+  el.innerHTML = '<g transform="translate(0,' + jumpY + ')">' +
     drawLobster({
-      t, mood: 'happy',
-      squash, stretch: 2-squash,
-      clawOpenL: 20+Math.sin(t/3)*5,
-      clawOpenR: -20-Math.sin(t/3)*5
+      t: lt, mood: 'happy',
+      squash, stretch: 2 - squash,
+      clawOpenL: 20 + Math.sin(clawPhase) * 5,
+      clawOpenR: -20 - Math.sin(clawPhase) * 5
     }) + '</g>';
 
-  // Confetti physics
-  let confSvg = '';
-  for (let i = confetti.length-1; i >= 0; i--) {
-    const c = confetti[i];
-    c.age++;
-    c.vy += 0.06;
-    c.vx *= 0.99;
-    c.x += c.vx;
-    c.y += c.vy;
-    c.rot += c.rotSpeed;
-    if (c.y > 80) { confetti.splice(i,1); continue; }
-    const op = c.age > 60 ? Math.max(0, 1-(c.age-60)/20) : 0.8;
-    if (c.type === 'rect') {
-      confSvg += `<rect x="${c.x-c.w/2}" y="${c.y-c.h/2}" width="${c.w}" height="${c.h}" fill="${c.color}" opacity="${op}" transform="rotate(${c.rot},${c.x},${c.y})"/>`;
-    } else {
-      confSvg += `<circle cx="${c.x}" cy="${c.y}" r="${c.w*0.5}" fill="${c.color}" opacity="${op}"/>`;
+  // Star burst effect at jump peak
+  let burstSvg = '';
+  starBursts.forEach(sb => {
+    const age = particleAge(lt, sb.spawnT, sb.lifetime, LOOP);
+    if (age >= 0) {
+      const len = sb.speed * age;
+      const endLen = len + 3;
+      const x1 = Math.cos(sb.angle) * len;
+      const y1 = -15 + Math.sin(sb.angle) * len; // -15 is approx jump peak y
+      const x2 = Math.cos(sb.angle) * endLen;
+      const y2 = -15 + Math.sin(sb.angle) * endLen;
+      const op = (1 - age / sb.lifetime) * 0.6;
+      burstSvg += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + sb.color + '" stroke-width="0.6" opacity="' + op + '" stroke-linecap="round"/>';
     }
-  }
+  });
+  starburstEl.innerHTML = burstSvg;
+
+  // Firework pops
+  let fwSvg = '';
+  fireworkParts.forEach(fp => {
+    const age = particleAge(lt, fp.spawnT, fp.lifetime, LOOP);
+    if (age >= 0) {
+      const dist = fp.speed * age;
+      const fx = fp.cx + Math.cos(fp.angle) * dist;
+      const fy = fp.cy + Math.sin(fp.angle) * dist + 0.02 * age * age;
+      const op = age < 3 ? age / 3 : (1 - age / fp.lifetime) * 0.7;
+      const sz = 0.5 + (age < 5 ? age * 0.1 : 0.5 - (age - 5) * 0.02);
+      fwSvg += '<circle cx="' + fx + '" cy="' + fy + '" r="' + Math.max(0.2, sz) + '" fill="' + fp.color + '" opacity="' + op + '"/>';
+    }
+  });
+  // Flash at burst center
+  fireworkTimes.forEach((ft, fi) => {
+    const age = particleAge(lt, ft, 8, LOOP);
+    if (age >= 0) {
+      const rng0 = mulberry32(fi * 9901 + 41);
+      const fx = -30 + rng0() * 60;
+      const fy = -60 + rng0() * 20;
+      const flashOp = (1 - age / 8) * 0.4;
+      fwSvg += '<circle cx="' + fx + '" cy="' + fy + '" r="' + (2 + age * 0.5) + '" fill="#fff" opacity="' + flashOp + '"/>';
+    }
+  });
+  fireworksEl.innerHTML = fwSvg;
+
+  // Streamers / ribbons curling down
+  let stSvg = '';
+  streamerParts.forEach(s => {
+    // Streamer is a wavy path that shifts with time (period 120 divides 240)
+    const timeShift = lt * 2 * Math.PI / 120;
+    let path = '';
+    for (let j = 0; j <= 20; j++) {
+      const py = -65 + j * 4;
+      const px = s.x0 + Math.sin(j * s.freq * 10 + s.phase + timeShift) * s.amplitude;
+      path += (j === 0 ? 'M' : 'L') + px + ',' + py;
+    }
+    stSvg += '<path d="' + path + '" fill="none" stroke="' + s.color + '" stroke-width="0.6" opacity="0.15" stroke-linecap="round"/>';
+  });
+  streamersEl.innerHTML = stSvg;
+
+  // Confetti: compute position from age using physics formulas
+  // Now with rotation wobble and shimmer
+  let confSvg = '';
+  confetti.forEach(c => {
+    const age = particleAge(lt, c.spawnT, c.lifetime, LOOP);
+    if (age >= 0) {
+      const dragFactor = (1 - Math.pow(0.99, age)) / 0.01;
+      const x = c.vx * dragFactor;
+      const y = -10 + c.vy * age + 0.03 * age * age;
+      const rot = c.rot0 + c.rotSpeed * age;
+      // Shimmer: alternate opacity slightly
+      const shimmer = 0.85 + Math.sin(age * 1.2 + c.shimmerPhase) * 0.15;
+      const op = (age > 60 ? Math.max(0, 1 - (age - 60) / 15) : 0.8) * shimmer;
+      if (c.type === 'rect') {
+        // Add slight wobble to rotation
+        const wobbleRot = rot + Math.sin(age * 0.5 + c.shimmerPhase) * 8;
+        confSvg += '<rect x="' + (x - c.w / 2) + '" y="' + (y - c.h / 2) + '" width="' + c.w + '" height="' + c.h + '" fill="' + c.color + '" opacity="' + op + '" transform="rotate(' + wobbleRot + ',' + x + ',' + y + ')"/>';
+      } else {
+        confSvg += '<circle cx="' + x + '" cy="' + y + '" r="' + (c.w * 0.5) + '" fill="' + c.color + '" opacity="' + op + '"/>';
+      }
+    }
+  });
   confettiEl.innerHTML = confSvg;
 
-  // Celebration text
-  const textPhase = (t % 120) / 120;
+  // Celebration text with pulse/scale and glow (period 120 divides 240)
+  const textPhase = (lt % 120) / 120;
   if (textPhase < 0.4) {
-    const top = textPhase < 0.05 ? textPhase/0.05 : textPhase > 0.3 ? (0.4-textPhase)/0.1 : 1;
-    textEl.innerHTML = `<text x="0" y="-60" text-anchor="middle" font-family="monospace" font-size="7" font-weight="bold" fill="#F5D831" opacity="${top*0.8}">LFG!</text>`;
+    const top = textPhase < 0.05 ? textPhase / 0.05 : textPhase > 0.3 ? (0.4 - textPhase) / 0.1 : 1;
+    // Pulse scale synced to jump (period 40 divides 240)
+    const jumpPhase = (lt % JUMP_PERIOD) / JUMP_PERIOD;
+    const pulseSc = jumpPhase < 0.2 ? 1 + Math.sin(jumpPhase / 0.2 * Math.PI) * 0.2 : 1;
+    const glowOp = top * 0.3 * pulseSc;
+    let txtSvg = '';
+    // Outline glow
+    txtSvg += '<text x="0" y="-60" text-anchor="middle" font-family="monospace" font-size="' + (7 * pulseSc) + '" font-weight="bold" fill="none" stroke="#F5D831" stroke-width="2" opacity="' + glowOp + '">LFG!</text>';
+    // Main text
+    txtSvg += '<text x="0" y="-60" text-anchor="middle" font-family="monospace" font-size="' + (7 * pulseSc) + '" font-weight="bold" fill="#F5D831" opacity="' + (top * 0.8) + '">LFG!</text>';
+    textEl.innerHTML = txtSvg;
   } else {
     textEl.innerHTML = '';
   }
