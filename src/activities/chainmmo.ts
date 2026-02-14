@@ -489,17 +489,7 @@ async function fetchContractAddresses(state: ChainMMOState, log: DispatchLogger)
   return addresses;
 }
 
-async function fetchValidActions(characterId: number, log: DispatchLogger): Promise<any> {
-  try {
-    const data = await mmoGet(`/agent/valid-actions/${characterId}`);
-    log('thought', `valid actions: ${JSON.stringify(data).slice(0, 500)}`);
-    return data;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log('thought', `valid-actions check failed (non-fatal): ${msg}`);
-    return null;
-  }
-}
+// Note: /agent/valid-actions is MCP-only (not HTTP API). Use /agent/state instead.
 
 async function fetchCharacterState(characterId: number, log: DispatchLogger): Promise<any> {
   try {
@@ -989,9 +979,19 @@ async function createCharacter(
   }
 
   if (characterId === null) {
-    // Fallback: read from contract events or use a sequential ID
-    log('thought', 'could not find character ID from API — using 1 as fallback');
-    characterId = 1;
+    // Fallback: read nextCharacterId from contract — our character is (nextId - 1)
+    try {
+      const nextId = await publicClient.readContract({
+        address: contracts.gameWorld,
+        abi: GAME_WORLD_ABI,
+        functionName: 'nextCharacterId',
+      });
+      characterId = Number(nextId) - 1;
+      log('thought', `derived character ID from nextCharacterId: ${characterId}`);
+    } catch {
+      log('error', 'could not determine character ID — aborting');
+      throw new Error('character created but ID could not be determined from API or contract');
+    }
   }
 
   state.characterId = characterId;
@@ -1038,6 +1038,7 @@ async function equipBestGear(
   contracts: ContractAddresses,
   walletClient: any,
   account: any,
+  state: ChainMMOState,
   log: DispatchLogger,
 ): Promise<boolean> {
   log('step', 'checking inventory for equippable items...');
@@ -1133,6 +1134,11 @@ async function equipBestGear(
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: TX_TIMEOUT_MS });
     if (receipt.status === 'success') {
+      // Update gearSummary so slot gate checks work correctly
+      for (const [slot, best] of slotBest.entries()) {
+        if (slot >= 0) state.gearSummary[slot] = Number(best.tokenId);
+      }
+      saveChainMMOState(state);
       log('result', `equipped ${equipIds.length} items (best per slot)`);
       return true;
     }
@@ -1149,12 +1155,21 @@ async function equipBestGear(
           args: [characterId, itemId],
         });
         const r = await publicClient.waitForTransactionReceipt({ hash: tx, timeout: TX_TIMEOUT_MS });
-        if (r.status === 'success') equipped++;
+        if (r.status === 'success') {
+          equipped++;
+          // Track equipped items individually
+          for (const [slot, best] of slotBest.entries()) {
+            if (slot >= 0 && best.tokenId === itemId) {
+              state.gearSummary[slot] = Number(itemId);
+            }
+          }
+        }
       } catch {
         // skip this item
       }
     }
     if (equipped > 0) {
+      saveChainMMOState(state);
       log('result', `equipped ${equipped}/${equipIds.length} items individually`);
       return true;
     }
@@ -1227,7 +1242,7 @@ async function resolveAllRooms(
       const desiredPotion = pickPotionChoice(profile);
       const potionChoice = await getSafePotionChoice(characterId, contracts, desiredPotion, log);
       const abilityChoice = pickAbilityChoice(profile);
-      const batchSize = 11; // ROOM_MAX per tx (from core progression mechanics)
+      const batchSize = 11; // ROOM_MAX per tx (playbook: core-progression-mechanics). world-rules says 8 but that's the MCP/API limit — on-chain accepts 11.
       const potionChoices = Array(batchSize).fill(potionChoice);
       const abilityChoices = Array(batchSize).fill(abilityChoice);
 
@@ -1282,9 +1297,11 @@ async function resolveAllRooms(
 }
 
 // Slot gate: how many equipped slots are required at each level threshold
-// From /meta/playbook/core-progression-mechanics-on-chain-rules
+// Playbook says: 1..5 → 1, 6..10 → 4, 11+ → 8
+// world-rules API says: L1→1, L10→4, L20→8 (less restrictive)
+// Using the more conservative playbook values to avoid GearLockedDuringRun reverts
 const SLOT_GATE: [number, number][] = [
-  [1, 1], [10, 4], [20, 8], [30, 8], [40, 8], [60, 8],
+  [1, 1], [6, 4], [11, 8],
 ];
 
 function requiredSlotsForLevel(level: number): number {
@@ -1463,15 +1480,33 @@ async function executeChainMMO(
     }
   }
 
-  // Step 7: Fetch character state
+  // Step 7: Fetch character state (rich API response)
   const charState = await fetchCharacterState(characterId, log);
   if (charState) {
-    state.currentLevel = charState.level ?? charState.character?.level ?? state.currentLevel;
-    state.bestLevelCleared = charState.bestLevel ?? charState.character?.bestLevel ?? state.bestLevelCleared;
-  }
+    const s = charState.state || charState;
+    const char = s.character || {};
+    const prog = s.progression || {};
+    const equip = s.equipment || {};
 
-  // Fetch valid actions
-  const validActions = await fetchValidActions(characterId, log);
+    state.currentLevel = char.bestLevel ?? prog.bestLevel ?? state.currentLevel;
+    state.bestLevelCleared = char.bestLevel ?? prog.bestLevel ?? state.bestLevelCleared;
+
+    // Update gearSummary from API (more reliable than local tracking)
+    if (equip.items && Array.isArray(equip.items)) {
+      for (const item of equip.items) {
+        if (item.slot !== undefined && item.itemId !== undefined) {
+          state.gearSummary[item.slot] = Number(item.itemId);
+        }
+      }
+    }
+
+    // Log useful progression data
+    if (prog.targetLevel) {
+      log('thought', `progression: best=${prog.bestLevel} target=${prog.targetLevel} clears=${prog.currentClears}/${prog.requiredClears} equipped=${prog.equippedSlots}/${prog.requiredSlots}`);
+    }
+
+    saveChainMMOState(state);
+  }
   await sleep(ACTION_DELAY_MS);
 
   // --- Mode-specific execution ---
@@ -1528,7 +1563,7 @@ async function executeChainMMO(
     if (gearLocked) {
       log('thought', 'gear locked — active dungeon run in progress, skipping equip');
     } else {
-      const equipped = await equipBestGear(charIdBig, contracts, walletClient, account, log);
+      const equipped = await equipBestGear(charIdBig, contracts, walletClient, account, state, log);
       if (equipped) {
         actionsPerformed++;
         itemsFound++;
@@ -1582,7 +1617,7 @@ async function executeChainMMO(
         const equippedCount = Object.keys(state.gearSummary).length;
         if (equippedCount < requiredSlots) {
           log('thought', `slot gate: need ${requiredSlots} equipped slots for level ${dungeonLevel}, have ${equippedCount} — attempting equip first`);
-          const equipped = await equipBestGear(charIdBig, contracts, walletClient, account, log);
+          const equipped = await equipBestGear(charIdBig, contracts, walletClient, account, state, log);
           if (equipped) actionsPerformed++;
           await sleep(ACTION_DELAY_MS);
         }
