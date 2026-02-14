@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { join } from 'path';
-import { createWalletClient, http, decodeEventLog } from 'viem';
+import { createWalletClient, http, fallback, decodeEventLog } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { registerActivity } from './registry.js';
 import { loadEmotionState, atomicWriteFileSync, STATE_DIR, ensureStateDir } from '../state/persistence.js';
@@ -264,6 +264,27 @@ const GAME_WORLD_ABI = [
     outputs: [{ name: '', type: 'uint32' }],
     stateMutability: 'view',
   },
+  {
+    type: 'function',
+    name: 'runEntryFee',
+    inputs: [{ name: 'targetLevel', type: 'uint32' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'repairFee',
+    inputs: [{ name: 'targetLevel', type: 'uint32' }],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'characterBestLevel',
+    inputs: [{ name: 'characterId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint32' }],
+    stateMutability: 'view',
+  },
 ] as const;
 
 const ITEMS_ABI = [
@@ -327,6 +348,16 @@ const MMO_TOKEN_ABI = [
     ],
     outputs: [{ name: '', type: 'bool' }],
     stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'allowance',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
   },
 ] as const;
 
@@ -530,7 +561,10 @@ function getMMOWalletClient() {
     walletClient: createWalletClient({
       account,
       chain: monad,
-      transport: http(process.env.MONAD_RPC_URL || 'https://rpc.monad.xyz'),
+      transport: fallback([
+        http(process.env.MONAD_RPC_URL || 'https://rpc.monad.xyz'),
+        http(process.env.MONAD_RPC_FALLBACK || 'https://monad-mainnet.api.onfinality.io/public'),
+      ]),
     }),
     account,
   };
@@ -1278,19 +1312,27 @@ async function getSafePotionChoice(
   log: DispatchLogger,
 ): Promise<number> {
   if (desiredPotion === PotionChoice.NONE) return PotionChoice.NONE;
-  try {
-    // Check charges for the desired potion (tier 0 = basic)
-    const balance = await publicClient.readContract({
-      address: contracts.gameWorld,
-      abi: GAME_WORLD_ABI,
-      functionName: 'potionBalance',
-      args: [characterId, desiredPotion, 0],
-    }) as number;
-    if (Number(balance) > 0) return desiredPotion;
-    log('thought', `potion ${desiredPotion} has 0 charges — falling back to NONE to avoid hard revert`);
-  } catch {
-    log('thought', `potionBalance check failed — falling back to NONE for safety`);
+
+  // Try desired potion first, then cycle through alternatives before falling to NONE
+  // (potions with 0 charges cause hard reverts)
+  const candidates = [desiredPotion, ...Object.values(PotionChoice).filter(p => p !== PotionChoice.NONE && p !== desiredPotion)];
+  for (const potion of candidates) {
+    try {
+      const balance = await publicClient.readContract({
+        address: contracts.gameWorld,
+        abi: GAME_WORLD_ABI,
+        functionName: 'potionBalance',
+        args: [characterId, potion, 0],
+      }) as number;
+      if (Number(balance) > 0) {
+        if (potion !== desiredPotion) log('thought', `potion ${desiredPotion} unavailable — using ${potion} instead`);
+        return potion;
+      }
+    } catch {
+      // continue to next candidate
+    }
   }
+  log('thought', `all potions have 0 charges — falling back to NONE`);
   return PotionChoice.NONE;
 }
 
@@ -1328,8 +1370,14 @@ async function resolveAllRooms(
 
       // Check potion availability before using (potions with 0 charges cause hard reverts)
       const desiredPotion = pickPotionChoice(profile);
-      const potionChoice = await getSafePotionChoice(characterId, contracts, desiredPotion, log);
+      let potionChoice = await getSafePotionChoice(characterId, contracts, desiredPotion, log);
       const abilityChoice = pickAbilityChoice(profile);
+
+      // Tactical pressure: at level 10+, NONE/NONE gives mobs a bonus (playbook: core-progression-mechanics)
+      if (dungeonLvl >= 10 && potionChoice === PotionChoice.NONE && abilityChoice === AbilityChoice.NONE) {
+        log('thought', `level ${dungeonLvl} >= 10 — NONE/NONE gives mob bonus, but all potions depleted. Proceeding with caution.`);
+      }
+
       const batchSize = 11; // ROOM_MAX per tx (playbook: core-progression-mechanics). world-rules says 8 but that's the MCP/API limit — on-chain accepts 11.
       const potionChoices = Array(batchSize).fill(potionChoice);
       const abilityChoices = Array(batchSize).fill(abilityChoice);
@@ -1398,6 +1446,45 @@ function requiredSlotsForLevel(level: number): number {
     if (level >= lvl) required = slots;
   }
   return required;
+}
+
+const MAX_UINT256 = 2n ** 256n - 1n;
+const MIN_APPROVAL_THRESHOLD = 10n ** 24n; // 1M MMO (18 decimals) — re-approve if allowance drops below this
+
+async function ensureMmoApproval(
+  contracts: ContractAddresses,
+  walletClient: any,
+  account: any,
+  log: DispatchLogger,
+): Promise<void> {
+  const spenders = [
+    { name: 'GameWorld', address: contracts.gameWorld },
+    { name: 'FeeVault', address: contracts.feeVault },
+  ];
+  for (const { name, address } of spenders) {
+    try {
+      const allowance = await publicClient.readContract({
+        address: contracts.mmoToken,
+        abi: MMO_TOKEN_ABI,
+        functionName: 'allowance',
+        args: [account.address, address],
+      }) as bigint;
+      if (allowance < MIN_APPROVAL_THRESHOLD) {
+        log('step', `approving MMO for ${name} (current allowance: ${allowance})...`);
+        const txHash = await walletClient.writeContract({
+          address: contracts.mmoToken,
+          abi: MMO_TOKEN_ABI,
+          functionName: 'approve',
+          args: [address, MAX_UINT256],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: txHash, timeout: TX_TIMEOUT_MS });
+        log('step', `MMO approved for ${name}`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log('thought', `MMO approval check for ${name} failed: ${msg}`);
+    }
+  }
 }
 
 async function checkRunActive(characterId: bigint, contracts: ContractAddresses): Promise<boolean> {
@@ -1595,6 +1682,11 @@ async function executeChainMMO(
 
     saveChainMMOState(state);
   }
+
+  // Step 7c: Ensure MMO token approvals for GameWorld + FeeVault (needed for L11+ premium lootboxes, L21+ run fees)
+  if (state.bestLevelCleared >= 9) {
+    await ensureMmoApproval(contracts, walletClient, account, log);
+  }
   await sleep(ACTION_DELAY_MS);
 
   // --- Mode-specific execution ---
@@ -1768,6 +1860,41 @@ async function executeChainMMO(
           if (equippedCount < requiredSlots) {
             log('error', `slot gate STILL not met after equip (${equippedCount}/${requiredSlots}) — aborting dungeon to avoid wasting gas`);
             break;
+          }
+        }
+
+        // Preflight cost check: at level 21+, dungeon runs require MMO token for entry + repair fees
+        if (dungeonLevel >= 21) {
+          try {
+            const [entryFee, repair, mmoBalance] = await Promise.all([
+              publicClient.readContract({
+                address: contracts.gameWorld,
+                abi: GAME_WORLD_ABI,
+                functionName: 'runEntryFee',
+                args: [dungeonLevel],
+              }) as Promise<bigint>,
+              publicClient.readContract({
+                address: contracts.gameWorld,
+                abi: GAME_WORLD_ABI,
+                functionName: 'repairFee',
+                args: [dungeonLevel],
+              }) as Promise<bigint>,
+              publicClient.readContract({
+                address: contracts.mmoToken,
+                abi: MMO_TOKEN_ABI,
+                functionName: 'balanceOf',
+                args: [account.address],
+              }) as Promise<bigint>,
+            ]);
+            const totalNeeded = entryFee + repair;
+            log('thought', `L${dungeonLevel} MMO costs: entry=${entryFee} repair=${repair} total=${totalNeeded} balance=${mmoBalance}`);
+            if (mmoBalance < totalNeeded) {
+              log('error', `insufficient MMO for L${dungeonLevel} dungeon (need ${totalNeeded}, have ${mmoBalance}) — aborting`);
+              break;
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log('thought', `MMO cost preflight failed (proceeding anyway): ${msg}`);
           }
         }
 

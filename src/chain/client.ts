@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, defineChain } from 'viem';
+import { createPublicClient, createWalletClient, http, fallback, defineChain, type Transport } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 // Define Monad chain (may not be in viem/chains yet)
@@ -14,11 +14,18 @@ export const monad = defineChain({
   }
 });
 
+// Ordered RPC endpoints (primary + fallback) per ChainMMO /meta/rpc recommendation
 const rpcUrl = process.env.MONAD_RPC_URL || 'https://rpc.monad.xyz';
+const rpcFallback = process.env.MONAD_RPC_FALLBACK || 'https://monad-mainnet.api.onfinality.io/public';
+
+const rpcTransport: Transport = fallback([
+  http(rpcUrl),
+  http(rpcFallback),
+]);
 
 export const publicClient = createPublicClient({
   chain: monad,
-  transport: http(rpcUrl)
+  transport: rpcTransport,
 });
 
 export function getWalletClient() {
@@ -27,7 +34,7 @@ export function getWalletClient() {
   return createWalletClient({
     account,
     chain: monad,
-    transport: http(rpcUrl)
+    transport: rpcTransport,
   });
 }
 
