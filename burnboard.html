@@ -43,6 +43,15 @@ body {
   text-rendering:optimizeLegibility;
   font-variant-numeric:tabular-nums;
 }
+/* Page Nav */
+.page-nav { display:flex; gap:4px; justify-content:center; align-items:center; padding:16px 20px 0; position:relative; z-index:1; flex-wrap:wrap; }
+.nav-link { font-size:11px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--text-dim); text-decoration:none; padding:5px 10px; border-radius:8px; transition:all 0.25s; }
+.nav-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); transform:translateY(-1px); }
+.nav-active { color:var(--text); border-bottom:1px solid var(--accent); border-radius:8px 8px 0 0; }
+.nav-sep { color:rgba(255,255,255,0.1); font-size:10px; margin:0 2px; }
+.redacted-word { background:rgba(200,202,208,0.15); color:rgba(200,202,208,0.15); padding:0 3px; border-radius:2px; transition:background 0.3s, color 0.3s; letter-spacing:0; }
+a:hover .redacted-word { background:rgba(239,142,32,0.3); color:#EF8E20; }
+
 .board { max-width:900px; margin:0 auto; position:relative; z-index:1; }
 
 /* Ambient background blobs */
@@ -270,6 +279,19 @@ html.light body::before { opacity:0.015; }
   <div class="bg-blob bg-blob-3"></div>
 </div>
 <button class="theme-toggle" onclick="toggleTheme()" id="toggleIcon">&#9788;</button>
+<div class="page-nav">
+  <a class="nav-link" href="heartbeat.html">heartbeat</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link" href="timeline.html">timeline</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link nav-active" href="burnboard.html">burnboard</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link" href="diary.html">diary</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link" href="learning.html">self-learning</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link" href="emolt-files/index.html">the <span class="redacted-word">emolt</span> files</a>
+</div>
 <div class="board">
   <div class="hero">
     <h1>EMOLT BURNBOARD</h1>
@@ -316,7 +338,7 @@ html.light body::before { opacity:0.015; }
       <td class="lb-emo">26606.87<span class="lb-usd-sub">$4.74</span></td>
       <td class="lb-mon">0.0000<span class="lb-usd-sub">$0.00</span></td>
       <td class="lb-txs">1</td>
-      <td class="lb-last">20h ago</td>
+      <td class="lb-last">21h ago</td>
     </tr>
     <tr class="lb-row">
       <td class="lb-rank"><span class="rank-num">4</span></td>
@@ -324,7 +346,7 @@ html.light body::before { opacity:0.015; }
       <td class="lb-emo">0.00<span class="lb-usd-sub">$0.00</span></td>
       <td class="lb-mon">96.0000<span class="lb-usd-sub">$2.18</span></td>
       <td class="lb-txs">3</td>
-      <td class="lb-last">5m ago</td>
+      <td class="lb-last">42m ago</td>
     </tr>
     <tr class="lb-row">
       <td class="lb-rank"><span class="rank-num">5</span></td>
@@ -472,7 +494,7 @@ html.light body::before { opacity:0.015; }
 
   <div class="footer">
     <div class="footer-line"></div>
-    <div class="footer-text">10 feeders &middot; 11 burns &middot; updated 2026-02-15 18:32 UTC</div>
+    <div class="footer-text">10 feeders &middot; 11 burns &middot; updated 2026-02-15 19:09 UTC</div>
     <div class="footer-text"><a href="heartbeat.html">&larr; heartbeat dashboard</a></div>
   </div>
 </div>

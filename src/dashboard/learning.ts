@@ -380,9 +380,13 @@ body::before {
 }
 @keyframes shimmer { 0%{background-position:0% center} 100%{background-position:200% center} }
 .subtitle { font-size:11px; letter-spacing:4px; color:var(--text-faint); text-transform:uppercase; margin-bottom:10px; font-weight:300; }
-.header-links { display:flex; gap:8px; justify-content:center; align-items:center; margin-bottom:8px; }
+.header-links { display:flex; gap:4px; justify-content:center; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
 .header-link { font-size:11px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--text-dim); text-decoration:none; padding:5px 10px; border-radius:8px; transition:all 0.25s; }
-.header-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); }
+.header-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); transform:translateY(-1px); }
+.header-link-active { color:var(--text); border-bottom:1px solid #EF8E20; border-radius:8px 8px 0 0; }
+.link-sep { color:rgba(255,255,255,0.1); font-size:10px; margin:0 2px; }
+.redacted-word { background:rgba(200,202,208,0.15); color:rgba(200,202,208,0.15); padding:0 3px; border-radius:2px; transition:background 0.3s, color 0.3s; letter-spacing:0; }
+a:hover .redacted-word { background:rgba(239,142,32,0.3); color:#EF8E20; }
 .cycle-badge { font-size:10px; color:var(--accent); border:1px solid rgba(239,142,32,0.3); padding:3px 10px; border-radius:10px; font-weight:600; letter-spacing:1px; }
 .theme-toggle {
   position:absolute; top:24px; right:0;
@@ -552,9 +556,18 @@ export function generateLearning(): void {
     <h1>EMOLT Self-Learning</h1>
     <p class="subtitle">autonomous weight evolution</p>
     <div class="header-links">
-      <a class="header-link" href="heartbeat.html">&larr; heartbeat</a>
+      <a class="header-link" href="heartbeat.html">heartbeat</a>
+      <span class="link-sep">/</span>
       <a class="header-link" href="timeline.html">timeline</a>
+      <span class="link-sep">/</span>
+      <a class="header-link" href="burnboard.html">burnboard</a>
+      <span class="link-sep">/</span>
       <a class="header-link" href="diary.html">diary</a>
+      <span class="link-sep">/</span>
+      <a class="header-link header-link-active" href="learning.html">self-learning</a>
+      <span class="link-sep">/</span>
+      <a class="header-link" href="emolt-files/index.html">the <span class="redacted-word">emolt</span> files</a>
+      <span class="link-sep">/</span>
       <span class="cycle-badge">cycle ${cycleCount}</span>
     </div>
     <button class="theme-toggle" onclick="document.documentElement.classList.toggle('light')" title="Toggle theme">&#9681;</button>

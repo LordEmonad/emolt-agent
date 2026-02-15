@@ -214,6 +214,15 @@ html.light body::before { opacity:0.015; }
 @keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
 @keyframes shimmer { 0%{background-position:0% center} 100%{background-position:200% center} }
 
+/* --- Page Nav --- */
+.page-nav { display:flex; gap:4px; justify-content:center; align-items:center; padding:16px 20px 0; position:relative; z-index:1; flex-wrap:wrap; }
+.nav-link { font-size:11px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--text-dim); text-decoration:none; padding:5px 10px; border-radius:8px; transition:all 0.25s; }
+.nav-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); transform:translateY(-1px); }
+.nav-active { color:var(--text); border-bottom:1px solid var(--accent); border-radius:8px 8px 0 0; }
+.nav-sep { color:rgba(255,255,255,0.1); font-size:10px; margin:0 2px; }
+.redacted-word { background:rgba(200,202,208,0.15); color:rgba(200,202,208,0.15); padding:0 3px; border-radius:2px; transition:background 0.3s, color 0.3s; letter-spacing:0; }
+a:hover .redacted-word { background:rgba(239,142,32,0.3); color:#EF8E20; }
+
 /* --- Header --- */
 .header {
   text-align:center; padding:32px 20px 16px; position:relative; z-index:1;
@@ -509,6 +518,19 @@ html.light body::before { opacity:0.015; }
   <span class="toggle-icon" id="toggleIcon">&#9788;</span>
 </button>
 
+<div class="page-nav">
+  <a class="nav-link" href="heartbeat.html">heartbeat</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link nav-active" href="timeline.html">timeline</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link" href="burnboard.html">burnboard</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link" href="diary.html">diary</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link" href="learning.html">self-learning</a>
+  <span class="nav-sep">/</span>
+  <a class="nav-link" href="emolt-files/index.html">the <span class="redacted-word">emolt</span> files</a>
+</div>
 <div class="header">
   <h1>EMOLT Timeline</h1>
   <div class="sub">emotional history replay</div>

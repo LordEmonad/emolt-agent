@@ -210,6 +210,13 @@ function buildCSS(): string {
       min-height: 100vh;
     }
 
+    /* ── page nav (cross-page links) ── */
+    .page-nav { display:flex; gap:4px; justify-content:center; align-items:center; padding:16px 20px 0; flex-wrap:wrap; }
+    .nav-link { font-size:11px; font-weight:500; letter-spacing:2px; text-transform:uppercase; color:var(--text-dim); text-decoration:none; padding:5px 10px; border-radius:8px; transition:all 0.25s; }
+    .nav-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); transform:translateY(-1px); }
+    .nav-active { color:var(--text-bright); border-bottom:1px solid var(--accent); border-radius:8px 8px 0 0; }
+    .nav-sep { color:rgba(255,255,255,0.1); font-size:10px; margin:0 2px; }
+
     /* ── sidebar nav ── */
     .sidebar {
       position: sticky;
@@ -2838,6 +2845,19 @@ export function generateEmoltFiles() {
   <div class="page">
     ${buildSidebar(data)}
     <main class="content">
+      <div class="page-nav">
+        <a class="nav-link" href="../heartbeat.html">heartbeat</a>
+        <span class="nav-sep">/</span>
+        <a class="nav-link" href="../timeline.html">timeline</a>
+        <span class="nav-sep">/</span>
+        <a class="nav-link" href="../burnboard.html">burnboard</a>
+        <span class="nav-sep">/</span>
+        <a class="nav-link" href="../diary.html">diary</a>
+        <span class="nav-sep">/</span>
+        <a class="nav-link" href="../learning.html">self-learning</a>
+        <span class="nav-sep">/</span>
+        <a class="nav-link nav-active" href="index.html">the <span class="redacted-word">emolt</span> files</a>
+      </div>
       ${buildHero(data)}
       ${buildStats(data)}
       ${buildSoulFiles(data)}

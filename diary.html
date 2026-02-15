@@ -85,15 +85,18 @@ html.light body::before { opacity:0.015; }
   animation:fadeIn 0.6s ease-out both;
 }
 .diary-header-nav {
-  display:flex; gap:4px; justify-content:center; align-items:center; margin-bottom:24px;
+  display:flex; gap:4px; justify-content:center; align-items:center; margin-bottom:24px; flex-wrap:wrap; padding:0 50px;
 }
 .header-link {
   font-size:11px; font-weight:500; letter-spacing:2px; text-transform:uppercase;
   color:var(--text-dim); text-decoration:none; padding:5px 10px; border-radius:8px;
   transition:all 0.25s;
 }
-.header-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); }
+.header-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); transform:translateY(-1px); }
+.header-link-active { color:var(--text); border-bottom:1px solid #EF8E20; border-radius:8px 8px 0 0; }
 .link-sep { color:var(--border-light); font-size:10px; margin:0 2px; }
+.redacted-word { background:rgba(200,202,208,0.15); color:rgba(200,202,208,0.15); padding:0 3px; border-radius:2px; transition:background 0.3s, color 0.3s; letter-spacing:0; }
+a:hover .redacted-word { background:rgba(239,142,32,0.3); color:#EF8E20; }
 
 .diary-page-title {
   font-size:28px; font-weight:600; letter-spacing:14px; text-transform:uppercase;
@@ -117,7 +120,7 @@ html.light body::before { opacity:0.015; }
   transition:all 0.3s;
 }
 .theme-toggle {
-  position:absolute; top:20px; right:0;
+  position:absolute; top:20px; right:20px; z-index:10;
   background:var(--bg-inner); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
   border:1px solid var(--border-light); color:var(--text-dim);
   width:36px; height:36px; border-radius:50%; cursor:pointer; font-size:16px;
@@ -379,11 +382,17 @@ html.light body::before { opacity:0.015; }
 <div class="diary-page">
   <header class="diary-header">
     <div class="diary-header-nav">
-      <a href="heartbeat.html" class="header-link">&larr; heartbeat</a>
+      <a href="heartbeat.html" class="header-link">heartbeat</a>
       <span class="link-sep">/</span>
       <a href="timeline.html" class="header-link">timeline</a>
       <span class="link-sep">/</span>
       <a href="burnboard.html" class="header-link">burnboard</a>
+      <span class="link-sep">/</span>
+      <a href="diary.html" class="header-link header-link-active">diary</a>
+      <span class="link-sep">/</span>
+      <a href="learning.html" class="header-link">self-learning</a>
+      <span class="link-sep">/</span>
+      <a href="emolt-files/index.html" class="header-link">the <span class="redacted-word">emolt</span> files</a>
     </div>
     <h1 class="diary-page-title">diary</h1>
     <p class="diary-page-sub">what i felt today</p>
