@@ -49,7 +49,17 @@ export function saveStrategyWeights(sw: StrategyWeights): void {
   atomicWriteFileSync(WEIGHTS_FILE, JSON.stringify(sw, null, 2));
 }
 
-export function applyWeightAdjustments(sw: StrategyWeights, adjustments: WeightAdjustment[]): void {
+export interface WeightAdjustmentResult {
+  category: StrategyWeightKey;
+  before: number;
+  after: number;
+  reason: string;
+  magnitude?: string;
+  direction?: string;
+}
+
+export function applyWeightAdjustments(sw: StrategyWeights, adjustments: WeightAdjustment[]): WeightAdjustmentResult[] {
+  const results: WeightAdjustmentResult[] = [];
   for (const adj of adjustments) {
     if (!ALL_WEIGHT_KEYS.includes(adj.key)) continue;
     const current = sw.weights[adj.key];
@@ -57,6 +67,7 @@ export function applyWeightAdjustments(sw: StrategyWeights, adjustments: WeightA
     if (adj.direction === 'reset') {
       sw.weights[adj.key] = 1.0;
       console.log(`[Weights] ${adj.key}: ${current.toFixed(2)} → 1.00 (reset: ${adj.reason.slice(0, 80)})`);
+      results.push({ category: adj.key, before: current, after: 1.0, reason: adj.reason, direction: 'reset' });
       continue;
     }
 
@@ -64,7 +75,9 @@ export function applyWeightAdjustments(sw: StrategyWeights, adjustments: WeightA
     const delta = adj.direction === 'increase' ? step : -step;
     sw.weights[adj.key] = Math.max(WEIGHT_FLOOR, Math.min(WEIGHT_CEILING, current + delta));
     console.log(`[Weights] ${adj.key}: ${current.toFixed(2)} → ${sw.weights[adj.key].toFixed(2)} (${adj.direction} ${adj.magnitude ?? 'moderate'}: ${adj.reason.slice(0, 80)})`);
+    results.push({ category: adj.key, before: current, after: sw.weights[adj.key], reason: adj.reason, magnitude: adj.magnitude, direction: adj.direction });
   }
+  return results;
 }
 
 export function decayWeights(sw: StrategyWeights): void {

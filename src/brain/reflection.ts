@@ -204,9 +204,10 @@ export function runReflection(
   memory: string,
   actionTaken: string,
   diagnosticsReport: string,
-  feedbackReport: string
+  feedbackReport: string,
+  prophecyReport: string = '',
 ): ReflectionResponse | null {
-  const prompt = buildReflectionPrompt(memory, actionTaken, diagnosticsReport, feedbackReport);
+  const prompt = buildReflectionPrompt(memory, actionTaken, diagnosticsReport, feedbackReport + (prophecyReport ? '\n\n' + prophecyReport : ''));
 
   console.log('[Reflection] Running self-reflection...');
   const raw = askClaude(prompt);

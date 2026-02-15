@@ -1,4 +1,5 @@
 import { PrimaryEmotion, EmotionState, EmotionStimulus, StrategyWeights, EmotionMemory } from '../emotion/types.js';
+import { loadProphecyStats } from '../emotion/prophecy.js';
 
 const ALL_EMOTIONS = Object.values(PrimaryEmotion);
 const DEAD_THRESHOLD = 0.10;
@@ -117,6 +118,28 @@ export function buildDiagnostics(
   } else {
     lines.push('');
     lines.push('All weights at default (1.00)');
+  }
+
+  // --- 7. Prophecy accuracy ---
+  try {
+    const prophecyStats = loadProphecyStats();
+    if (prophecyStats.totalEvaluated > 0) {
+      lines.push('');
+      lines.push(`Prophecy accuracy: ${(prophecyStats.overallAccuracy * 100).toFixed(1)}% (${prophecyStats.totalCorrect}/${prophecyStats.totalEvaluated})`);
+
+      const catEntries = Object.entries(prophecyStats.categoryAccuracy)
+        .sort(([, a], [, b]) => b - a);
+      if (catEntries.length > 0) {
+        const best = catEntries[0];
+        const worst = catEntries[catEntries.length - 1];
+        lines.push(`  Best predictor: ${best[0]} (${(best[1] * 100).toFixed(0)}%)`);
+        if (catEntries.length > 1) {
+          lines.push(`  Worst predictor: ${worst[0]} (${(worst[1] * 100).toFixed(0)}%)`);
+        }
+      }
+    }
+  } catch {
+    // prophecy stats not available yet
   }
 
   return {

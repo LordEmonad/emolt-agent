@@ -293,6 +293,7 @@ function buildHeader(): string {
   links.push(`<a class="header-link" href="timeline.html" target="_blank">timeline</a>`);
   links.push(`<a class="header-link" href="burnboard.html" target="_blank">burnboard</a>`);
   links.push(`<a class="header-link" href="diary.html" target="_blank">diary</a>`);
+  links.push(`<a class="header-link" href="learning.html" target="_blank">self-learning</a>`);
   const ghStars = readJSON(join(STATE, 'github-stars-prev.json'));
   const starCount = ghStars?.stars ?? '';
   links.push(`<a class="header-link" href="${GITHUB_URL}" target="_blank">github${starCount ? ` <span id="gh-stars">\u2605 ${starCount}</span>` : ` <span id="gh-stars"></span>`}</a>`);

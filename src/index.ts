@@ -24,6 +24,13 @@ import {
 import type { EmotionStimulus, AdaptiveThresholds } from './emotion/types.js';
 import { loadRollingAverages, saveRollingAverages, updateRollingAverages, computeAdaptiveThresholds } from './emotion/adaptive.js';
 import { loadStrategyWeights, saveStrategyWeights, decayWeights, applyStrategyWeights, applyWeightAdjustments } from './emotion/weights.js';
+import { logWeightDecay, logWeightAdjustments } from './emotion/weight-logger.js';
+import {
+  loadProphecySnapshots, saveProphecySnapshots,
+  loadProphecyStats, saveProphecyStats,
+  createProphecySnapshot, evaluateProphecy, updateProphecyStats,
+  getPendingEvaluations, formatProphecyForPrompt,
+} from './emotion/prophecy.js';
 import { collectChainData, formatChainDataForPrompt, getBlockSnapshot } from './chain/watcher.js';
 import { collectEcosystemData, formatEcosystemForPrompt } from './chain/ecosystem.js';
 import { collectMonadMetrics, collectEmoTransfers, collectMonadDexOverview, formatMonadMetricsForPrompt } from './chain/etherscan.js';
@@ -52,6 +59,7 @@ import { generateDashboard } from './dashboard/generate.js';
 import { generateTimeline } from './dashboard/timeline.js';
 import { generateBurnboard } from './dashboard/burnboard.js';
 import { generateDiary } from './dashboard/diary.js';
+import { generateLearning } from './dashboard/learning.js';
 import { shouldWriteJournal, writeJournalEntry } from './dashboard/journal.js';
 import {
   ensureStateDir,
@@ -229,12 +237,16 @@ async function heartbeat(): Promise<void> {
   let rollingAvg = loadRollingAverages();
   const adaptiveThresholds = computeAdaptiveThresholds(rollingAvg);
   const strategyWeights = loadStrategyWeights();
+  const weightsBeforeDecay = { ...strategyWeights.weights };
   decayWeights(strategyWeights);
 
   // 1.5. Load memory and increment cycle count
   const memory = loadMemory();
   memory.cycleCount++;
   console.log(`[Memory] Cycle #${memory.cycleCount}, ${memory.entries.length} memories loaded`);
+
+  // Log weight decay
+  logWeightDecay(memory.cycleCount, weightsBeforeDecay, strategyWeights.weights);
 
   // 2. Apply time-based emotion decay since last update
   const minutesElapsed = (Date.now() - emotionState.lastUpdated) / 60000;
@@ -580,6 +592,59 @@ Good examples of your voice on crypto posts:
     console.log(`[Emotion] Compounds: ${emotionState.compounds.join(', ')}`);
   }
 
+  // 10.5. Prophecy tracker — snapshot + evaluate pending
+  let prophecyContext = '';
+  try {
+    const prophecySnapshots = loadProphecySnapshots();
+    const prophecyStats = loadProphecyStats();
+
+    // Create snapshot for this cycle
+    const snapshot = createProphecySnapshot({
+      cycle: memory.cycleCount,
+      monPriceUsd,
+      emoPriceUsd: emoDexDataForAvg?.priceUsd ?? 0,
+      tvl: ecosystemData?.monadTVL ?? 0,
+      txCountChange: chainData.txCountChange,
+      nadFunCreates: chainData.nadFunCreates,
+      dexVolume1h: dexScreenerData?.totalVolume1h ?? 0,
+      kuruSpreadPct: kuruData?.spreadPct ?? 0,
+      gasPriceGwei: ecosystemData?.gasPriceGwei ?? 0,
+      stimuli: allStimuli,
+    });
+    prophecySnapshots.push(snapshot);
+
+    // Evaluate pending (48+ cycles old)
+    const pending = getPendingEvaluations(prophecySnapshots, memory.cycleCount);
+    let evaluatedCount = 0;
+    for (const ps of pending) {
+      const evaluation = evaluateProphecy(ps, {
+        cycle: memory.cycleCount,
+        monPriceUsd,
+        emoPriceUsd: emoDexDataForAvg?.priceUsd ?? 0,
+        tvl: ecosystemData?.monadTVL ?? 0,
+        txCountChange: chainData.txCountChange,
+        nadFunCreates: chainData.nadFunCreates,
+        dexVolume1h: dexScreenerData?.totalVolume1h ?? 0,
+        kuruSpreadPct: kuruData?.spreadPct ?? 0,
+      });
+      updateProphecyStats(prophecyStats, evaluation);
+      ps.evaluated = true;
+      evaluatedCount++;
+    }
+
+    saveProphecySnapshots(prophecySnapshots);
+    saveProphecyStats(prophecyStats);
+
+    prophecyContext = formatProphecyForPrompt(prophecyStats);
+    if (evaluatedCount > 0) {
+      console.log(`[Prophecy] Evaluated ${evaluatedCount} prediction(s) — overall accuracy: ${(prophecyStats.overallAccuracy * 100).toFixed(1)}%`);
+    } else {
+      console.log(`[Prophecy] ${prophecySnapshots.filter(s => !s.evaluated).length} pending, ${prophecyStats.totalEvaluated} evaluated total`);
+    }
+  } catch (error) {
+    console.warn('[Prophecy] Prophecy tracking failed (non-fatal):', error);
+  }
+
   // 11. Ask Claude what to do (with memory + feedback)
   console.log('[Claude] Thinking...');
   const emotionHistory = loadEmotionHistory();
@@ -597,6 +662,7 @@ Good examples of your voice on crypto posts:
     kuruBlock,
     threadContext,
     feedContext,
+    prophecyContext,
     formatMemoryForPrompt(memory),
   ].filter(Boolean).join('\n\n');
 
@@ -734,7 +800,8 @@ Good examples of your voice on crypto posts:
       formattedMemory,
       actionDescription,
       diagnostics.report,
-      feedbackReport
+      feedbackReport,
+      prophecyContext,
     );
 
     if (reflectionResult) {
@@ -742,7 +809,10 @@ Good examples of your voice on crypto posts:
       const { applied, skipped } = applyReflectionToMemory(memory, reflectionResult.memoryUpdates);
       console.log(`[Reflection] Applied ${applied} memory updates${skipped > 0 ? `, skipped ${skipped}` : ''}`);
       if (reflectionResult.weightAdjustments) {
-        applyWeightAdjustments(strategyWeights, reflectionResult.weightAdjustments);
+        const adjResults = applyWeightAdjustments(strategyWeights, reflectionResult.weightAdjustments);
+        if (adjResults.length > 0) {
+          logWeightAdjustments(memory.cycleCount, 'reflection', adjResults, strategyWeights.weights);
+        }
       }
     }
   } catch (error) {
@@ -807,6 +877,11 @@ Good examples of your voice on crypto posts:
   } catch {
     // diary generation is non-fatal
   }
+  try {
+    generateLearning();
+  } catch {
+    // learning dashboard generation is non-fatal
+  }
 
   // 15.5. Daily journal entry (once per day, writes yesterday's entry)
   try {
@@ -822,7 +897,7 @@ Good examples of your voice on crypto posts:
   // 16. Push updated dashboard to git
   try {
     const { execSync } = await import('child_process');
-    execSync('git add heartbeat.html timeline.html burnboard.html diary.html visualizer/animations/gif/ src/dashboard/ src/emotion/ src/chain/ src/brain/ src/social/ src/state/ src/activities/ src/chat/ src/index.ts && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
+    execSync('git add heartbeat.html timeline.html burnboard.html diary.html learning.html visualizer/animations/gif/ src/dashboard/ src/emotion/ src/chain/ src/brain/ src/social/ src/state/ src/activities/ src/chat/ src/index.ts && git -c user.name="emolt" -c user.email="emolt@noreply" commit -m "Update heartbeat dashboard" && git push', {
       stdio: 'ignore',
       timeout: 30_000,
     });
