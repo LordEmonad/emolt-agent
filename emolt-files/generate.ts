@@ -2818,7 +2818,7 @@ function buildJS(): string {
 
 // ── main ─────────────────────────────────────────────────────────
 
-function generate() {
+export function generateEmoltFiles() {
   console.log('[EMOLT FILES] Loading all state data...');
   const data = loadAll();
   console.log(`[EMOLT FILES] Loaded: ${data.heartbeatLog.length} cycles, ${data.emotionLog.length} emotions, ${data.journal.length} journal entries, ${data.chats.length} chat sessions, ${data.dispatches.length} dispatches`);
@@ -2866,4 +2866,6 @@ function generate() {
   console.log(`[EMOLT FILES] Generated ${OUT} (${(Buffer.byteLength(html) / 1024).toFixed(0)} KB)`);
 }
 
-generate();
+// Run standalone when executed directly
+const isMain = process.argv[1]?.replace(/\\/g, '/').includes('emolt-files/generate');
+if (isMain) generateEmoltFiles();
