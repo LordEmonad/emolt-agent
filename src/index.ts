@@ -22,7 +22,7 @@ import {
   fetchMonPrice
 } from './emotion/stimuli.js';
 import type { EmotionStimulus, AdaptiveThresholds } from './emotion/types.js';
-import { loadRollingAverages, saveRollingAverages, updateRollingAverages, computeAdaptiveThresholds } from './emotion/adaptive.js';
+import { loadRollingAverages, saveRollingAverages, updateRollingAverages, computeAdaptiveThresholds, loadSmoothBuffer, saveSmoothBuffer, smoothMetrics } from './emotion/adaptive.js';
 import { loadStrategyWeights, saveStrategyWeights, decayWeights, applyStrategyWeights, applyWeightAdjustments } from './emotion/weights.js';
 import { logWeightDecay, logWeightAdjustments } from './emotion/weight-logger.js';
 import {
@@ -257,7 +257,7 @@ async function heartbeat(): Promise<void> {
   // 3. Collect chain data
   console.log('[Chain] Collecting Monad chain data...');
   const chainData = await collectChainData(previousChainData);
-  console.log(`[Chain] ${chainData.totalTransactions} txns, ${chainData.largeTransfers.length} whale moves`);
+  console.log(`[Chain] ${chainData.totalTransactions} txns, ${chainData.largeTransfers.length} whale moves (sampled)`);
 
   // nad.fun awareness
   if (chainData.nadFunContext) {
@@ -268,9 +268,8 @@ async function heartbeat(): Promise<void> {
     console.log('[nad.fun] Data unavailable this cycle');
   }
 
-  // 4. Compute emotion stimuli from chain data
-  const chainStimuli = mapChainDataToStimuli(chainData, adaptiveThresholds);
-  console.log(`[Emotion] ${chainStimuli.length} stimuli from chain data`);
+  // 4. Chain stimuli computed after smoothing (step 7.1) — placeholder here
+  let chainStimuli: EmotionStimulus[] = [];
 
   // 5. Collect MON price
   console.log('[Price] Fetching MON price...');
@@ -455,18 +454,57 @@ Good examples of your voice on crypto posts:
     console.log('[Ecosystem] External data unavailable this cycle');
   }
 
-  // DexScreener + Kuru stimulus mapping
+  // 7.1. Smooth noisy metrics (3-cycle moving average) for stimulus mapping only
+  // Raw values are preserved in the original objects for prophecy, rolling averages, and state persistence.
+  let smoothBuffer = loadSmoothBuffer();
+  const smoothResult = smoothMetrics(
+    smoothBuffer,
+    chainData,
+    dexScreenerData?.dataAvailable ? dexScreenerData : null,
+    kuruData?.dataAvailable ? kuruData : null,
+  );
+  smoothBuffer = smoothResult.buf;
+  saveSmoothBuffer(smoothBuffer);
+  console.log(`[Smooth] txCountChange: ${chainData.txCountChange.toFixed(1)}%→${smoothResult.smoothed.txCountChange.toFixed(1)}%, dexVol1h: $${(dexScreenerData?.totalVolume1h ?? 0).toFixed(0)}→$${smoothResult.smoothed.dexVolume1h.toFixed(0)}, B/S: ${(dexScreenerData?.buySellRatio ?? 0).toFixed(2)}→${smoothResult.smoothed.buySellRatio.toFixed(2)}`);
+
+  // Create shallow copies with smoothed values for stimulus mapping only
+  const smoothedChainData = { ...chainData, txCountChange: smoothResult.smoothed.txCountChange };
+  const smoothedDexData = dexScreenerData?.dataAvailable
+    ? { ...dexScreenerData, totalVolume1h: smoothResult.smoothed.dexVolume1h, buySellRatio: smoothResult.smoothed.buySellRatio }
+    : dexScreenerData;
+  const smoothedKuruData = kuruData?.dataAvailable
+    ? { ...kuruData, spreadPct: smoothResult.smoothed.kuruSpreadPct }
+    : kuruData;
+
+  // 7.2. Cross-validate MON price (log only — both sources already feed separate stimuli)
+  if (monPriceUsd > 0 && dexScreenerData?.dataAvailable && dexScreenerData.topPairs.length > 0) {
+    const dexPrice = dexScreenerData.topPairs[0].priceUsd;
+    if (dexPrice > 0) {
+      const mid = (monPriceUsd + dexPrice) / 2;
+      const drift = Math.abs(monPriceUsd - dexPrice) / mid * 100;
+      console.log(`[Price] CoinGecko $${monPriceUsd.toFixed(5)} vs DexScreener $${dexPrice.toFixed(5)} (${drift.toFixed(1)}% drift)`);
+      if (drift > 5) {
+        console.warn(`[Price] Sources diverged >5% — possible stale data`);
+      }
+    }
+  }
+
+  // 4 (deferred). Compute chain stimuli using smoothed txCountChange
+  chainStimuli = mapChainDataToStimuli(smoothedChainData, adaptiveThresholds);
+  console.log(`[Emotion] ${chainStimuli.length} stimuli from chain data (txCountChange smoothed: ${smoothedChainData.txCountChange.toFixed(1)}%)`);
+
+  // DexScreener + Kuru stimulus mapping (using smoothed copies)
   let dexScreenerStimuli: EmotionStimulus[] = [];
   let kuruStimuli: EmotionStimulus[] = [];
-  if (dexScreenerData?.dataAvailable) {
-    dexScreenerStimuli = mapDexScreenerToStimuli(dexScreenerData, adaptiveThresholds);
-    console.log(`[DexScreener] $${(dexScreenerData.totalVolume1h / 1e3).toFixed(0)}K 1h vol, ${dexScreenerData.buyTxCount} buys/${dexScreenerData.sellTxCount} sells, ${dexScreenerStimuli.length} stimuli`);
+  if (smoothedDexData?.dataAvailable) {
+    dexScreenerStimuli = mapDexScreenerToStimuli(smoothedDexData, adaptiveThresholds);
+    console.log(`[DexScreener] $${(smoothedDexData.totalVolume1h / 1e3).toFixed(0)}K 1h vol (smoothed), ${smoothedDexData.buyTxCount} buys/${smoothedDexData.sellTxCount} sells, ${dexScreenerStimuli.length} stimuli`);
   } else {
     console.log('[DexScreener] Data unavailable this cycle');
   }
-  if (kuruData?.dataAvailable) {
-    kuruStimuli = mapKuruOrderbookToStimuli(kuruData, adaptiveThresholds);
-    console.log(`[Kuru] Bid: $${kuruData.bestBid.toFixed(4)} | Ask: $${kuruData.bestAsk.toFixed(4)} | Spread: ${kuruData.spreadPct.toFixed(3)}% | ${kuruStimuli.length} stimuli`);
+  if (smoothedKuruData?.dataAvailable) {
+    kuruStimuli = mapKuruOrderbookToStimuli(smoothedKuruData, adaptiveThresholds);
+    console.log(`[Kuru] Bid: $${smoothedKuruData.bestBid.toFixed(4)} | Ask: $${smoothedKuruData.bestAsk.toFixed(4)} | Spread: ${smoothedKuruData.spreadPct.toFixed(3)}% (smoothed) | ${kuruStimuli.length} stimuli`);
   } else {
     console.log('[Kuru] Data unavailable this cycle');
   }

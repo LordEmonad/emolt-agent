@@ -213,7 +213,7 @@ export async function collectMonadDexOverview(): Promise<MonadDexOverview | null
     const trendingPools: TrendingPool[] = [];
     let totalVol = 0, totalTxns = 0;
 
-    for (const p of pools.slice(0, 10)) {
+    for (const p of pools.slice(0, 20)) {
       const a = p.attributes;
       const vol = parseFloat(a.volume_usd?.h24) || 0;
       const buys = a.transactions?.h24?.buys || 0;

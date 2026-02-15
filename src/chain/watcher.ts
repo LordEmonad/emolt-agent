@@ -41,15 +41,15 @@ export async function scanBlocks(fromBlock: bigint, toBlock: bigint): Promise<Bl
   // Recent 25% of range: every 25 blocks, older 75%: every 100 blocks
   const range = toBlock - fromBlock;
   const recentStart = toBlock - range / 4n;
-  const maxBlocks = 60n;
+  const maxBlocks = 150n;
   let checked = 0n;
 
   // Build sample points: sparse old blocks, dense recent blocks
   const samplePoints: bigint[] = [];
-  for (let bn = fromBlock; bn < recentStart && samplePoints.length < 30; bn += 100n) {
+  for (let bn = fromBlock; bn < recentStart && samplePoints.length < 75; bn += 50n) {
     samplePoints.push(bn);
   }
-  for (let bn = recentStart; bn <= toBlock && samplePoints.length < 60; bn += 25n) {
+  for (let bn = recentStart; bn <= toBlock && samplePoints.length < 150; bn += 15n) {
     samplePoints.push(bn);
   }
 

@@ -97,7 +97,7 @@ async function fetchNadFunEndpoint(endpoint: string): Promise<NadFunApiToken[]> 
 async function fetchNadFunTokensByCreation(): Promise<NadFunApiToken[]> {
   if (isCircuitOpen('nadFunCreation')) return [];
   try {
-    const result = await fetchNadFunEndpoint('/order/creation_time?limit=100');
+    const result = await fetchNadFunEndpoint('/order/creation_time?limit=200');
     recordSuccess('nadFunCreation');
     return result;
   } catch (error) {

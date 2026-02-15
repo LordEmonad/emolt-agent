@@ -704,7 +704,7 @@ export function mapEcosystemToStimuli(eco: EcosystemData, thresholds?: AdaptiveT
   }
 
   // HIGH TVL (>$500M) → Trust, ecosystem is substantial
-  if (eco.monadTVL > 500e6) {
+  if (eco.monadTVL > 200e6) {
     stimuli.push(
       { emotion: PrimaryEmotion.TRUST, intensity: 0.15, source: `$${(eco.monadTVL / 1e6).toFixed(0)}M locked in Monad - that's real commitment`, weightCategory: 'tvlSentiment' }
     );

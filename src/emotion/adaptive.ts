@@ -131,6 +131,72 @@ export function updateRollingAverages(
   return updated;
 }
 
+// ─── Metric Smoothing (3-cycle moving average) ──────────────────────────────
+// Reduces noise from block sampling, rolling API windows, and single-cycle spikes.
+
+const SMOOTH_FILE = join(STATE_DIR, 'metric-smooth-buffer.json');
+const SMOOTH_WINDOW = 3;
+
+interface SmoothBuffer {
+  txCountChange: number[];
+  dexVolume1h: number[];
+  buySellRatio: number[];
+  kuruSpreadPct: number[];
+}
+
+function createEmptyBuffer(): SmoothBuffer {
+  return { txCountChange: [], dexVolume1h: [], buySellRatio: [], kuruSpreadPct: [] };
+}
+
+export function loadSmoothBuffer(): SmoothBuffer {
+  try {
+    const data = readFileSync(SMOOTH_FILE, 'utf-8');
+    return Object.assign(createEmptyBuffer(), JSON.parse(data));
+  } catch {
+    return createEmptyBuffer();
+  }
+}
+
+export function saveSmoothBuffer(buf: SmoothBuffer): void {
+  ensureStateDir();
+  atomicWriteFileSync(SMOOTH_FILE, JSON.stringify(buf, null, 2));
+}
+
+function pushAndTrim(arr: number[], value: number): number[] {
+  const next = [...arr, value];
+  return next.length > SMOOTH_WINDOW ? next.slice(-SMOOTH_WINDOW) : next;
+}
+
+function smoothAvg(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  return arr.reduce((s, v) => s + v, 0) / arr.length;
+}
+
+export function smoothMetrics(
+  buf: SmoothBuffer,
+  chainData: { txCountChange: number },
+  dexData: { totalVolume1h: number; buySellRatio: number } | null,
+  kuruData: { spreadPct: number } | null,
+): { buf: SmoothBuffer; smoothed: { txCountChange: number; dexVolume1h: number; buySellRatio: number; kuruSpreadPct: number } } {
+  const updated: SmoothBuffer = {
+    txCountChange: pushAndTrim(buf.txCountChange, chainData.txCountChange),
+    dexVolume1h: dexData ? pushAndTrim(buf.dexVolume1h, dexData.totalVolume1h) : buf.dexVolume1h,
+    buySellRatio: dexData ? pushAndTrim(buf.buySellRatio, dexData.buySellRatio) : buf.buySellRatio,
+    kuruSpreadPct: kuruData ? pushAndTrim(buf.kuruSpreadPct, kuruData.spreadPct) : buf.kuruSpreadPct,
+  };
+  return {
+    buf: updated,
+    smoothed: {
+      txCountChange: smoothAvg(updated.txCountChange),
+      dexVolume1h: smoothAvg(updated.dexVolume1h),
+      buySellRatio: smoothAvg(updated.buySellRatio),
+      kuruSpreadPct: smoothAvg(updated.kuruSpreadPct),
+    }
+  };
+}
+
+// ─── Adaptive Thresholds ────────────────────────────────────────────────────
+
 export function computeAdaptiveThresholds(avg: RollingAverages): AdaptiveThresholds {
   return {
     whaleTransferMon: Math.max(10000, avg.whaleTransferMon * 2),
@@ -146,15 +212,15 @@ export function computeAdaptiveThresholds(avg: RollingAverages): AdaptiveThresho
     emoNetFlowMon: Math.max(10, avg.emoNetFlowMon * 2),
     emoSwapCount: Math.max(20, avg.emoSwapCount * 2),
     monChange24hBig: Math.max(10, avg.monChange24h * 2),
-    monChange24hModerate: Math.max(3, avg.monChange24h * 0.6),
+    monChange24hModerate: Math.max(1.5, avg.monChange24h * 0.6),
     monCyclePriceChange: Math.max(3, avg.monCyclePriceChange * 2),
     tvlChange24h: Math.max(5, avg.tvlChange24h * 2),
     monVolume24hHigh: Math.max(50e6, avg.monVolume24h * 2),
     monVolume24hLow: Math.max(5e6, avg.monVolume24h * 0.2),
-    gasPriceGwei: Math.max(50, avg.gasPriceGwei * 2),
+    gasPriceGwei: Math.max(150, avg.gasPriceGwei * 1.5),
     ecosystemTokenChange: Math.max(20, avg.ecosystemTokenChange * 2),
     // DexScreener
-    dexVolumeHigh: Math.max(500000, avg.dexVolume1h * 1.5),
+    dexVolumeHigh: Math.max(50000, avg.dexVolume1h * 2),
     dexBuySellExtreme: Math.max(1.5, avg.dexBuySellRatio * 1.5),
     dexLiquidityShift: Math.max(1e6, avg.dexLiquidity * 0.1), // 10% of avg liquidity as "shift" threshold
     // Kuru Orderbook

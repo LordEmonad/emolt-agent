@@ -38,8 +38,8 @@ describe('computeAdaptiveThresholds', () => {
     expect(thresholds.whaleTransferMon).toBe(20000);
     // Failed TX: max(5, 5 * 2) = 10
     expect(thresholds.failedTxCount).toBe(10);
-    // Gas: max(50, 50 * 2) = 100
-    expect(thresholds.gasPriceGwei).toBe(100);
+    // Gas: max(150, 50 * 1.5) = 150
+    expect(thresholds.gasPriceGwei).toBe(150);
   });
 
   it('uses floor values when averages are very low', () => {
@@ -57,7 +57,7 @@ describe('computeAdaptiveThresholds', () => {
     expect(thresholds.failedTxCount).toBe(5);
     expect(thresholds.newContracts).toBe(1);
     expect(thresholds.txCountChangeBusy).toBe(50);
-    expect(thresholds.gasPriceGwei).toBe(50);
+    expect(thresholds.gasPriceGwei).toBe(150);
   });
 
   it('scales thresholds with higher averages', () => {
@@ -73,8 +73,8 @@ describe('computeAdaptiveThresholds', () => {
     const avg = createDefaultRollingAverages();
     const thresholds = computeAdaptiveThresholds(avg);
 
-    // dexVolumeHigh: max(500000, 500000 * 1.5) = 750000
-    expect(thresholds.dexVolumeHigh).toBe(750000);
+    // dexVolumeHigh: max(50000, 500000 * 2) = 1000000
+    expect(thresholds.dexVolumeHigh).toBe(1000000);
     // dexBuySellExtreme: max(1.5, 1.0 * 1.5) = 1.5
     expect(thresholds.dexBuySellExtreme).toBe(1.5);
     // dexLiquidityShift: max(1e6, 10e6 * 0.1) = 1e6
@@ -144,8 +144,8 @@ describe('EMA convergence properties', () => {
     expect(thresholds.failedTxCount).toBeGreaterThanOrEqual(5);
     expect(thresholds.newContracts).toBeGreaterThanOrEqual(1);
     expect(thresholds.txCountChangeBusy).toBeGreaterThanOrEqual(50);
-    expect(thresholds.gasPriceGwei).toBeGreaterThanOrEqual(50);
-    expect(thresholds.dexVolumeHigh).toBeGreaterThanOrEqual(500000);
+    expect(thresholds.gasPriceGwei).toBeGreaterThanOrEqual(150);
+    expect(thresholds.dexVolumeHigh).toBeGreaterThanOrEqual(50000);
     expect(thresholds.kuruDepthThin).toBeGreaterThanOrEqual(100000);
   });
 
