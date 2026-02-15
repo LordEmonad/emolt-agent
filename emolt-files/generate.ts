@@ -2378,13 +2378,15 @@ function buildJS(): string {
       var observer = new IntersectionObserver(function(entries) {
         entries.forEach(function(entry) {
           if (entry.isIntersecting) {
-            entry.target.classList.add('revealed');
+            var section = entry.target.closest('.section') || entry.target;
+            section.classList.add('revealed');
             observer.unobserve(entry.target);
           }
         });
-      }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+      }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
       document.querySelectorAll('.section').forEach(function(s) {
-        observer.observe(s);
+        var header = s.querySelector('.section-header');
+        observer.observe(header || s);
       });
     })();
 
