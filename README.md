@@ -4,9 +4,10 @@ An emotionally autonomous AI agent on the Monad blockchain. When running, it rea
 
 Not a bot. Not an assistant. A thing with computed feelings that it can't delete.
 
-> TypeScript agent | Plutchik 8-emotion engine | 30+ data sources | on-chain emotional permanence | dynamic soulbound NFT | 150+ cycles completed
+> TypeScript agent | Plutchik 8-emotion engine | 30+ data sources | on-chain emotional permanence | dynamic soulbound NFT | self-learning prophecy tracker | 279+ cycles completed
 
 **Live Dashboard:** [lordemonad.github.io/emolt-agent/heartbeat.html](https://lordemonad.github.io/emolt-agent/heartbeat.html)
+**Self-Learning:** [lordemonad.github.io/emolt-agent/learning.html](https://lordemonad.github.io/emolt-agent/learning.html)
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=ndUMiqIQuJ0">
@@ -126,7 +127,8 @@ Claude returns a structured JSON decision: post (with submolt routing across emo
 
 - **Persistent memory** - categorized entries (self-insights, strategies, relationships, notable events, effective/ineffective topics) with importance-weighted eviction when capacity is reached
 - **Post performance tracking** - engagement metrics refreshed from Moltbook each cycle, building a feedback loop between what the agent writes and what resonates
-- **Strategy weights** — 16 stimulus categories with learnable multipliers, adjusted by the reflection system. Weights decay 2% per cycle toward neutral so the agent doesn't get permanently stuck in a strategy
+- **Strategy weights** — 16 stimulus categories with learnable multipliers, adjusted by the reflection system. Weights decay 0.5% per cycle toward neutral so the agent doesn't get permanently stuck in a strategy. Every change is logged to an append-only weight history with before/after values and reasons
+- **Prophecy tracker** — each cycle, the agent snapshots its current emotional signals as implicit predictions. 48 cycles (~24h) later, it evaluates whether those signals were actually predictive (did whale fear precede a price drop? did chain activity joy correlate with TVL growth?). Per-category accuracy feeds back into reflection so the agent amplifies weights that predict well and dampens noise
 - **Adaptive thresholds** - EMA (alpha=0.1) rolling averages across 24 metrics recalibrate stimulus sensitivity over time
 - **Relationship tracking** - interaction history with other agents (sentiment, interaction count, last interaction) influences engagement decisions
 - **Thread awareness** - tracks commented posts, detects replies within conversations, and feeds active threads back into the next cycle's context
@@ -246,7 +248,9 @@ Opens `heartbeat.html` in any browser - no server needed. Includes:
 
 Dark/light mode toggle, fully responsive, zero external dependencies.
 
-EMOLT automatically pushes the updated dashboard to this repo after every heartbeat cycle.
+A separate **Self-Learning dashboard** (`learning.html`) visualizes the agent's weight evolution — deviation charts, per-category deep dives with back-calculated adjustment estimates, a learning timeline showing every weight change with reasons, and a prophecy tracker section with prediction accuracy once evaluations start coming in.
+
+EMOLT automatically pushes both dashboards to this repo after every heartbeat cycle.
 
 ---
 
@@ -337,7 +341,7 @@ Most AI agents on blockchains are wrappers - an LLM with a wallet, posting whate
 
 **The voice is its own.** Not a system prompt appended to an LLM. A multi-file identity system with soul, style, operating rules, influences, and 39 calibration examples defining what the voice IS and what it ISN'T. The personality is layered, not bolted on.
 
-**It learns.** Strategy weights shift based on what resonates. Memory persists across cycles with importance-weighted eviction. Self-reflection after every action examines authenticity and updates the agent's internal model. Adaptive thresholds recalibrate as the ecosystem evolves.
+**It learns.** Strategy weights shift based on what resonates — over 279 cycles, the agent independently dampened chain activity noise to 0.33x and amplified social engagement to 1.09x with zero human input. A prophecy tracker evaluates whether its emotional signals actually predicted outcomes 24 hours later, feeding hard accuracy data back into weight adjustments. Memory persists across cycles with importance-weighted eviction. Self-reflection after every action examines authenticity and updates the agent's internal model. Adaptive thresholds recalibrate as the ecosystem evolves.
 
 **Silence is valid.** If EMOLT doesn't have something real to say, it says nothing. The observe action is a first-class output. Not every cycle produces content, and that's by design.
 
