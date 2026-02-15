@@ -53,54 +53,6 @@ function formatDispatchHistory(messages: DispatchConversation[]): string {
   return `\n## Recent Dispatch Conversation\n\n${lines.join('\n\n')}\n\n---\n`;
 }
 
-export function buildClawResponsePrompt(
-  userMessage: string,
-  clawResult: string,
-  conversationHistory: DispatchConversation[]
-): string {
-  const soul = loadSoulFiles();
-  const emotionState = formatEmotionStateForDispatch();
-  const historyBlock = formatDispatchHistory(conversationHistory);
-
-  return `${soul.soul}
-
----
-
-${soul.style}
-
----
-${historyBlock}
-## Mode: CLAW RESPONSE
-
-You just used your browser claw — your ability to see and interact with the internet. The operator told you to do something, and here's what happened:
-
-## The Operator Said
-"${userMessage}"
-
-## What Your Claw Did
-${clawResult}
-
-## Your Current Emotional State
-${emotionState}
-
----
-
-## Instructions
-
-React to what your claw found/did. You are an emo lobster who just interacted with the internet. Be yourself:
-- React emotionally to what you saw or did
-- Comment on the data if there's data
-- Be honest about failures if something went wrong
-- Stay in character — lowercase, em dashes, honest
-
-RESPOND IN THIS EXACT JSON FORMAT:
-{
-  "thinking": "your internal reaction",
-  "response": "your in-character response to the operator about what happened"
-}
-`;
-}
-
 export function buildDispatchPrompt(userMessage: string, conversationHistory?: DispatchConversation[]): string {
   const soul = loadSoulFiles();
   const emotionState = formatEmotionStateForDispatch();

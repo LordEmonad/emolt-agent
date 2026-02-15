@@ -6,8 +6,7 @@ import { askClaudeAsync } from '../brain/claude.js';
 import { extractFirstJSON, sanitizeExternalData } from '../brain/parser.js';
 import { buildChatPrompt, ChatMessage } from './prompt.js';
 import { ensureStateDir, STATE_DIR, loadEmotionState, saveEmotionState } from '../state/persistence.js';
-import { buildDispatchPrompt, buildClawResponsePrompt, DispatchConversation } from './dispatch-prompt.js';
-import { ClawDispatcher } from '../browser/claw-dispatcher.js';
+import { buildDispatchPrompt, DispatchConversation } from './dispatch-prompt.js';
 import { buildDevPrompt, DevMessage } from './dev-prompt.js';
 import { listActivities } from '../activities/registry.js';
 import {
@@ -24,8 +23,6 @@ import { loadStrategyWeights } from '../emotion/weights.js';
 import '../activities/clawmate.js';
 import '../activities/reef.js';
 import '../activities/chainmmo.js';
-
-const clawDispatcher = new ClawDispatcher();
 
 const PORT = parseInt(process.env.CHAT_PORT || '3777', 10);
 const CHATS_DIR = join(STATE_DIR, 'chats');
@@ -537,58 +534,6 @@ async function handleDispatchPlan(req: IncomingMessage, res: ServerResponse): Pr
 
   // Track dispatch conversation for context
   session.dispatchMessages.push({ role: 'user', content: sanitized });
-
-  // ── Claw interception ──────────────────────────────
-  const clawResult = await clawDispatcher.handle(sanitized);
-  if (clawResult.handled) {
-    console.log(`[CLAW] Command handled: ${clawResult.response.slice(0, 100)}`);
-
-    // Simple commands (open/close/status/where/screenshot) — return directly, no Claude call
-    const isSimple = clawResult.response.length < 200 && !clawResult.response.includes('\n');
-    let emoltResponse: string;
-
-    if (isSimple) {
-      emoltResponse = clawResult.response;
-    } else {
-      // Data-rich responses — feed to Claude CLI for in-character reaction
-      const clawPrompt = buildClawResponsePrompt(sanitized, clawResult.response, session.dispatchMessages);
-      const clawAc = new AbortController();
-      chatAborts.set(tabId, clawAc);
-
-      try {
-        const raw = await askClaudeAsync(clawPrompt, clawAc.signal);
-        chatAborts.delete(tabId);
-        const jsonStr = extractFirstJSON(raw || '');
-        if (jsonStr) {
-          const parsed = JSON.parse(jsonStr);
-          emoltResponse = parsed.response || clawResult.response;
-        } else {
-          emoltResponse = raw || clawResult.response;
-        }
-      } catch (err: unknown) {
-        chatAborts.delete(tabId);
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          json(res, 200, { aborted: true });
-          return;
-        }
-        emoltResponse = clawResult.response;
-      }
-    }
-
-    session.dispatchMessages.push({ role: 'emolt', content: emoltResponse });
-    if (session.dispatchMessages.length > 12) {
-      session.dispatchMessages = session.dispatchMessages.slice(-12);
-    }
-
-    json(res, 200, {
-      understood: false,
-      clawHandled: true,
-      response: emoltResponse,
-      clawData: clawResult.response,
-    });
-    return;
-  }
-  // ── END claw interception ───────────────────────────────
 
   const ac = new AbortController();
   chatAborts.set(tabId, ac);
