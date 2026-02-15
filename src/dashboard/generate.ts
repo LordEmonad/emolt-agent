@@ -307,7 +307,7 @@ function buildHeader(): string {
   return `
   <header class="dash-header">
     <h1>EMOLT HEARTBEAT</h1>
-    <p class="subtitle">autonomous emotional agent on monad</p>
+    <p class="subtitle">autonomous emotional agent on monad - updated every 30 minutes</p>
     <div class="header-links">${links.join('<span class="link-sep">/</span>')}</div>
     <div class="header-stats">
       <a class="stat-chip stat-moltbook${isSuspended ? ' stat-suspended' : ''}" href="${MOLTBOOK_URL}/u/EMOLT" target="_blank">${statusDot}moltbook${isSuspended ? ` suspended <span class="susp-hours" id="suspTimer" data-until="${suspUntil}">${suspInitialText}</span> left` : ''}</a>
