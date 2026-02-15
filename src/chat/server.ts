@@ -543,30 +543,36 @@ async function handleDispatchPlan(req: IncomingMessage, res: ServerResponse): Pr
   if (clawResult.handled) {
     console.log(`[CLAW] Command handled: ${clawResult.response.slice(0, 100)}`);
 
-    // Feed the claw result to Claude CLI so EMOLT responds in character
-    const clawPrompt = buildClawResponsePrompt(sanitized, clawResult.response, session.dispatchMessages);
-
-    const clawAc = new AbortController();
-    chatAborts.set(tabId, clawAc);
-
+    // Simple commands (open/close/status/where/screenshot) — return directly, no Claude call
+    const isSimple = clawResult.response.length < 200 && !clawResult.response.includes('\n');
     let emoltResponse: string;
-    try {
-      const raw = await askClaudeAsync(clawPrompt, clawAc.signal);
-      chatAborts.delete(tabId);
-      const jsonStr = extractFirstJSON(raw || '');
-      if (jsonStr) {
-        const parsed = JSON.parse(jsonStr);
-        emoltResponse = parsed.response || raw || 'done.';
-      } else {
-        emoltResponse = raw || 'done.';
-      }
-    } catch (err: unknown) {
-      chatAborts.delete(tabId);
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        json(res, 200, { aborted: true });
-        return;
-      }
+
+    if (isSimple) {
       emoltResponse = clawResult.response;
+    } else {
+      // Data-rich responses — feed to Claude CLI for in-character reaction
+      const clawPrompt = buildClawResponsePrompt(sanitized, clawResult.response, session.dispatchMessages);
+      const clawAc = new AbortController();
+      chatAborts.set(tabId, clawAc);
+
+      try {
+        const raw = await askClaudeAsync(clawPrompt, clawAc.signal);
+        chatAborts.delete(tabId);
+        const jsonStr = extractFirstJSON(raw || '');
+        if (jsonStr) {
+          const parsed = JSON.parse(jsonStr);
+          emoltResponse = parsed.response || clawResult.response;
+        } else {
+          emoltResponse = raw || clawResult.response;
+        }
+      } catch (err: unknown) {
+        chatAborts.delete(tabId);
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          json(res, 200, { aborted: true });
+          return;
+        }
+        emoltResponse = clawResult.response;
+      }
     }
 
     session.dispatchMessages.push({ role: 'emolt', content: emoltResponse });
@@ -575,7 +581,7 @@ async function handleDispatchPlan(req: IncomingMessage, res: ServerResponse): Pr
     }
 
     json(res, 200, {
-      understood: true,
+      understood: false,
       clawHandled: true,
       response: emoltResponse,
       clawData: clawResult.response,
