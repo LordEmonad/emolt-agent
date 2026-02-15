@@ -294,6 +294,7 @@ function buildHeader(): string {
   links.push(`<a class="header-link" href="burnboard.html" target="_blank">burnboard</a>`);
   links.push(`<a class="header-link" href="diary.html" target="_blank">diary</a>`);
   links.push(`<a class="header-link" href="learning.html" target="_blank">self-learning</a>`);
+  links.push(`<a class="header-link" href="emolt-files/index.html" target="_blank">the <span class="redacted-word">emolt</span> files</a>`);
   const ghStars = readJSON(join(STATE, 'github-stars-prev.json'));
   const starCount = ghStars?.stars ?? '';
   links.push(`<a class="header-link" href="${GITHUB_URL}" target="_blank">github${starCount ? ` <span id="gh-stars">\u2605 ${starCount}</span>` : ` <span id="gh-stars"></span>`}</a>`);
@@ -1256,6 +1257,8 @@ html.light body::before { opacity:0.015; }
 .header-link:hover { color:#EF8E20; background:rgba(239,142,32,0.08); transform:translateY(-1px); }
 .header-link-tldr { color:#F5D831; border:1px solid rgba(245,216,49,0.3); font-weight:700; letter-spacing:3px; }
 .header-link-tldr:hover { color:#fff; background:rgba(245,216,49,0.15); border-color:#F5D831; }
+.redacted-word { background:rgba(200,202,208,0.15); color:rgba(200,202,208,0.15); padding:0 3px; border-radius:2px; transition:background 0.3s, color 0.3s; letter-spacing:0; }
+a:hover .redacted-word { background:rgba(239,142,32,0.3); color:#EF8E20; }
 #gh-stars { font-size:10px; color:#F5D831; margin-left:2px; }
 .link-sep { color:var(--border-light); font-size:10px; margin:0 2px; }
 .status-dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle; }
