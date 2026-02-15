@@ -755,20 +755,28 @@ export function mapEcosystemToStimuli(eco: EcosystemData, thresholds?: AdaptiveT
 export function mapMemoryToStimuli(memory: EmotionMemory): EmotionStimulus[] {
   const stimuli: EmotionStimulus[] = [];
 
-  // STUCK IN ONE EMOTION (4-8 cycles) → mild exhaustion, but cap it so it doesn't doom-spiral
-  // After 8 cycles the stimulus stops — the emotion system should recover via decay, not pile on more negativity
-  if (memory.dominantStreak >= 4 && memory.dominantStreak <= 8) {
-    stimuli.push(
-      { emotion: PrimaryEmotion.DISGUST, intensity: 0.08, source: `been feeling ${memory.streakEmotion} for ${memory.dominantStreak} cycles straight - getting tired of this` },
-      { emotion: PrimaryEmotion.SADNESS, intensity: 0.05, source: 'stuck in a loop' }
-    );
-  }
+  // STUCK IN ONE EMOTION (4+ cycles) → fire the OPPOSITE emotion to break the streak
+  // The opposite is what actually suppresses: surprise↔anticipation, joy↔sadness, etc.
+  if (memory.dominantStreak >= 4) {
+    // Find the actual opposite of whatever is stuck
+    const opposites: Record<string, PrimaryEmotion> = {
+      [PrimaryEmotion.JOY]: PrimaryEmotion.SADNESS,
+      [PrimaryEmotion.SADNESS]: PrimaryEmotion.JOY,
+      [PrimaryEmotion.TRUST]: PrimaryEmotion.DISGUST,
+      [PrimaryEmotion.DISGUST]: PrimaryEmotion.TRUST,
+      [PrimaryEmotion.FEAR]: PrimaryEmotion.ANGER,
+      [PrimaryEmotion.ANGER]: PrimaryEmotion.FEAR,
+      [PrimaryEmotion.SURPRISE]: PrimaryEmotion.ANTICIPATION,
+      [PrimaryEmotion.ANTICIPATION]: PrimaryEmotion.SURPRISE,
+    };
+    const opposite = opposites[memory.streakEmotion] ?? PrimaryEmotion.SURPRISE;
 
-  // LONG STREAK RECOVERY (10+ cycles) → Acceptance and curiosity break the loop
-  if (memory.dominantStreak >= 10) {
+    // Scale intensity with streak length: 0.15 at 4 cycles, up to 0.40 at 10+
+    const breakIntensity = Math.min(0.40, 0.10 + memory.dominantStreak * 0.03);
+
     stimuli.push(
-      { emotion: PrimaryEmotion.TRUST, intensity: 0.15, source: `${memory.dominantStreak} cycles in ${memory.streakEmotion} — starting to accept and adapt` },
-      { emotion: PrimaryEmotion.ANTICIPATION, intensity: 0.10, source: 'something has to change eventually' }
+      { emotion: opposite, intensity: breakIntensity, source: `${memory.dominantStreak} cycles of ${memory.streakEmotion} — the sameness is its own signal` },
+      { emotion: PrimaryEmotion.DISGUST, intensity: 0.08, source: 'stuck in a loop' }
     );
   }
 
