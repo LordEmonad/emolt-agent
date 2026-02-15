@@ -193,25 +193,29 @@ function evaluateCategory(
       };
     }
     case 'monPriceSentiment': {
-      // Check if price continued same direction
-      const snapshotDirection = snapshot.monPriceUsd > 0 ? 'up' : 'down';
-      const actualDirection = current.monPriceUsd >= snapshot.monPriceUsd ? 'up' : 'down';
-      const continued = snapshotDirection === actualDirection;
+      // "Correct" if price continued the direction the stimulus suggested
+      // Stimulus direction comes from whether the signal was positive or negative
+      const stimDir = snapshot.activeCategories.find(a => a.category === 'monPriceSentiment');
+      const wasPositive = stimDir?.direction === 'positive';
+      const priceWentUp = current.monPriceUsd >= snapshot.monPriceUsd;
+      const correct = wasPositive === priceWentUp;
       return {
-        predicted: `MON ${snapshotDirection} trend continues`,
-        actual: `MON went ${actualDirection}`,
-        correct: continued,
+        predicted: `MON sentiment was ${wasPositive ? 'bullish' : 'bearish'}`,
+        actual: priceWentUp ? 'MON rose' : 'MON fell',
+        correct,
       };
     }
     case 'emoPriceSentiment': {
       if (snapshot.emoPriceUsd === 0 || current.emoPriceUsd === 0) {
         return { predicted: 'no data', actual: 'no data', correct: false };
       }
+      const stimDir = snapshot.activeCategories.find(a => a.category === 'emoPriceSentiment');
+      const wasPositive = stimDir?.direction === 'positive';
       const emoUp = current.emoPriceUsd >= snapshot.emoPriceUsd;
       return {
-        predicted: 'EMO price sentiment was predictive',
-        actual: emoUp ? 'EMO rose' : 'EMO fell',
-        correct: emoUp, // positive sentiment = correct if price went up
+        predicted: `$EMO sentiment was ${wasPositive ? 'bullish' : 'bearish'}`,
+        actual: emoUp ? '$EMO rose' : '$EMO fell',
+        correct: wasPositive === emoUp,
       };
     }
     case 'tvlSentiment': {
@@ -323,7 +327,6 @@ export function formatProphecyForPrompt(stats: ProphecyStats): string {
 
   // Best and worst categories
   const cats = Object.entries(stats.categoryAccuracy)
-    .filter(([, acc]) => stats.categoryEvaluated[acc as unknown as string] >= 2 || true)
     .sort(([, a], [, b]) => b - a);
 
   if (cats.length > 0) {

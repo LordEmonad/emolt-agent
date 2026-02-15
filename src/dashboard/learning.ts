@@ -49,14 +49,32 @@ const EMOTION_COLORS: Record<string, string> = {
 
 /** Convert camelCase key like 'chainActivityJoy' to 'Chain Activity Joy' */
 function friendlyName(key: string): string {
-  return key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim();
+  const OVERRIDES: Record<string, string> = {
+    whaleTransferFear: 'Whale Transfer Fear',
+    chainActivityJoy: 'Chain Activity Joy',
+    chainQuietSadness: 'Chain Quiet Sadness',
+    failedTxAnger: 'Failed TX Anger',
+    nadFunExcitement: 'Nad.fun Excitement',
+    emoPriceSentiment: '$EMO Price Sentiment',
+    monPriceSentiment: 'MON Price Sentiment',
+    tvlSentiment: 'TVL Sentiment',
+    socialEngagement: 'Social Engagement',
+    selfPerformanceReaction: 'Self Performance',
+    ecosystemVolume: 'Ecosystem Volume',
+    gasPressure: 'Gas Pressure',
+    githubStarReaction: 'GitHub Stars',
+    feedJoy: 'Feed Joy',
+    dexScreenerMarket: 'DexScreener Market',
+    kuruOrderbook: 'Kuru Orderbook',
+  };
+  return OVERRIDES[key] || key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim();
 }
 
 // --- Build sections ---
 
 function buildBigPicture(stats: LearningStats, cycleCount: number): string {
   const adjustedCount = stats.dampenedCategories.length + stats.amplifiedCategories.length;
-  const mostDev = stats.categories[0];
+  const mostDev = stats.categories[0] ?? { category: 'none', deviationFromDefault: 0, direction: 'neutral' as const, currentWeight: 1 };
   const mostDevPct = Math.abs(mostDev.deviationFromDefault * 100).toFixed(0);
   const mostDevDir = mostDev.direction === 'dampened' ? 'dampened' : 'amplified';
 
