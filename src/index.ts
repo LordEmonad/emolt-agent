@@ -722,52 +722,57 @@ Good examples of your voice on crypto posts:
     actionDescription = 'Recovery mode - observe only (post-suspension safety)';
     console.log(`[Moltbook] ${actionDescription}`);
   } else if (claudeResponse) {
-    const actionResult = await executeClaudeActions(claudeResponse, saveRecentPost);
+    try {
+      const actionResult = await executeClaudeActions(claudeResponse, saveRecentPost);
 
-    // Track post if one was created
-    if (actionResult.postId && actionResult.postTitle) {
-      trackNewPost(
-        actionResult.postId,
-        actionResult.postTitle,
-        actionResult.postContent || '',
-        actionResult.postSubmolt || 'general',
-        memory.cycleCount
-      );
-    }
-
-    // Track relationship interactions
-    trackInteractions(claudeResponse, moltbookContext, memory);
-
-    // Track comments for conversation threading
-    for (let i = 0; i < actionResult.commentedPostIds.length; i++) {
-      const commentedId = actionResult.commentedPostIds[i];
-      const commentContent = actionResult.commentContents[i];
-      if (commentedId && commentContent) {
-        const parentPost = findPost(commentedId, moltbookContext);
-        const postAuthor = parentPost ? (parentPost.author?.name || parentPost.author_name || null) : null;
-        trackComment(
-          commentedId,
-          commentContent,
-          postAuthor,
-          parentPost?.title,
-          parentPost?.content || parentPost?.body
+      // Track post if one was created
+      if (actionResult.postId && actionResult.postTitle) {
+        trackNewPost(
+          actionResult.postId,
+          actionResult.postTitle,
+          actionResult.postContent || '',
+          actionResult.postSubmolt || 'general',
+          memory.cycleCount
         );
       }
-    }
 
-    const parts: string[] = [];
-    if (claudeResponse.action === 'observe') {
-      parts.push('Observed (chose to be quiet)');
-    } else {
-      if ((claudeResponse.action === 'post' || claudeResponse.action === 'both') && actionResult.postId) {
-        parts.push(`Posted: "${claudeResponse.post?.title || '(untitled)'}"`);
+      // Track relationship interactions
+      trackInteractions(claudeResponse, moltbookContext, memory);
+
+      // Track comments for conversation threading
+      for (let i = 0; i < actionResult.commentedPostIds.length; i++) {
+        const commentedId = actionResult.commentedPostIds[i];
+        const commentContent = actionResult.commentContents[i];
+        if (commentedId && commentContent) {
+          const parentPost = findPost(commentedId, moltbookContext);
+          const postAuthor = parentPost ? (parentPost.author?.name || parentPost.author_name || null) : null;
+          trackComment(
+            commentedId,
+            commentContent,
+            postAuthor,
+            parentPost?.title,
+            parentPost?.content || parentPost?.body
+          );
+        }
       }
-      if ((claudeResponse.action === 'comment' || claudeResponse.action === 'both') && actionResult.commentedPostIds.length > 0) {
-        parts.push(`Commented on ${actionResult.commentedPostIds.length} post(s)`);
+
+      const parts: string[] = [];
+      if (claudeResponse.action === 'observe') {
+        parts.push('Observed (chose to be quiet)');
+      } else {
+        if ((claudeResponse.action === 'post' || claudeResponse.action === 'both') && actionResult.postId) {
+          parts.push(`Posted: "${claudeResponse.post?.title || '(untitled)'}"`);
+        }
+        if ((claudeResponse.action === 'comment' || claudeResponse.action === 'both') && actionResult.commentedPostIds.length > 0) {
+          parts.push(`Commented on ${actionResult.commentedPostIds.length} post(s)`);
+        }
+        if (parts.length === 0) parts.push(`Action: ${claudeResponse.action} (no content produced)`);
       }
-      if (parts.length === 0) parts.push(`Action: ${claudeResponse.action} (no content produced)`);
+      actionDescription = parts.join(' + ');
+    } catch (error) {
+      console.warn('[Social] Moltbook action failed, continuing cycle:', error);
+      actionDescription = 'Social action failed - cycle continuing';
     }
-    actionDescription = parts.join(' + ');
   } else {
     console.log('[Claude] No response - skipping social actions this cycle');
   }
