@@ -7,6 +7,55 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { privateKeyToAccount } from 'viem/accounts';
+import { discoverPoolForToken } from '@nadfun/sdk';
+
+const EMO_TOKEN = '0x81A224F8A62f52BdE942dBF23A56df77A10b7777';
+const MONAD_RPC = process.env.MONAD_RPC_URL || 'https://rpc.monad.xyz';
+
+/** Fetch current MON and EMO prices (USD). Returns 0 on failure. */
+async function fetchCurrentPrices(): Promise<{ monUsd: number; emoUsd: number }> {
+  let monUsd = 0;
+  let emoUsd = 0;
+
+  // MON price from CoinGecko
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=monad&vs_currencies=usd',
+      { signal: controller.signal }
+    );
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json() as Record<string, { usd?: number }>;
+      const entry = data.monad || data['monad-xyz'] || data['mon-protocol'] || Object.values(data)[0];
+      monUsd = entry?.usd ?? 0;
+    }
+  } catch { /* CoinGecko unavailable */ }
+
+  // EMO price from DexScreener via nad.fun pool discovery
+  try {
+    const pool = await discoverPoolForToken(MONAD_RPC, EMO_TOKEN as `0x${string}`, 'mainnet');
+    if (pool) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/pairs/monad/${pool}`, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const json = await res.json();
+        const pair = json.pair || json.pairs?.[0];
+        emoUsd = parseFloat(pair?.priceUsd) || 0;
+        // Fallback: derive from priceNative * monUsd
+        if (emoUsd === 0 && monUsd > 0) {
+          emoUsd = (parseFloat(pair?.priceNative) || 0) * monUsd;
+        }
+      }
+    }
+  } catch { /* DexScreener unavailable */ }
+
+  console.log(`[Burnboard] Live prices: MON=$${monUsd.toFixed(2)}, EMO=$${emoUsd.toFixed(8)}`);
+  return { monUsd, emoUsd };
+}
 
 const STATE = './state';
 const OUT = './burnboard.html';
@@ -51,21 +100,32 @@ function getAgentWalletAddress(): string {
   return '';
 }
 
-export function generateBurnboard(): void {
+export async function generateBurnboard(): Promise<void> {
   const ledger = readJSON('burn-ledger.json');
   const walletAddr = getAgentWalletAddress() || '???';
   const addrShort = walletAddr !== '???' ? `${walletAddr.slice(0, 6)}...${walletAddr.slice(-4)}` : '???';
 
-  // Feeder leaderboard sorted by total USD value
-  const feeders = ledger?.feeders ? Object.values(ledger.feeders) as any[] : [];
-  const sorted = [...feeders].sort((a, b) => (b.totalEmoUsd + b.totalMonUsd) - (a.totalEmoUsd + a.totalMonUsd));
+  // Fetch live prices for current-value calculations
+  const { monUsd: monPrice, emoUsd: emoPrice } = await fetchCurrentPrices();
 
-  // Stats
+  // Feeder leaderboard — recalculate USD from raw token amounts at current prices
+  const feeders = ledger?.feeders ? Object.values(ledger.feeders) as any[] : [];
+  for (const f of feeders) {
+    const emoTokens = f.totalEmo ? Number(BigInt(f.totalEmo)) / 1e18 : 0;
+    const monTokens = f.totalMon ? Number(BigInt(f.totalMon)) / 1e18 : 0;
+    f._emoUsd = emoPrice > 0 ? emoTokens * emoPrice : (f.totalEmoUsd || 0);
+    f._monUsd = monPrice > 0 ? monTokens * monPrice : (f.totalMonUsd || 0);
+  }
+  const sorted = [...feeders].sort((a, b) => (b._emoUsd + b._monUsd) - (a._emoUsd + a._monUsd));
+
+  // Stats — use live prices when available, fall back to stored values
   const totalEmoReceived = ledger?.totalEmoReceived ? (Number(BigInt(ledger.totalEmoReceived)) / 1e18).toFixed(2) : '0';
   const totalEmoBurned = ledger?.totalEmoBurned ? (Number(BigInt(ledger.totalEmoBurned)) / 1e18).toFixed(2) : '0';
   const totalMonReceived = ledger?.totalMonReceived ? (Number(BigInt(ledger.totalMonReceived)) / 1e18).toFixed(4) : '0';
-  const totalEmoUsd = feeders.reduce((sum: number, f: any) => sum + (f.totalEmoUsd || 0), 0).toFixed(2);
-  const totalMonUsd = feeders.reduce((sum: number, f: any) => sum + (f.totalMonUsd || 0), 0).toFixed(2);
+  const totalEmoNum = ledger?.totalEmoReceived ? Number(BigInt(ledger.totalEmoReceived)) / 1e18 : 0;
+  const totalMonNum = ledger?.totalMonReceived ? Number(BigInt(ledger.totalMonReceived)) / 1e18 : 0;
+  const totalEmoUsd = (emoPrice > 0 ? totalEmoNum * emoPrice : feeders.reduce((sum: number, f: any) => sum + (f.totalEmoUsd || 0), 0)).toFixed(2);
+  const totalMonUsd = (monPrice > 0 ? totalMonNum * monPrice : feeders.reduce((sum: number, f: any) => sum + (f.totalMonUsd || 0), 0)).toFixed(2);
   const feederCount = feeders.length;
   const burnCount = ledger?.burnHistory?.length ?? 0;
 
@@ -78,8 +138,8 @@ export function generateBurnboard(): void {
     const addrDisplay = `${addr.slice(0, 6)}...${addr.slice(-4)}`;
     const emo = (Number(BigInt(f.totalEmo)) / 1e18).toFixed(2);
     const mon = (Number(BigInt(f.totalMon)) / 1e18).toFixed(4);
-    const emoUsd = (f.totalEmoUsd || 0).toFixed(2);
-    const monUsd = (f.totalMonUsd || 0).toFixed(2);
+    const emoUsd = (f._emoUsd || 0).toFixed(2);
+    const monUsd = (f._monUsd || 0).toFixed(2);
     const txCount = f.txCount;
     const firstSeen = fmtDate(f.firstSeen);
     const lastSeen = timeAgo(f.lastSeen);
@@ -455,6 +515,7 @@ html.light body::before { opacity:0.015; }
   <div class="footer">
     <div class="footer-line"></div>
     <div class="footer-text">${feederCount} feeder${feederCount !== 1 ? 's' : ''} &middot; ${burnCount} burn${burnCount !== 1 ? 's' : ''} &middot; updated ${lastUpdated}</div>
+    <div class="footer-text" style="opacity:0.6">${monPrice > 0 || emoPrice > 0 ? `USD values at live prices &middot; MON $${monPrice.toFixed(2)} &middot; EMO $${emoPrice.toFixed(8)}` : 'USD at historical prices (live fetch unavailable)'}</div>
     <div class="footer-text"><a href="heartbeat.html">&larr; heartbeat dashboard</a></div>
   </div>
 </div>
@@ -482,5 +543,5 @@ function toggleTheme(){
 // Standalone execution
 const isDirectRun = process.argv[1]?.replace(/\\/g, '/').includes('burnboard');
 if (isDirectRun) {
-  generateBurnboard();
+  generateBurnboard().catch(e => console.error('[Burnboard] Failed:', e));
 }

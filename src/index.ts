@@ -911,7 +911,7 @@ Good examples of your voice on crypto posts:
     // timeline generation is non-fatal
   }
   try {
-    generateBurnboard();
+    await generateBurnboard();
   } catch {
     // burnboard generation is non-fatal
   }

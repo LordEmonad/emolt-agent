@@ -278,7 +278,7 @@ export function formatChainDataForPrompt(summary: ChainDataSummary): string {
 
   // New metrics
   if (summary.uniqueActiveAddresses > 0) {
-    lines.push(`  Unique active addresses (sampled): ${summary.uniqueActiveAddresses}`);
+    lines.push(`  Unique active addresses: ~${summary.uniqueActiveAddresses} seen in a small sample of blocks (this is NOT the real total on Monad — do NOT quote this number as fact, only use for relative comparison vs previous cycles)`);
   }
   if (summary.totalVolumeMonMoved > 0) {
     lines.push(`  Total MON volume moved: ${summary.totalVolumeMonMoved.toFixed(0)} MON`);
