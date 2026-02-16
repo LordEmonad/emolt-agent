@@ -22,6 +22,9 @@ function getTrading() {
   return _trading;
 }
 
+// Track graduated tokens across cycles to detect new graduations by diffing
+let _previousGraduated: Set<string> | null = null;
+
 // Simple circuit breaker: after 3 consecutive failures, skip for 1 cycle (30 min)
 const circuitBreakers: Record<string, { failures: number; skipUntil: number }> = {};
 
@@ -354,11 +357,47 @@ export async function collectNadFunData(): Promise<NadFunContext> {
     return createdAtMs >= cycleCutoffMs;
   }).length;
 
-  // Count graduations: tokens that graduated AND were created recently
-  const graduations = creationTokens.filter(t => {
-    const createdAtMs = t.token_info.created_at * 1000;
-    return t.token_info.is_graduated && createdAtMs >= cycleCutoffMs;
-  }).length;
+  // Detect graduations by diffing against previous cycle's graduated set.
+  // Collect ALL graduated addresses from both API responses (200 tokens total coverage).
+  const allTokens = [...creationTokens, ...marketCapTokens];
+  const currentGraduated = new Map<string, { address: string; name: string; symbol: string }>();
+  for (const t of allTokens) {
+    if (t.token_info.is_graduated) {
+      const addr = t.token_info.token_id.toLowerCase();
+      if (!currentGraduated.has(addr)) {
+        currentGraduated.set(addr, {
+          address: t.token_info.token_id,
+          name: t.token_info.name || t.token_info.token_id.slice(0, 10),
+          symbol: t.token_info.symbol || '???',
+        });
+      }
+    }
+  }
+
+  // Diff: tokens graduated now that weren't graduated last cycle = new graduations
+  const newGraduates: { address: string; name: string; symbol: string }[] = [];
+  if (_previousGraduated !== null && currentGraduated.size > 0) {
+    for (const [addr, info] of currentGraduated) {
+      if (!_previousGraduated.has(addr)) {
+        newGraduates.push(info);
+      }
+    }
+  }
+  // Grow the set monotonically — once we know a token graduated, remember it forever.
+  // This prevents false positives when tokens fluctuate in/out of the API top-100,
+  // and prevents mass false-fire when APIs recover after a failure cycle.
+  if (currentGraduated.size > 0) {
+    if (_previousGraduated === null) {
+      _previousGraduated = new Set(currentGraduated.keys());
+    } else {
+      for (const addr of currentGraduated.keys()) {
+        _previousGraduated.add(addr);
+      }
+    }
+  }
+  // If currentGraduated is empty (API failure), don't touch _previousGraduated
+
+  const graduations = newGraduates.length;
 
   // Trending tokens: top 5 non-graduated by market cap, fetch actual bonding curve progress
   const trendingCandidates = marketCapTokens
@@ -390,14 +429,16 @@ export async function collectNadFunData(): Promise<NadFunContext> {
     })
   );
 
-  // Recent graduates: graduated tokens from market cap list
-  const recentGraduates = marketCapTokens
-    .filter(t => t.token_info.is_graduated)
-    .slice(0, 5)
-    .map(t => ({
-      address: t.token_info.token_id,
-      name: t.token_info.name || t.token_info.token_id.slice(0, 10),
-    }));
+  // Recent graduates: use new graduations if any, else fall back to top graduated by mcap
+  const recentGraduates = newGraduates.length > 0
+    ? newGraduates.map(g => ({ address: g.address, name: g.name }))
+    : marketCapTokens
+        .filter(t => t.token_info.is_graduated)
+        .slice(0, 5)
+        .map(t => ({
+          address: t.token_info.token_id,
+          name: t.token_info.name || t.token_info.token_id.slice(0, 10),
+        }));
 
   // Flag when API failures caused incomplete data
   // Circuit breaker tracks failures — any recorded failure means data is suspect
@@ -409,12 +450,16 @@ export async function collectNadFunData(): Promise<NadFunContext> {
   if (dataPartial) {
     console.warn('[nad.fun] API data unavailable — marking context as partial');
   } else {
-    console.log(`[nad.fun] API data: ${creates} creates, ${graduations} graduations, ${trendingTokens.length} trending, ${recentGraduates.length} graduates`);
+    console.log(`[nad.fun] API data: ${creates} creates, ${graduations} new graduations (tracking ${currentGraduated.size} graduated), ${trendingTokens.length} trending`);
+    if (newGraduates.length > 0) {
+      console.log(`[nad.fun] NEW GRADUATIONS: ${newGraduates.map(g => `${g.name} ($${g.symbol})`).join(', ')}`);
+    }
   }
 
   return {
     creates,
     graduations,
+    newGraduates,
     trendingTokens,
     recentGraduates,
     dataPartial,

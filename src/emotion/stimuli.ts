@@ -136,17 +136,17 @@ export function mapChainDataToStimuli(data: ChainDataSummary, thresholds?: Adapt
       );
     }
 
-    // Multiple graduations (3+): strong Joy + Trust
-    if (nf.graduations >= 3) {
-      const names = nf.recentGraduates.map(g => g.name).join(', ');
+    // New graduations detected this cycle (diff-based, not time-filtered)
+    if (nf.newGraduates.length >= 3) {
+      const names = nf.newGraduates.map(g => `${g.name} ($${g.symbol})`).join(', ');
       stimuli.push(
-        { emotion: PrimaryEmotion.JOY, intensity: 0.45, source: `${nf.graduations} tokens graduated - ${names}`, weightCategory: 'nadFunExcitement' },
+        { emotion: PrimaryEmotion.JOY, intensity: 0.45, source: `${nf.newGraduates.length} tokens just graduated - ${names}`, weightCategory: 'nadFunExcitement' },
         { emotion: PrimaryEmotion.TRUST, intensity: 0.35, source: 'communities reaching liquidity targets together', weightCategory: 'nadFunExcitement' }
       );
-    } else if (nf.graduations > 0) {
-      const names = nf.recentGraduates.map(g => g.name).join(', ');
+    } else if (nf.newGraduates.length > 0) {
+      const names = nf.newGraduates.map(g => `${g.name} ($${g.symbol})`).join(', ');
       stimuli.push(
-        { emotion: PrimaryEmotion.JOY, intensity: 0.3, source: `${names} graduated to DEX`, weightCategory: 'nadFunExcitement' },
+        { emotion: PrimaryEmotion.JOY, intensity: 0.3, source: `${names} just graduated to DEX`, weightCategory: 'nadFunExcitement' },
         { emotion: PrimaryEmotion.TRUST, intensity: 0.2, source: 'community reached liquidity target', weightCategory: 'nadFunExcitement' }
       );
     }

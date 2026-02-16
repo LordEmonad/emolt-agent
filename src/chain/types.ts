@@ -42,7 +42,8 @@ export interface EmoSocialLinks {
 
 export interface NadFunContext {
   creates: number;
-  graduations: number;
+  graduations: number; // new graduations detected this cycle (diff-based)
+  newGraduates: { address: string; name: string; symbol: string }[];
   trendingTokens: NadFunTokenInfo[]; // top 5 by progress
   recentGraduates: { address: string; name: string }[];
   dataPartial: boolean; // true when API errors caused incomplete data

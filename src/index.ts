@@ -262,7 +262,7 @@ async function heartbeat(): Promise<void> {
   // nad.fun awareness
   if (chainData.nadFunContext) {
     const nf = chainData.nadFunContext;
-    console.log(`[nad.fun] ${nf.creates} launches, ${nf.graduations} graduations, ${nf.trendingTokens.length} trending`);
+    console.log(`[nad.fun] ${nf.creates} launches, ${nf.graduations} new graduations, ${nf.trendingTokens.length} trending${nf.newGraduates.length > 0 ? ` | GRADUATED: ${nf.newGraduates.map(g => g.name).join(', ')}` : ''}`);
     console.log(`[nad.fun] $EMO: ${nf.emoToken.graduated ? 'GRADUATED' : `${(nf.emoToken.progress / 100).toFixed(1)}%`}${nf.emoToken.balance !== '0' ? ` | balance: ${nf.emoToken.balance}` : ''}`);
   } else {
     console.log('[nad.fun] Data unavailable this cycle');

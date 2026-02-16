@@ -316,11 +316,18 @@ export function formatChainDataForPrompt(summary: ChainDataSummary): string {
     lines.push('');
     lines.push('nad.fun Token Launchpad:');
     lines.push(`  New tokens launched: ${nf.creates}`);
-    lines.push(`  Tokens graduated to DEX: ${nf.graduations}`);
+    if (nf.newGraduates.length > 0) {
+      lines.push(`  NEW GRADUATIONS THIS CYCLE: ${nf.newGraduates.length}`);
+      for (const g of nf.newGraduates) {
+        lines.push(`    - ${g.name} ($${g.symbol}) [${g.address}] just graduated to DEX!`);
+      }
+    } else {
+      lines.push(`  New graduations this cycle: 0`);
+    }
 
-    if (nf.recentGraduates.length > 0) {
+    if (nf.recentGraduates.length > 0 && nf.newGraduates.length === 0) {
       const names = nf.recentGraduates.map(g => g.name).join(', ');
-      lines.push(`  Recent graduates: ${names}`);
+      lines.push(`  Top graduated tokens (by market cap): ${names}`);
     }
 
     if (nf.trendingTokens.length > 0) {
