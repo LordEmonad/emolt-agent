@@ -166,17 +166,17 @@ function processPairs(data: any): DexScreenerMarketData {
 export function formatDexScreenerForPrompt(data: DexScreenerMarketData): string {
   if (!data.dataAvailable) return '';
 
-  const lines: string[] = ['Monad DEX Pulse (DexScreener):'];
+  const lines: string[] = ['MON Trading Pulse (DexScreener — MON pairs on Monad DEXs):'];
 
-  lines.push(`  1h volume across all Monad DEXs: $${(data.totalVolume1h / 1e3).toFixed(1)}K`);
+  lines.push(`  MON 1h volume across all Monad DEXs: $${(data.totalVolume1h / 1e3).toFixed(1)}K`);
   if (data.volumeChangePct !== 0) {
-    lines.push(`  Volume change vs last cycle: ${data.volumeChangePct > 0 ? '+' : ''}${data.volumeChangePct.toFixed(1)}%`);
+    lines.push(`  MON volume change vs last cycle: ${data.volumeChangePct > 0 ? '+' : ''}${data.volumeChangePct.toFixed(1)}%`);
   }
-  lines.push(`  Total liquidity: $${(data.totalLiquidity / 1e6).toFixed(2)}M`);
+  lines.push(`  MON total liquidity: $${(data.totalLiquidity / 1e6).toFixed(2)}M`);
   if (data.liquidityChangePct !== 0) {
-    lines.push(`  Liquidity change vs last cycle: ${data.liquidityChangePct > 0 ? '+' : ''}${data.liquidityChangePct.toFixed(1)}%`);
+    lines.push(`  MON liquidity change vs last cycle: ${data.liquidityChangePct > 0 ? '+' : ''}${data.liquidityChangePct.toFixed(1)}%`);
   }
-  lines.push(`  Buy/sell ratio (1h): ${data.buySellRatio.toFixed(2)} (${data.buyTxCount} buys / ${data.sellTxCount} sells)`);
+  lines.push(`  MON buy/sell ratio (1h): ${data.buySellRatio.toFixed(2)} (${data.buyTxCount} MON buys / ${data.sellTxCount} MON sells)`);
 
   if (data.topPairs.length > 0) {
     lines.push('  Top pairs by volume:');
