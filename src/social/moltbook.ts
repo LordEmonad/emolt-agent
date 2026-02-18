@@ -184,6 +184,14 @@ export async function moltbookRequest(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     await throttle();
+    cycleRequestCount++;
+
+    if (cycleRequestCount === CYCLE_REQUEST_WARN) {
+      console.warn(`[Moltbook] Request budget warning: ${cycleRequestCount} requests this cycle`);
+    }
+    if (cycleRequestCount > CYCLE_REQUEST_HARD_CAP && !isChallengeEndpoint && !isWriteOp) {
+      throw new Error(`Moltbook request budget exhausted (${cycleRequestCount}/${CYCLE_REQUEST_HARD_CAP}) — skipping read: ${endpoint}`);
+    }
 
     const response = await fetch(url, {
       ...options,

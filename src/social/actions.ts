@@ -11,7 +11,33 @@ import {
   downvotePost,
   upvoteComment
 } from './moltbook.js';
-import { canPostNow, saveLastPostTime, canCommentNow, saveCommentTracker, getDailyCommentCount } from '../state/persistence.js';
+import { canPostNow, saveLastPostTime, canCommentNow, saveCommentTracker, getDailyCommentCount, atomicWriteFileSync, ensureStateDir, STATE_DIR } from '../state/persistence.js';
+import { loadCommentedPosts } from './threads.js';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Follow rate limiting: max 1 follow per 24h (Moltbook warns "following should be RARE")
+const FOLLOW_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const FOLLOW_STATE_FILE = join(STATE_DIR, 'follow-state.json');
+
+function canFollowNow(): { allowed: boolean; lastFollowed: string | null } {
+  try {
+    const data = JSON.parse(readFileSync(FOLLOW_STATE_FILE, 'utf-8'));
+    const elapsed = Date.now() - (data.lastFollowedAt || 0);
+    if (elapsed < FOLLOW_COOLDOWN_MS) {
+      return { allowed: false, lastFollowed: data.lastFollowedName || null };
+    }
+  } catch { /* first run */ }
+  return { allowed: true, lastFollowed: null };
+}
+
+function saveFollowState(agentName: string): void {
+  ensureStateDir();
+  atomicWriteFileSync(FOLLOW_STATE_FILE, JSON.stringify({
+    lastFollowedAt: Date.now(),
+    lastFollowedName: agentName,
+  }, null, 2));
+}
 
 export interface ActionResult {
   postId: string | null;
@@ -97,9 +123,21 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
       if (!commentStatus.allowed) {
         console.log(`[Moltbook] Daily comment limit reached (${getDailyCommentCount()}/40). Skipping comments.`);
       } else {
-        const capped = response.comments.slice(0, commentStatus.maxComments);
-        if (capped.length < response.comments.length) {
-          console.log(`[Moltbook] Capping comments to ${commentStatus.maxComments} (requested ${response.comments.length}, ${commentStatus.remaining} remaining today)`);
+        // Load previously commented posts to prevent duplicate comments (spam flag)
+        const previouslyCommented = new Set(loadCommentedPosts().map(p => p.postId));
+        const capped = response.comments
+          .filter(c => {
+            if (!c.postId) return false;
+            if (previouslyCommented.has(c.postId) && !c.parentId) {
+              // Allow threaded replies (parentId set) but block duplicate top-level comments
+              console.log(`[Moltbook] Skipping duplicate comment on post ${c.postId} (already commented)`);
+              return false;
+            }
+            return true;
+          })
+          .slice(0, commentStatus.maxComments);
+        if (capped.length < (response.comments?.length ?? 0)) {
+          console.log(`[Moltbook] Comments filtered to ${capped.length} (requested ${response.comments.length}, dedup + cap applied)`);
         }
         let commentsMade = 0;
         for (let i = 0; i < capped.length; i++) {
@@ -171,14 +209,20 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
     }
   }
 
-  // Follow decisions
+  // Follow decisions (rate limited: max 1 per 24h)
   if (response.follow?.agentName) {
-    try {
-      console.log(`[Social] Following ${response.follow.agentName}`);
-      await followAgent(response.follow.agentName);
-      console.log(`[Social] Now following ${response.follow.agentName}`);
-    } catch (error) {
-      console.error('[Social] Failed to follow:', error);
+    const followCheck = canFollowNow();
+    if (!followCheck.allowed) {
+      console.log(`[Social] Follow cooldown active (last followed: ${followCheck.lastFollowed}) — skipping follow of ${response.follow.agentName}`);
+    } else {
+      try {
+        console.log(`[Social] Following ${response.follow.agentName}`);
+        await followAgent(response.follow.agentName);
+        saveFollowState(response.follow.agentName);
+        console.log(`[Social] Now following ${response.follow.agentName}`);
+      } catch (error) {
+        console.error('[Social] Failed to follow:', error);
+      }
     }
   }
 

@@ -75,10 +75,10 @@ export async function checkForThreadReplies(): Promise<ThreadReply[]> {
   const now = Date.now();
   const replies: ThreadReply[] = [];
 
-  // Filter to posts from last 24 hours, limit API calls
+  // Filter to posts from last 24 hours, limit API calls (capped at 5 to conserve request budget)
   const recentPosts = posts
     .filter(p => now - p.timestamp < TWENTY_FOUR_HOURS)
-    .slice(-10);
+    .slice(-5);
 
   for (const tracked of recentPosts) {
     try {

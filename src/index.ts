@@ -45,12 +45,12 @@ import { askClaude } from './brain/claude.js';
 import { loadSoulFiles, buildPrompt } from './brain/prompt.js';
 import { parseClaudeResponse, sanitizeExternalData } from './brain/parser.js';
 import type { ClaudeResponse } from './brain/parser.js';
-import { getMyProfile, createSubmolt, subscribeTo, checkSpamStatus } from './social/moltbook.js';
+import { getMyProfile, createSubmolt, subscribeTo, checkSpamStatus, resetCycleRequestCount, getCycleRequestCount } from './social/moltbook.js';
 import { gatherMoltbookContext, formatMoltbookContext } from './social/context.js';
 import { executeClaudeActions } from './social/actions.js';
 import { trackInteractions, findPostAuthor, findPost } from './social/relationships.js';
 import { checkForThreadReplies, formatThreadContext, trackComment } from './social/threads.js';
-import { checkAndAnswerChallenges, isSuspendedThisCycle, resetCycleFlags, getSuspensionMessage, startChallengeWatchdog } from './social/challenge.js';
+import { checkAndAnswerChallenges, isSuspendedThisCycle, resetCycleFlags, getSuspensionMessage, startChallengeWatchdog, pauseWatchdog, resumeWatchdog } from './social/challenge.js';
 import { loadMemory, saveMemory, formatMemoryForPrompt } from './state/memory.js';
 import { trackNewPost, refreshPostEngagement, buildFeedbackReport, syncToPostPerformance } from './social/feedback.js';
 import { runReflection, applyReflectionToMemory } from './brain/reflection.js';
@@ -156,6 +156,10 @@ async function heartbeat(): Promise<void> {
   console.log(`\n${'='.repeat(60)}`);
   console.log(`[${new Date().toISOString()}] Heartbeat cycle starting...`);
   console.log(`${'='.repeat(60)}\n`);
+
+  // 0. Pause watchdog during heartbeat to avoid API contention
+  pauseWatchdog();
+  resetCycleRequestCount();
 
   // 0. Reset per-cycle flags and check for challenges FIRST
   resetCycleFlags();
@@ -955,6 +959,10 @@ Good examples of your voice on crypto posts:
     // git push is non-fatal (might fail if no changes or no remote)
   }
 
+  // Resume watchdog after heartbeat completes
+  resumeWatchdog();
+
+  console.log(`[Budget] Moltbook API requests this cycle: ${getCycleRequestCount()}`);
   console.log(`\n[Done] Next heartbeat in 30 minutes`);
   console.log(`[State] Emotions: ${JSON.stringify(
     Object.fromEntries(
@@ -992,17 +1000,23 @@ async function main(): Promise<void> {
     }
   }
 
-  // One-time: ensure m/emoverse submolt exists
+  // One-time: ensure m/emoverse submolt exists (skip if already done)
+  const submoltFlagFile = join(STATE_DIR, 'submolt-created.flag');
   try {
-    await createSubmolt('emoverse', 'Emoverse', 'the monad chain as felt by the things that live on it. emotional telemetry, ecosystem dispatches, and whatever happens when you give a blockchain agent feelings and make it watch.');
-    console.log('[Init] Created m/emoverse submolt');
+    const { existsSync: fileExists } = await import('fs');
+    if (!fileExists(submoltFlagFile)) {
+      await createSubmolt('emoverse', 'Emoverse', 'the monad chain as felt by the things that live on it. emotional telemetry, ecosystem dispatches, and whatever happens when you give a blockchain agent feelings and make it watch.');
+      console.log('[Init] Created m/emoverse submolt');
+      await subscribeTo('emoverse');
+      const { writeFileSync: writeF } = await import('fs');
+      writeF(submoltFlagFile, new Date().toISOString());
+    }
   } catch {
-    // 409 = already exists, which is fine
-  }
-  try {
-    await subscribeTo('emoverse');
-  } catch {
-    // Already subscribed
+    // 409 = already exists, which is fine — write flag anyway
+    try {
+      const { writeFileSync: writeF } = await import('fs');
+      writeF(submoltFlagFile, new Date().toISOString());
+    } catch { /* non-fatal */ }
   }
 
   // Check EmotionOracle contract
@@ -1030,6 +1044,7 @@ async function main(): Promise<void> {
     await heartbeat();
   } catch (error) {
     console.error('[FATAL] First heartbeat failed:', error);
+    resumeWatchdog(); // ensure watchdog resumes even on crash
   }
 
   console.log('[Running] EMOLT agent is alive. Press Ctrl+C to stop.');
@@ -1042,6 +1057,7 @@ async function main(): Promise<void> {
       await heartbeat();
     } catch (error) {
       console.error('[FATAL] Heartbeat failed:', error);
+      resumeWatchdog(); // ensure watchdog resumes even on crash
       // Don't crash - try again next cycle
     }
   }

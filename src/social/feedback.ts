@@ -85,10 +85,14 @@ export async function refreshPostEngagement(): Promise<TrackedPostWithPerformanc
   const perfMap = new Map<string, any>();
   for (const p of loadPostPerformance()) perfMap.set(p.postId, p);
 
+  // Cap API calls to 5 posts per cycle to conserve request budget
+  let fetchCount = 0;
+  const MAX_FETCH_PER_CYCLE = 5;
+
   for (const post of posts) {
     // Only fetch posts between 10min and 48h old
     const ageMs = now - post.createdAt;
-    if (ageMs < 10 * 60 * 1000 || ageMs > 48 * 60 * 60 * 1000) {
+    if (ageMs < 10 * 60 * 1000 || ageMs > 48 * 60 * 60 * 1000 || fetchCount >= MAX_FETCH_PER_CYCLE) {
       const prev = perfMap.get(post.postId);
       results.push({
         ...post,
@@ -101,6 +105,7 @@ export async function refreshPostEngagement(): Promise<TrackedPostWithPerformanc
     }
 
     try {
+      fetchCount++;
       const data = await getPost(post.postId);
       const enriched: TrackedPostWithPerformance = {
         ...post,

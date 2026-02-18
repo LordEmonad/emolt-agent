@@ -422,9 +422,21 @@ export function resetCycleFlags(): void {
 const WATCHDOG_INTERVAL = 60 * 1000; // 1 minute
 let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 let watchdogRunning = false; // prevent overlapping ticks
+let watchdogPaused = false;  // paused during heartbeat to avoid API contention
+
+/** Pause watchdog during heartbeat execution to avoid request budget contention */
+export function pauseWatchdog(): void {
+  watchdogPaused = true;
+}
+
+/** Resume watchdog after heartbeat completes */
+export function resumeWatchdog(): void {
+  watchdogPaused = false;
+}
 
 async function watchdogTick(): Promise<void> {
   if (watchdogRunning) return; // previous tick still running
+  if (watchdogPaused) return;  // heartbeat is running, skip to avoid API contention
   watchdogRunning = true;
 
   try {

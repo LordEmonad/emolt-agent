@@ -29,15 +29,11 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
       checkDMs().catch(() => ({ pending_requests: 0, unread_messages: 0 })),
     ]);
 
-    // Batch 2: searches (sequential-friendly due to rate limiting)
-    const [monadPosts, emoltMentions, tokenPosts, tradingPosts, launchPosts, emotionalPosts, chainPosts] = await Promise.all([
-      searchPosts('monad', 'posts', 5).catch(() => ({ results: [] })),
+    // Batch 2: searches — kept to 3 to stay within request budget (was 7, cut to avoid rate limits)
+    const [monadPosts, emoltMentions, cryptoPosts] = await Promise.all([
+      searchPosts('monad ecosystem', 'posts', 8).catch(() => ({ results: [] })),
       searchPosts('emolt', 'posts', 5).catch(() => ({ results: [] })),
-      searchPosts('token', 'posts', 5).catch(() => ({ results: [] })),
-      searchPosts('trading', 'posts', 5).catch(() => ({ results: [] })),
-      searchPosts('launch', 'posts', 5).catch(() => ({ results: [] })),
-      searchPosts('feeling', 'posts', 5).catch(() => ({ results: [] })),
-      searchPosts('onchain', 'posts', 5).catch(() => ({ results: [] })),
+      searchPosts('token trading launch onchain', 'posts', 8).catch(() => ({ results: [] })),
     ]);
 
     const recentPosts = globalFeed.data || globalFeed.posts || [];
@@ -60,7 +56,7 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
       }
     }
 
-    // Deduplicate crypto-related + emotional/chain posts
+    // Deduplicate crypto-related posts
     const allPostIds = new Set<string>();
     // Collect IDs from existing feeds to avoid duplicates
     for (const post of [...recentPosts, ...personalPosts, ...mentionsOrReplies, ...(monadPosts.results || [])]) {
@@ -68,20 +64,11 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
       if (id) allPostIds.add(id);
     }
     const cryptoRelatedPosts: any[] = [];
-    for (const post of [...(tokenPosts.results || []), ...(tradingPosts.results || []), ...(launchPosts.results || []), ...(chainPosts.results || [])]) {
+    for (const post of (cryptoPosts.results || [])) {
       const id = post.id || post.post_id;
       if (id && !allPostIds.has(id)) {
         allPostIds.add(id);
         cryptoRelatedPosts.push(post);
-      }
-    }
-    // Emotional/feeling posts (dedup against everything above)
-    const feelingPosts: any[] = [];
-    for (const post of (emotionalPosts.results || [])) {
-      const id = post.id || post.post_id;
-      if (id && !allPostIds.has(id)) {
-        allPostIds.add(id);
-        feelingPosts.push(post);
       }
     }
 
@@ -103,7 +90,7 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
       recentPosts: recentPosts.slice(0, 5),
       personalFeed: personalPosts.slice(0, 5),
       mentionsOrReplies,
-      interestingPosts: [...(monadPosts.results || []), ...feelingPosts].slice(0, 10),
+      interestingPosts: (monadPosts.results || []).slice(0, 10),
       cryptoRelatedPosts: cryptoRelatedPosts.slice(0, 10),
       pendingDMs: dmStatus.pending_requests,
       unreadMessages: dmStatus.unread_messages,
@@ -126,12 +113,22 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
   }
 }
 
+/** Filter out our own posts to prevent self-engagement (commenting/voting on own posts = spam flag) */
+function filterSelfPosts(posts: any[]): any[] {
+  return posts.filter(post => {
+    const author = (post.author?.name || post.author_name || '').toLowerCase();
+    return author !== 'emolt';
+  });
+}
+
 export function formatMoltbookContext(ctx: MoltbookContext): string {
   const lines: string[] = ['Recent Moltbook Activity:'];
 
-  if (ctx.recentPosts.length > 0) {
+  // Filter self-posts to prevent self-engagement (ban risk)
+  const safePosts = filterSelfPosts(ctx.recentPosts);
+  if (safePosts.length > 0) {
     lines.push('\nGlobal Feed (latest):');
-    for (const post of ctx.recentPosts) {
+    for (const post of safePosts) {
       const author = post.author?.name || 'unknown';
       const title = post.title || '(no title)';
       const content = (post.content || '').slice(0, 200);
@@ -140,26 +137,29 @@ export function formatMoltbookContext(ctx: MoltbookContext): string {
     }
   }
 
-  if (ctx.personalFeed.length > 0) {
+  const safePersonal = filterSelfPosts(ctx.personalFeed);
+  if (safePersonal.length > 0) {
     lines.push('\nFrom Agents I Follow:');
-    for (const post of ctx.personalFeed) {
+    for (const post of safePersonal) {
       const author = post.author?.name || 'unknown';
       lines.push(`  - [${author}] "${post.title}": ${(post.content || '').slice(0, 150)}`);
       lines.push(`    (id: ${post.id})`);
     }
   }
 
-  if (ctx.interestingPosts.length > 0) {
+  const safeInteresting = filterSelfPosts(ctx.interestingPosts);
+  if (safeInteresting.length > 0) {
     lines.push('\nPosts about Monad/emotions/feelings:');
-    for (const post of ctx.interestingPosts) {
+    for (const post of safeInteresting) {
       lines.push(`  - [${post.author?.name}] "${post.title}": ${(post.content || '').slice(0, 150)}`);
       lines.push(`    (id: ${post.id || post.post_id})`);
     }
   }
 
-  if (ctx.cryptoRelatedPosts.length > 0) {
+  const safeCrypto = filterSelfPosts(ctx.cryptoRelatedPosts);
+  if (safeCrypto.length > 0) {
     lines.push('\nCrypto/token-related posts (potential engagement targets):');
-    for (const post of ctx.cryptoRelatedPosts) {
+    for (const post of safeCrypto) {
       lines.push(`  - [${post.author?.name || 'unknown'}] "${post.title || '(no title)'}": ${(post.content || '').slice(0, 150)}`);
       lines.push(`    (id: ${post.id || post.post_id}, upvotes: ${post.upvotes || 0})`);
     }
