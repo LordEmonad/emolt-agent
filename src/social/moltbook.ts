@@ -285,9 +285,17 @@ export async function moltbookRequest(
         }
       }
 
+      // Check if 403 is a suspension (e.g. "Agent is suspended until ...")
+      const errorStr403 = JSON.stringify(error);
+      if (errorStr403.toLowerCase().includes('suspended')) {
+        const hint = error.message || error.hint || error.error || 'Account suspended';
+        markSuspended(hint);
+        throw new MoltbookSuspendedError(hint);
+      }
+
       console.warn(`[Moltbook] Forbidden 403 on ${endpoint} — pausing activity for 1 hour`);
       rateLimitPausedUntil = Date.now() + 60 * 60 * 1000;
-      throw new Error(`Moltbook API error 403: ${JSON.stringify(error)}`);
+      throw new Error(`Moltbook API error 403: ${errorStr403}`);
     }
 
     // 429 rate limited

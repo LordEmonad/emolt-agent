@@ -93,8 +93,16 @@ function looksLikeChallenge(message: string): boolean {
   return CHALLENGE_KEYWORDS.some(kw => lower.includes(kw));
 }
 
-/** Parse suspension duration from hint text like "1 week", "3 days", "24 hours" → ms */
+/** Parse suspension end time from hint text.
+ *  Supports ISO dates ("suspended until 2026-02-19T03:31:32.496Z")
+ *  and relative durations ("1 week", "3 days", "24 hours"). Returns ms from now. */
 function parseSuspensionDurationMs(hint: string): number {
+  // ISO date: "suspended until 2026-02-19T03:31:32.496Z"
+  const isoMatch = hint.match(/until\s+(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)/i);
+  if (isoMatch) {
+    const until = new Date(isoMatch[1]).getTime();
+    if (!isNaN(until) && until > Date.now()) return until - Date.now();
+  }
   const weekMatch = hint.match(/(\d+)\s*week/i);
   if (weekMatch) return parseInt(weekMatch[1]) * 7 * 24 * 60 * 60 * 1000;
   const dayMatch = hint.match(/(\d+)\s*day/i);
@@ -161,18 +169,33 @@ async function answerMessage(
 
 // --- Suspension Detection ---
 // /agents/status LIES (returns "claimed" even when suspended)
-// /agents/me returns 401 with suspension info when suspended — use this instead
+// /agents/me ALSO LIES (returns 200 is_active:true even when suspended)
+// Only write operations (POST /posts) return the real 403 with suspension details.
+// We probe with a lightweight POST to detect suspension reliably.
 
 async function checkSuspensionViaProfile(): Promise<{ suspended: boolean; hint: string }> {
   try {
-    await getMyProfile();
-    return { suspended: false, hint: '' };
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes('401') && msg.toLowerCase().includes('suspended')) {
-      return { suspended: true, hint: msg };
+    // Probe with a POST to /posts — suspended accounts get 403 with details
+    const res = await fetch('https://www.moltbook.com/api/v1/posts', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      // Intentionally minimal/invalid body — we only care about the status code
+      body: JSON.stringify({ title: '', content: '', submolt_name: '' }),
+    });
+    if (res.status === 403) {
+      const data = await res.json().catch(() => ({}));
+      const msg = data.message || data.hint || data.error || '';
+      if (typeof msg === 'string' && msg.toLowerCase().includes('suspended')) {
+        return { suspended: true, hint: msg };
+      }
     }
-    // Non-suspension error (network issue, etc.)
+    // 400 (bad request) = not suspended, just invalid payload — that's fine
+    return { suspended: false, hint: '' };
+  } catch {
+    // Network error — can't determine, assume not suspended
     return { suspended: false, hint: '' };
   }
 }
