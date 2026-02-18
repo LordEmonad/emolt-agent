@@ -13,6 +13,28 @@ let lastRequestTime = 0;
 let rateLimitRemaining = 100; // assume 100 until we see headers
 let rateLimitPausedUntil = 0; // timestamp — if set, all requests blocked until this time
 
+// Per-cycle request budget tracking (100 req/min limit, but we spread across ~5-10 min)
+let cycleRequestCount = 0;
+let cycleStartTime = 0;
+const CYCLE_REQUEST_WARN = 40;  // warn at this count
+const CYCLE_REQUEST_HARD_CAP = 60; // refuse non-essential requests above this
+
+/** Reset request counter at the start of each heartbeat cycle */
+export function resetCycleRequestCount(): void {
+  cycleRequestCount = 0;
+  cycleStartTime = Date.now();
+}
+
+/** Get the current cycle's request count */
+export function getCycleRequestCount(): number {
+  return cycleRequestCount;
+}
+
+/** Check if we've exceeded the soft budget for non-essential requests (reads) */
+export function isBudgetExhausted(): boolean {
+  return cycleRequestCount >= CYCLE_REQUEST_HARD_CAP;
+}
+
 let throttlePromise = Promise.resolve();
 async function throttle(): Promise<void> {
   throttlePromise = throttlePromise.then(async () => {
