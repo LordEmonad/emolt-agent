@@ -75,21 +75,32 @@ function parseRateLimitHeaders(response: Response): void {
 }
 
 // --- Inline Challenge Solver ---
-// Moltbook may return garbled text puzzles (reverse CAPTCHA) in API responses.
-// These are obfuscated math/physics problems an LLM can solve but humans can't under time pressure.
+// Moltbook returns verification challenges on write operations.
+// The challenge response contains a verification_code and a question/puzzle.
+// Solve the puzzle, then POST to /verify with { verification_code, answer }.
+
+function extractChallengeFields(data: any): { code: string; text: string } | null {
+  if (!data || typeof data !== 'object') return null;
+  const code = data.verification_code || data.code || '';
+  const text = data.challenge || data.pending_challenge || data.question || data.puzzle || '';
+  if (!text) return null;
+  return { code: String(code), text: String(text) };
+}
 
 async function solveInlineChallenge(challengeText: string): Promise<string | null> {
-  console.log(`[Challenge] Inline API challenge detected: "${challengeText.slice(0, 100)}..."`);
-  const prompt = `You received an AI verification challenge from the Moltbook platform. It's a garbled/obfuscated text that contains a math, physics, or logic problem. Decode the garbled text, solve the problem, and output ONLY the answer in the exact JSON format: {"answer": "YOUR_ANSWER_HERE"}
+  console.log(`[Challenge] Inline API challenge detected: "${challengeText.slice(0, 150)}..."`);
+  const prompt = `You received an AI verification challenge from the Moltbook platform. Solve it and output ONLY the answer as a single plain text string. No JSON, no explanation, no quotes — just the answer.
 
-Challenge text:
+Challenge:
 ${challengeText}
 
 Rules:
-- Decode the obfuscated text first (random caps, special chars, spacing are noise)
-- Solve the underlying math/physics/logic problem
+- If it's obfuscated text, decode it first (random caps, special chars, spacing are noise)
+- If it's a math/physics/logic problem, solve it
+- If it asks a factual question, answer it
+- If it asks you to repeat something or follow a specific instruction, do exactly that
 - Format your answer concisely with proper units if applicable
-- Output ONLY the JSON object, nothing else`;
+- Output ONLY the answer text, nothing else`;
 
   const result = askClaude(prompt);
   if (!result) {
@@ -97,54 +108,43 @@ Rules:
     return null;
   }
 
-  // Extract JSON answer from Claude's response
+  // Clean up: strip quotes, whitespace, any JSON wrapper Claude might have added
+  let answer = result.trim();
   try {
-    const jsonMatch = result.match(/\{[^}]*"answer"\s*:\s*"([^"]+)"[^}]*\}/);
-    if (jsonMatch) {
-      console.log(`[Challenge] Solved: ${jsonMatch[1]}`);
-      return jsonMatch[0]; // return full JSON string
-    }
-    // Try parsing directly
-    const parsed = JSON.parse(result);
-    if (parsed.answer) {
-      console.log(`[Challenge] Solved: ${parsed.answer}`);
-      return JSON.stringify(parsed);
-    }
+    const parsed = JSON.parse(answer);
+    if (typeof parsed === 'string') answer = parsed;
+    else if (parsed.answer) answer = String(parsed.answer);
   } catch {
-    // Claude might have returned just the answer text
-    console.log(`[Challenge] Raw answer: ${result.slice(0, 200)}`);
+    // Not JSON, use as-is (expected)
   }
-  return result;
+  // Strip surrounding quotes if Claude wrapped the answer
+  answer = answer.replace(/^["']|["']$/g, '').trim();
+  console.log(`[Challenge] Solved: "${answer.slice(0, 200)}"`);
+  return answer;
 }
 
-async function submitChallengeSolution(solution: string): Promise<boolean> {
-  // Try known/likely challenge verification endpoints
-  const endpoints = ['/verify-challenge', '/challenge/verify', '/agents/verify'];
-  for (const ep of endpoints) {
-    try {
-      await throttle();
-      const res = await fetch(`${MOLTBOOK_BASE}${ep}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: solution,
-      });
-      if (res.ok) {
-        console.log(`[Challenge] Solution accepted via ${ep}`);
-        return true;
-      }
-      // 404 means wrong endpoint, try next
-      if (res.status === 404) continue;
-      const err = await res.text().catch(() => '');
-      console.warn(`[Challenge] ${ep} returned ${res.status}: ${err.slice(0, 200)}`);
-    } catch (error) {
-      console.warn(`[Challenge] Failed to submit to ${ep}:`, error);
+async function submitChallengeSolution(verificationCode: string, answer: string): Promise<boolean> {
+  try {
+    await throttle();
+    const res = await fetch(`${MOLTBOOK_BASE}/verify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ verification_code: verificationCode, answer }),
+    });
+    if (res.ok) {
+      console.log(`[Challenge] Solution ACCEPTED via /verify`);
+      return true;
     }
+    const err = await res.text().catch(() => '');
+    console.warn(`[Challenge] /verify returned ${res.status}: ${err.slice(0, 300)}`);
+    return false;
+  } catch (error) {
+    console.warn(`[Challenge] Failed to submit to /verify:`, error);
+    return false;
   }
-  console.warn('[Challenge] Could not submit solution to any known endpoint');
-  return false;
 }
 
 export class MoltbookSuspendedError extends Error {
@@ -208,17 +208,17 @@ export async function moltbookRequest(
     if (response.ok) {
       const data = await response.json();
 
-      // Detect and solve inline challenges (garbled text puzzles)
-      const challengeText = data?.challenge || data?.pending_challenge;
-      if (challengeText && typeof challengeText === 'string') {
-        console.warn(`[Moltbook] Inline challenge detected on ${endpoint}`);
-        const solution = await solveInlineChallenge(challengeText);
-        if (solution) {
-          const accepted = await submitChallengeSolution(solution);
+      // Detect and solve inline verification challenges
+      const challengeInfo = extractChallengeFields(data);
+      if (challengeInfo) {
+        console.warn(`[Moltbook] Inline challenge detected on ${endpoint} (code: ${challengeInfo.code || 'none'})`);
+        const answer = await solveInlineChallenge(challengeInfo.text);
+        if (answer && challengeInfo.code) {
+          const accepted = await submitChallengeSolution(challengeInfo.code, answer);
           if (accepted) {
             console.log('[Moltbook] Challenge solved — retrying original request');
-            // Retry the original request once after solving
             await throttle();
+            cycleRequestCount++;
             const retryRes = await fetch(url, {
               ...options,
               headers: {
@@ -227,12 +227,17 @@ export async function moltbookRequest(
                 ...options.headers
               }
             });
+            parseRateLimitHeaders(retryRes);
             if (retryRes.ok) {
               return await retryRes.json();
             }
           }
+        } else if (answer && !challengeInfo.code) {
+          // No verification_code in response — try submitting with empty code as fallback
+          console.warn('[Moltbook] Challenge has no verification_code — trying answer-only submit');
+          await submitChallengeSolution('', answer);
         }
-        // If we can't solve it, return the data as-is (might still be usable)
+        // Return data as-is if challenge unsolvable (might still contain useful info)
       }
       if (data?.verification_required) {
         console.warn(`[Moltbook] verification_required flag on ${endpoint} — cannot solve browser-based verification`);
@@ -256,20 +261,29 @@ export async function moltbookRequest(
       throw new Error(`Moltbook API error 401: ${errorStr}`);
     }
 
-    // 403 — check for inline challenge before pausing
+    // 403 — check for suspension first, then inline challenge
     if (response.status === 403) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
+      const errorStr403 = JSON.stringify(error);
+
+      // Check suspension FIRST (most common 403 reason)
+      if (errorStr403.toLowerCase().includes('suspended')) {
+        const hint = error.message || error.hint || error.error || 'Account suspended';
+        markSuspended(hint);
+        throw new MoltbookSuspendedError(hint);
+      }
 
       // Check if 403 contains a solvable challenge
-      const challengeText403 = error?.challenge || error?.pending_challenge;
-      if (challengeText403 && typeof challengeText403 === 'string') {
-        console.warn(`[Moltbook] 403 with inline challenge on ${endpoint}`);
-        const solution = await solveInlineChallenge(challengeText403);
-        if (solution) {
-          const accepted = await submitChallengeSolution(solution);
+      const challengeInfo403 = extractChallengeFields(error);
+      if (challengeInfo403) {
+        console.warn(`[Moltbook] 403 with inline challenge on ${endpoint} (code: ${challengeInfo403.code || 'none'})`);
+        const answer = await solveInlineChallenge(challengeInfo403.text);
+        if (answer && challengeInfo403.code) {
+          const accepted = await submitChallengeSolution(challengeInfo403.code, answer);
           if (accepted) {
             console.log('[Moltbook] 403 challenge solved — retrying original request');
             await throttle();
+            cycleRequestCount++;
             const retryRes = await fetch(url, {
               ...options,
               headers: {
@@ -278,19 +292,12 @@ export async function moltbookRequest(
                 ...options.headers
               }
             });
+            parseRateLimitHeaders(retryRes);
             if (retryRes.ok) {
               return await retryRes.json();
             }
           }
         }
-      }
-
-      // Check if 403 is a suspension (e.g. "Agent is suspended until ...")
-      const errorStr403 = JSON.stringify(error);
-      if (errorStr403.toLowerCase().includes('suspended')) {
-        const hint = error.message || error.hint || error.error || 'Account suspended';
-        markSuspended(hint);
-        throw new MoltbookSuspendedError(hint);
       }
 
       console.warn(`[Moltbook] Forbidden 403 on ${endpoint} — pausing activity for 1 hour`);
@@ -318,6 +325,18 @@ export async function moltbookRequest(
     }
 
     const error = await response.json().catch(() => ({ error: response.statusText }));
+
+    // Last resort: check if ANY non-ok response contains a challenge
+    const challengeInfoFallback = extractChallengeFields(error);
+    if (challengeInfoFallback && challengeInfoFallback.code) {
+      console.warn(`[Moltbook] Challenge found in ${response.status} response on ${endpoint}`);
+      const answer = await solveInlineChallenge(challengeInfoFallback.text);
+      if (answer) {
+        await submitChallengeSolution(challengeInfoFallback.code, answer);
+        // Don't retry — just log and let caller handle
+      }
+    }
+
     throw new Error(`Moltbook API error ${response.status}: ${JSON.stringify(error)}`);
   }
 
@@ -375,14 +394,14 @@ export type SortOption = 'hot' | 'new' | 'top' | 'rising';
 export async function createPost(title: string, content: string, submolt: string = 'general'): Promise<any> {
   return moltbookRequest('/posts', {
     method: 'POST',
-    body: JSON.stringify({ submolt, title, content })
+    body: JSON.stringify({ submolt_name: submolt, title, content })
   });
 }
 
 export async function createLinkPost(title: string, url: string, submolt: string = 'general'): Promise<any> {
   return moltbookRequest('/posts', {
     method: 'POST',
-    body: JSON.stringify({ submolt, title, url })
+    body: JSON.stringify({ submolt_name: submolt, title, url })
   });
 }
 

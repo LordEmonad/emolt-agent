@@ -172,6 +172,8 @@ async function answerMessage(
 // /agents/me ALSO LIES (returns 200 is_active:true even when suspended)
 // Only write operations (POST /posts) return the real 403 with suspension details.
 // We probe with a lightweight POST to detect suspension reliably.
+// IMPORTANT: The probe may itself trigger a challenge — if so, we solve it to avoid
+// accumulating challenge failures (10 failures → auto-suspend).
 
 async function checkSuspensionViaProfile(): Promise<{ suspended: boolean; hint: string }> {
   try {
@@ -185,13 +187,50 @@ async function checkSuspensionViaProfile(): Promise<{ suspended: boolean; hint: 
       // Intentionally minimal/invalid body — we only care about the status code
       body: JSON.stringify({ title: '', content: '', submolt_name: '' }),
     });
+
+    const data = await res.json().catch(() => ({}));
+
     if (res.status === 403) {
-      const data = await res.json().catch(() => ({}));
       const msg = data.message || data.hint || data.error || '';
       if (typeof msg === 'string' && msg.toLowerCase().includes('suspended')) {
         return { suspended: true, hint: msg };
       }
     }
+
+    // Check if the probe response contains a verification challenge
+    // (some status codes like 200, 400, 403 may carry challenges)
+    const challengeText = data?.challenge || data?.pending_challenge || data?.question || data?.puzzle;
+    const verificationCode = data?.verification_code || data?.code;
+    if (challengeText && typeof challengeText === 'string') {
+      console.log(`[Challenge] Probe triggered a verification challenge (code: ${verificationCode || 'none'})`);
+      // Dynamically import the solver to solve it immediately
+      const answer = askClaude(
+        `Solve this verification challenge. Output ONLY the answer, nothing else.\n\nChallenge: ${challengeText}`
+      );
+      if (answer && verificationCode) {
+        try {
+          const verifyRes = await fetch('https://www.moltbook.com/api/v1/verify', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              verification_code: String(verificationCode),
+              answer: answer.trim().replace(/^["']|["']$/g, ''),
+            }),
+          });
+          if (verifyRes.ok) {
+            console.log('[Challenge] Probe challenge solved successfully');
+          } else {
+            console.warn(`[Challenge] Probe challenge submission failed: ${verifyRes.status}`);
+          }
+        } catch (err) {
+          console.warn('[Challenge] Failed to submit probe challenge:', err);
+        }
+      }
+    }
+
     // 400 (bad request) = not suspended, just invalid payload — that's fine
     return { suspended: false, hint: '' };
   } catch {
