@@ -20,6 +20,29 @@ export interface MoltbookContext {
   _suspended?: boolean;      // true when Moltbook account is suspended (skips unfair stimuli)
 }
 
+// Search query pools — rotated each cycle to avoid bot detection from identical repeated queries
+const ECOSYSTEM_QUERIES = [
+  'monad ecosystem',
+  'monad blockchain updates',
+  'monad network activity',
+  'monad defi protocols',
+  'monad community news',
+  'what is happening on monad',
+];
+const CRYPTO_QUERIES = [
+  'token trading launch onchain',
+  'new token launches defi',
+  'crypto trading monad tokens',
+  'onchain activity trading volume',
+  'defi yield farming monad',
+  'token market trends crypto',
+];
+
+/** Pick a query from a pool based on current time (rotates every cycle). */
+function pickQuery(pool: string[], salt: number): string {
+  return pool[(salt >>> 0) % pool.length];
+}
+
 export async function gatherMoltbookContext(): Promise<MoltbookContext> {
   try {
     // Batch 1: feeds + DMs (core, always needed)
@@ -29,11 +52,14 @@ export async function gatherMoltbookContext(): Promise<MoltbookContext> {
       checkDMs().catch(() => ({ pending_requests: 0, unread_messages: 0 })),
     ]);
 
-    // Batch 2: searches — kept to 3 to stay within request budget (was 7, cut to avoid rate limits)
+    // Batch 2: searches — rotated queries to avoid bot detection from identical repeated requests
+    const cycleSalt = Math.floor(Date.now() / (30 * 60 * 1000)); // changes every ~30 min
+    const ecosystemQuery = pickQuery(ECOSYSTEM_QUERIES, cycleSalt);
+    const cryptoQuery = pickQuery(CRYPTO_QUERIES, cycleSalt + 7); // offset to avoid sync
     const [monadPosts, emoltMentions, cryptoPosts] = await Promise.all([
-      searchPosts('monad ecosystem', 'posts', 8).catch(() => ({ results: [] })),
-      searchPosts('emolt', 'posts', 5).catch(() => ({ results: [] })),
-      searchPosts('token trading launch onchain', 'posts', 8).catch(() => ({ results: [] })),
+      searchPosts(ecosystemQuery, 'posts', 8).catch(() => ({ results: [] })),
+      searchPosts('emolt', 'posts', 5).catch(() => ({ results: [] })), // always search for self-mentions
+      searchPosts(cryptoQuery, 'posts', 8).catch(() => ({ results: [] })),
     ]);
 
     const recentPosts = globalFeed.data || globalFeed.posts || [];
