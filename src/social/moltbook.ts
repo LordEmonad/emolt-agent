@@ -267,7 +267,9 @@ export async function moltbookRequest(
       const errorStr403 = JSON.stringify(error);
 
       // Check suspension FIRST (most common 403 reason)
-      if (errorStr403.toLowerCase().includes('suspended')) {
+      // Moltbook returns "Forbidden Exception" OR "Account suspended" for suspended accounts
+      const lowerStr403 = errorStr403.toLowerCase();
+      if (lowerStr403.includes('suspended') || lowerStr403.includes('forbidden exception')) {
         const hint = error.message || error.hint || error.error || 'Account suspended';
         markSuspended(hint);
         throw new MoltbookSuspendedError(hint);

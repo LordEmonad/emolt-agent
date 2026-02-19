@@ -177,24 +177,26 @@ async function answerMessage(
 
 async function checkSuspensionViaProfile(): Promise<{ suspended: boolean; hint: string }> {
   try {
-    // Probe with a POST to /posts — suspended accounts get 403 with details
+    // Probe with a POST to /posts — suspended accounts get 403 with details.
+    // MUST use a valid submolt_name ('general') so the request passes submolt validation
+    // and reaches the suspension check. Empty submolt_name returns 404 before suspension check.
+    // Empty title/content will return 400 (validation) if NOT suspended — that's the expected "clear" signal.
     const res = await fetch('https://www.moltbook.com/api/v1/posts', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      // Intentionally minimal/invalid body — we only care about the status code
-      body: JSON.stringify({ title: '', content: '', submolt_name: '' }),
+      body: JSON.stringify({ title: '', content: '', submolt_name: 'general' }),
     });
 
     const data = await res.json().catch(() => ({}));
 
+    // Any 403 from the probe = suspended (Moltbook returns "Forbidden Exception" or
+    // "Account suspended" — both mean the same thing on a write probe)
     if (res.status === 403) {
-      const msg = data.message || data.hint || data.error || '';
-      if (typeof msg === 'string' && msg.toLowerCase().includes('suspended')) {
-        return { suspended: true, hint: msg };
-      }
+      const msg = data.message || data.hint || data.error || 'Forbidden';
+      return { suspended: true, hint: typeof msg === 'string' ? msg : 'Forbidden (403)' };
     }
 
     // Check if the probe response contains a verification challenge
