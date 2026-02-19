@@ -391,7 +391,7 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
     return result;
   }
 
-  // Step 1: Check if actually suspended via /agents/me (the truth source)
+  // Step 1: Check if actually suspended via POST probe (the truth source)
   const suspCheck = await checkSuspensionViaProfile();
   if (suspCheck.suspended) {
     result.suspended = true;
@@ -408,6 +408,14 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
     }
     saveChallengeState(state);
     return result;
+  }
+
+  // Probe passed — clear stale suspension state if any
+  if (state.suspendedUntil > 0 || state.offenseCount > 0) {
+    console.log(`[Challenge] Suspension cleared (was offense #${state.offenseCount}, suspended until ${new Date(state.suspendedUntil).toISOString()})`);
+    state.suspendedUntil = 0;
+    state.offenseCount = 0;
+    saveChallengeState(state);
   }
 
   // Step 2: Scan ALL DMs and respond to everything

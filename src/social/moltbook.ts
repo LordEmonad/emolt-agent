@@ -256,8 +256,8 @@ export async function moltbookRequest(
         throw new MoltbookSuspendedError(hint);
       }
       // Non-suspension 401 — pause activity to avoid triggering verification
-      console.warn(`[Moltbook] Auth error 401 on ${endpoint} — pausing activity for 1 hour`);
-      rateLimitPausedUntil = Date.now() + 60 * 60 * 1000;
+      console.warn(`[Moltbook] Auth error 401 on ${endpoint} — pausing activity for 5 min`);
+      rateLimitPausedUntil = Date.now() + 5 * 60 * 1000;
       throw new Error(`Moltbook API error 401: ${errorStr}`);
     }
 
@@ -300,8 +300,8 @@ export async function moltbookRequest(
         }
       }
 
-      console.warn(`[Moltbook] Forbidden 403 on ${endpoint} — pausing activity for 1 hour`);
-      rateLimitPausedUntil = Date.now() + 60 * 60 * 1000;
+      console.warn(`[Moltbook] Forbidden 403 on ${endpoint} — pausing activity for 5 min`);
+      rateLimitPausedUntil = Date.now() + 5 * 60 * 1000;
       throw new Error(`Moltbook API error 403: ${errorStr403}`);
     }
 
@@ -309,11 +309,13 @@ export async function moltbookRequest(
     if (response.status === 429) {
       const error = await response.json().catch(() => ({}));
       const retrySeconds = (error as any).retry_after_seconds || 30;
+      // Use server's retry_after with a floor of 60s and ceiling of 3min
+      const pauseMs = Math.min(Math.max(retrySeconds, 60), 180) * 1000;
 
       if (isWriteOp) {
         // DO NOT retry writes — the write may have succeeded. Pause and throw.
-        console.warn(`[Moltbook] Rate limited on WRITE ${method} ${endpoint} — NOT retrying (may cause duplicate). Pausing 30min.`);
-        rateLimitPausedUntil = Date.now() + 30 * 60 * 1000;
+        console.warn(`[Moltbook] Rate limited on WRITE ${method} ${endpoint} — NOT retrying (may cause duplicate). Pausing ${Math.ceil(pauseMs / 1000)}s.`);
+        rateLimitPausedUntil = Date.now() + pauseMs;
         throw new Error(`Moltbook rate limited on write operation: ${endpoint}`);
       }
 
