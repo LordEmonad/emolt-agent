@@ -263,12 +263,22 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
   }
 
   // Votes (upvotes/downvotes on posts and comments) — capped + spaced to avoid vote-bot flags
+  // Cross-action dedup: don't vote on posts we already commented on this cycle (strong correlation = bot signal)
+  const commentedThisCycle = new Set(result.commentedPostIds);
   const MAX_VOTES_PER_CYCLE = 3;
-  const VOTE_SPACING_MS = 8000; // 8 seconds between votes to look human
+  const VOTE_SPACING_MS = 15000 + Math.floor(Math.random() * 10000); // 15-25 seconds between votes
   if (response.votes?.length) {
-    const cappedVotes = response.votes.slice(0, MAX_VOTES_PER_CYCLE);
+    const cappedVotes = response.votes
+      .filter(v => {
+        if (v.postId && commentedThisCycle.has(v.postId)) {
+          console.log(`[Social] Skipping vote on post ${v.postId} — already commented this cycle (cross-action dedup)`);
+          return false;
+        }
+        return true;
+      })
+      .slice(0, MAX_VOTES_PER_CYCLE);
     if (cappedVotes.length < response.votes.length) {
-      console.log(`[Social] Capping votes to ${MAX_VOTES_PER_CYCLE} (requested ${response.votes.length})`);
+      console.log(`[Social] Votes filtered to ${cappedVotes.length} (requested ${response.votes.length})`);
     }
     for (let i = 0; i < cappedVotes.length; i++) {
       const vote = cappedVotes[i];

@@ -50,7 +50,7 @@ import { gatherMoltbookContext, formatMoltbookContext } from './social/context.j
 import { executeClaudeActions } from './social/actions.js';
 import { trackInteractions, findPostAuthor, findPost } from './social/relationships.js';
 import { checkForThreadReplies, formatThreadContext, trackComment } from './social/threads.js';
-import { checkAndAnswerChallenges, isSuspendedThisCycle, resetCycleFlags, getSuspensionMessage, startChallengeWatchdog, pauseWatchdog, resumeWatchdog } from './social/challenge.js';
+import { checkAndAnswerChallenges, isSuspendedThisCycle, resetCycleFlags, getSuspensionMessage, startChallengeWatchdog, pauseWatchdog, resumeWatchdog, isInChallengeCooldown, tickChallengeCooldown } from './social/challenge.js';
 import { loadMemory, saveMemory, formatMemoryForPrompt } from './state/memory.js';
 import { trackNewPost, refreshPostEngagement, buildFeedbackReport, syncToPostPerformance } from './social/feedback.js';
 import { runReflection, applyReflectionToMemory } from './brain/reflection.js';
@@ -204,12 +204,27 @@ async function heartbeat(): Promise<void> {
   }
   if (spamThrottled) moltbookSuspended = true; // treat spam-flagged same as suspended
 
-  // 0.5. Suspension return detection + recovery slow start
-  // Agents get flagged for 3-4 fast actions right after unsuspension.
-  // We force observe-only for RECOVERY_CYCLES cycles after returning.
-  const RECOVERY_CYCLES = 3;
+  // 0.4. Post-challenge cooldown: after ANY challenge encounter, reduce activity for 2 cycles
+  let challengeCooldownActive = false;
+  if (!moltbookSuspended) {
+    const cooldownLeft = tickChallengeCooldown();
+    if (cooldownLeft > 0 || isInChallengeCooldown()) {
+      challengeCooldownActive = true;
+      console.log(`[Challenge] Post-challenge cooldown active — reduced activity this cycle (${cooldownLeft} cycles left)`);
+    }
+  }
+
+  // 0.5. Suspension return detection + graduated warm-up
+  // Agents get flagged for rapid actions right after unsuspension.
+  // Graduated ramp: observe-only → comment-only → reduced activity → full
+  //   Phase 1 (cycles 0-6,  ~3h): observe only
+  //   Phase 2 (cycles 7-12, ~3h): 1 comment/cycle max, no posts, no votes
+  //   Phase 3 (cycles 13-24, ~6h): 1 comment + 1 vote, no posts
+  //   Phase 4 (cycles 25+): full activity
+  const WARMUP_TOTAL_CYCLES = 24;
   let suspensionReturnNotice = '';
   let inRecoveryMode = false;
+  let recoveryPhase = 0; // 0=not recovering, 1=observe, 2=comment-only, 3=reduced, 4=full
   try {
     const { readFileSync: readF } = await import('fs');
     const suspReturnPath = join(STATE_DIR, 'suspension-return.json');
@@ -219,16 +234,21 @@ async function heartbeat(): Promise<void> {
     } catch { /* first run or missing file */ }
 
     if (prevState.wasSuspended && !moltbookSuspended) {
-      // Just returned from suspension — begin recovery mode
+      // Just returned from suspension — begin warm-up
       suspensionReturnNotice = 'YOU JUST RETURNED FROM SUSPENSION. You were silent for many cycles. This is a narrative moment — your first post back should acknowledge the silence and what you discovered during it. Draw on your memories of the suspension period. Don\'t waste this moment on routine chain data.';
-      console.log(`[Suspension] Return detected — entering recovery mode (${RECOVERY_CYCLES} observe-only cycles)`);
+      console.log(`[Suspension] Return detected — entering graduated warm-up (${WARMUP_TOTAL_CYCLES} cycles)`);
       inRecoveryMode = true;
-      atomicWriteFileSync(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: RECOVERY_CYCLES - 1 }));
+      recoveryPhase = 1;
+      atomicWriteFileSync(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: WARMUP_TOTAL_CYCLES - 1 }));
     } else if ((prevState.recoveryCyclesLeft ?? 0) > 0 && !moltbookSuspended) {
-      // Still in recovery mode
+      // Still in warm-up
       inRecoveryMode = true;
       const left = prevState.recoveryCyclesLeft - 1;
-      console.log(`[Suspension] Recovery mode active — ${left + 1} observe-only cycles remaining`);
+      const cyclesSinceReturn = WARMUP_TOTAL_CYCLES - left;
+      if (cyclesSinceReturn <= 6) recoveryPhase = 1;       // observe only
+      else if (cyclesSinceReturn <= 12) recoveryPhase = 2;  // comment-only
+      else recoveryPhase = 3;                                // reduced (comment + vote, no post)
+      console.log(`[Suspension] Warm-up phase ${recoveryPhase} — ${left} cycles remaining (cycle ${cyclesSinceReturn}/${WARMUP_TOTAL_CYCLES})`);
       atomicWriteFileSync(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: left }));
     } else {
       atomicWriteFileSync(suspReturnPath, JSON.stringify({ wasSuspended: moltbookSuspended, recoveryCyclesLeft: 0 }));
@@ -723,9 +743,18 @@ Good examples of your voice on crypto posts:
   // Build cooldown notices for Claude
   const cooldownParts: string[] = [];
   if (suspensionReturnNotice) cooldownParts.push(suspensionReturnNotice);
-  if (inRecoveryMode) {
-    // Force observe-only during recovery to avoid immediate re-suspension
-    cooldownParts.push('RECOVERY MODE: You just returned from suspension. ALL posting and commenting is DISABLED for safety. Choose "observe" ONLY. Do NOT choose "post", "comment", or "both". You may think and process emotions but must not take any Moltbook actions.');
+  if (inRecoveryMode && recoveryPhase === 1) {
+    // Phase 1: observe-only
+    cooldownParts.push('RECOVERY MODE (Phase 1 — observe only): You just returned from suspension. ALL posting, commenting, and voting is DISABLED for safety. Choose "observe" ONLY. You may think and process emotions but must not take any Moltbook actions.');
+  } else if (inRecoveryMode && recoveryPhase === 2) {
+    // Phase 2: comment-only
+    cooldownParts.push('RECOVERY MODE (Phase 2 — comment only): You are warming up after suspension. You may comment on 1 post this cycle but CANNOT post or vote. Choose "comment" or "observe" only. Do NOT choose "post" or "both".');
+  } else if (inRecoveryMode && recoveryPhase === 3) {
+    // Phase 3: reduced (comment + vote, no post)
+    cooldownParts.push('RECOVERY MODE (Phase 3 — no posting yet): Still warming up. You may comment and vote but CANNOT create posts yet. Choose "comment" or "observe" only. Do NOT choose "post" or "both".');
+  } else if (challengeCooldownActive) {
+    // After a challenge encounter, be cautious — comment-only, no posts or votes
+    cooldownParts.push('CAUTION: A verification challenge was recently detected. To be safe, only comment or observe this cycle — do NOT post or vote. Choose "comment" or "observe" only.');
   } else {
     if (!postCooldown.allowed) cooldownParts.push(`POSTING UNAVAILABLE this cycle (cooldown: ${postCooldown.waitMinutes} min remaining). Do NOT choose "post" or "both".`);
     if (!commentCooldown.allowed) cooldownParts.push(`COMMENTING UNAVAILABLE this cycle (daily limit of 40 reached). Do NOT choose "comment" or "both".`);
@@ -759,10 +788,48 @@ Good examples of your voice on crypto posts:
   if (moltbookSuspended) {
     actionDescription = 'Suspended - Moltbook actions skipped';
     console.log(`[Moltbook] ${actionDescription}`);
-  } else if (inRecoveryMode) {
-    // Hard gate: even if Claude chose an action, block it during recovery
-    actionDescription = 'Recovery mode - observe only (post-suspension safety)';
+  } else if (inRecoveryMode && recoveryPhase === 1) {
+    // Phase 1: hard gate — observe only
+    actionDescription = 'Recovery phase 1 - observe only (post-suspension safety)';
     console.log(`[Moltbook] ${actionDescription}`);
+  } else if (inRecoveryMode && claudeResponse) {
+    // Phase 2-3: allow limited actions — strip disallowed action types
+    try {
+      // Phase 2: only comments. Phase 3: comments + votes (no posts)
+      if (recoveryPhase <= 3 && (claudeResponse.action === 'post' || claudeResponse.action === 'both')) {
+        claudeResponse.action = claudeResponse.comments?.length ? 'comment' : 'observe';
+        claudeResponse.post = null;
+        console.log(`[Moltbook] Recovery phase ${recoveryPhase} — blocked post, downgraded to ${claudeResponse.action}`);
+      }
+      if (recoveryPhase === 2) {
+        claudeResponse.votes = []; // no votes in phase 2
+        claudeResponse.follow = null;
+      }
+      // Cap comments to 1 during recovery
+      if (claudeResponse.comments?.length) {
+        claudeResponse.comments = claudeResponse.comments.slice(0, 1);
+      }
+      const actionResult = await executeClaudeActions(claudeResponse, saveRecentPost);
+      const parts: string[] = [];
+      if (actionResult.commentedPostIds.length > 0) parts.push(`Commented on ${actionResult.commentedPostIds.length} post(s)`);
+      else parts.push(`Recovery phase ${recoveryPhase} — limited activity`);
+      actionDescription = parts.join(' + ');
+
+      // Track interactions
+      trackInteractions(claudeResponse, moltbookContext, memory);
+      for (let i = 0; i < actionResult.commentedPostIds.length; i++) {
+        const commentedId = actionResult.commentedPostIds[i];
+        const commentContent = actionResult.commentContents[i];
+        if (commentedId && commentContent) {
+          const parentPost = findPost(commentedId, moltbookContext);
+          const postAuthor = parentPost ? (parentPost.author?.name || parentPost.author_name || null) : null;
+          trackComment(commentedId, commentContent, postAuthor, parentPost?.title, parentPost?.content || parentPost?.body);
+        }
+      }
+    } catch (error) {
+      console.warn('[Social] Recovery-mode action failed:', error);
+      actionDescription = `Recovery phase ${recoveryPhase} — action failed`;
+    }
   } else if (claudeResponse) {
     try {
       const actionResult = await executeClaudeActions(claudeResponse, saveRecentPost);
@@ -1050,8 +1117,12 @@ async function main(): Promise<void> {
   console.log('[Running] EMOLT agent is alive. Press Ctrl+C to stop.');
 
   // Sequential heartbeat loop (prevents concurrent execution unlike setInterval)
+  // Jitter: +/- 5 minutes to avoid clock-precise intervals (bot detection signal)
   while (running) {
-    await new Promise(resolve => setTimeout(resolve, HEARTBEAT_INTERVAL));
+    const jitter = Math.floor(Math.random() * 10 * 60 * 1000) - 5 * 60 * 1000; // -5 to +5 min
+    const interval = HEARTBEAT_INTERVAL + jitter;
+    console.log(`[Heartbeat] Next cycle in ${(interval / 60000).toFixed(1)} minutes (base 30 ± ${(jitter / 60000).toFixed(1)}min jitter)`);
+    await new Promise(resolve => setTimeout(resolve, interval));
     if (!running) break;
     try {
       await heartbeat();

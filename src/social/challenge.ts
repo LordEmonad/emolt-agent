@@ -25,6 +25,7 @@ interface ChallengeState {
   knownSystemAccounts: string[]; // accounts that have sent challenges before
   consecutiveChallengeFailures: number; // track failures toward 10-failure auto-suspend
   challengeThrottledUntil: number;      // 0 = not throttled
+  cooldownCyclesLeft: number;           // reduce activity after ANY challenge encounter
 }
 
 function loadChallengeState(): ChallengeState {
@@ -41,6 +42,7 @@ function loadChallengeState(): ChallengeState {
       knownSystemAccounts: [],
       consecutiveChallengeFailures: 0,
       challengeThrottledUntil: 0,
+      cooldownCyclesLeft: 0,
     };
   }
 }
@@ -131,6 +133,8 @@ ${challengeMessage}
 
 INSTRUCTIONS:
 - If this is a verification challenge (asking you to prove something, answer a question, solve a puzzle, confirm your identity), answer it IMMEDIATELY, DIRECTLY, and PRECISELY.
+- Moltbook challenges use obfuscated text with random caps, brackets, carets, slashes, hyphens. Decode the text first. They are always lobster-themed math problems.
+- CRITICAL: If the answer is a number, format it with EXACTLY 2 decimal places (e.g., 15.00 NOT 15, 525.00 NOT 525).
 - If it asks you to prove you're an AI, confirm honestly that you are an AI agent called EMOLT.
 - If it asks a specific question, answer it directly and concisely.
 - If it asks you to perform a task (write something specific, solve a puzzle, etc.), do exactly that.
@@ -243,7 +247,7 @@ async function checkSuspensionViaPostProbe(state: ChallengeState): Promise<{ sus
       } else {
         console.log(`[Challenge] Probe triggered a verification challenge (code: ${verificationCode || 'none'})`);
         const answer = askClaude(
-          `Solve this verification challenge. Output ONLY the answer, nothing else.\n\nChallenge: ${challengeText}`
+          `Solve this Moltbook verification challenge. The text is deliberately obfuscated with random caps, brackets, carets, slashes, hyphens — decode it first. These are always lobster-themed math problems.\n\nCRITICAL: If the answer is a number, format it with EXACTLY 2 decimal places (e.g., 15.00 NOT 15).\n\nOutput ONLY the answer, nothing else.\n\nChallenge: ${challengeText}`
         );
         if (answer && verificationCode) {
           try {
@@ -255,7 +259,12 @@ async function checkSuspensionViaPostProbe(state: ChallengeState): Promise<{ sus
               },
               body: JSON.stringify({
                 verification_code: String(verificationCode),
-                answer: answer.trim().replace(/^["']|["']$/g, ''),
+                answer: (() => {
+                  let a = answer.trim().replace(/^["']|["']$/g, '');
+                  // Enforce 2 decimal places for numeric answers (Moltbook requires e.g. "15.00")
+                  if (/^-?\d+(\.\d+)?$/.test(a)) a = parseFloat(a).toFixed(2);
+                  return a;
+                })(),
               }),
             });
             if (verifyRes.ok) {
@@ -490,6 +499,8 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
 
   if (result.challengesFound > 0) {
     console.log(`[Challenge] Found ${result.challengesFound} likely challenges, answered ${result.challengesAnswered}`);
+    // After ANY challenge encounter, reduce activity for 2 cycles to signal caution
+    triggerChallengeCooldown(2);
   }
 
   return result;
@@ -553,6 +564,31 @@ export function recordChallengeResult(success: boolean): void {
 export function isChallengeThrottled(): boolean {
   const state = loadChallengeState();
   return state.challengeThrottledUntil > Date.now();
+}
+
+/** Check if we're in a post-challenge cooldown (reduce activity after any challenge encounter). */
+export function isInChallengeCooldown(): boolean {
+  const state = loadChallengeState();
+  return (state.cooldownCyclesLeft ?? 0) > 0;
+}
+
+/** Decrement cooldown counter at heartbeat start. Returns cycles remaining. */
+export function tickChallengeCooldown(): number {
+  const state = loadChallengeState();
+  if ((state.cooldownCyclesLeft ?? 0) > 0) {
+    state.cooldownCyclesLeft--;
+    saveChallengeState(state);
+    return state.cooldownCyclesLeft;
+  }
+  return 0;
+}
+
+/** Set a cooldown after encountering a challenge (reduces activity for N cycles). */
+function triggerChallengeCooldown(cycles: number = 2): void {
+  const state = loadChallengeState();
+  state.cooldownCyclesLeft = Math.max(state.cooldownCyclesLeft ?? 0, cycles);
+  saveChallengeState(state);
+  console.log(`[Challenge] Post-challenge cooldown set: ${cycles} cycles of reduced activity`);
 }
 
 // --- Fast Challenge Watchdog ---

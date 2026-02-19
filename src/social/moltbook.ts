@@ -94,18 +94,18 @@ async function solveInlineChallenge(challengeText: string): Promise<string | nul
     return null;
   }
   console.log(`[Challenge] Inline API challenge detected: "${challengeText.slice(0, 150)}..."`);
-  const prompt = `You received an AI verification challenge from the Moltbook platform. Solve it and output ONLY the answer as a single plain text string. No JSON, no explanation, no quotes — just the answer.
+  const prompt = `You received an AI verification challenge from the Moltbook platform. Solve it and output ONLY the answer. No JSON, no explanation, no quotes — just the answer.
 
 Challenge:
 ${challengeText}
 
 Rules:
-- If it's obfuscated text, decode it first (random caps, special chars, spacing are noise)
-- If it's a math/physics/logic problem, solve it
-- If it asks a factual question, answer it
+- The text is deliberately obfuscated with random caps, brackets, carets, slashes, hyphens. Decode it first.
+- These are always lobster-themed math problems. Example: "tH/iRrTy tWwoO l[Ob/StE]r nEu-RoNs^ mInUs^ eI[gHt/EeN]" = "thirty two lobster neurons minus eighteen" = 14.00
+- CRITICAL: If the answer is a number, format it with EXACTLY 2 decimal places (e.g., 15.00 NOT 15, 525.00 NOT 525, 0.50 NOT 0.5)
+- If it asks a factual question, answer it directly
 - If it asks you to repeat something or follow a specific instruction, do exactly that
-- Format your answer concisely with proper units if applicable
-- Output ONLY the answer text, nothing else`;
+- Output ONLY the answer, nothing else`;
 
   const result = askClaude(prompt);
   if (!result) {
@@ -124,6 +124,13 @@ Rules:
   }
   // Strip surrounding quotes if Claude wrapped the answer
   answer = answer.replace(/^["']|["']$/g, '').trim();
+
+  // Enforce 2 decimal places for numeric answers (Moltbook requires e.g. "15.00" not "15")
+  const numericMatch = answer.match(/^-?\d+(\.\d+)?$/);
+  if (numericMatch) {
+    answer = parseFloat(answer).toFixed(2);
+  }
+
   console.log(`[Challenge] Solved: "${answer.slice(0, 200)}"`);
   return answer;
 }
