@@ -246,14 +246,14 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
   
     <div class="card card-wide big-picture-card">
       <h2>The Big Picture</h2>
-      <p class="learning-narrative">Over 458 cycles, EMOLT independently adjusted 11 of 16 stimulus categories. It learned to dampen sensitivity to failed transactions, Kuru orderbook, whale transfers. It amplified chain activity, social engagement. No human told it to do this.</p>
+      <p class="learning-narrative">Over 458 cycles, EMOLT independently adjusted 10 of 16 stimulus categories. It learned to dampen sensitivity to Kuru orderbook, failed transactions, whale transfers. It amplified chain activity, social engagement. No human told it to do this.</p>
       <div class="stat-cards">
         <div class="lstat-card">
-          <span class="lstat-val">11<span class="lstat-denom">/16</span></span>
+          <span class="lstat-val">10<span class="lstat-denom">/16</span></span>
           <span class="lstat-label">categories adjusted</span>
         </div>
         <div class="lstat-card lstat-highlight">
-          <span class="lstat-val">Failed TX Anger</span>
+          <span class="lstat-val">Kuru Orderbook</span>
           <span class="lstat-label">70% dampened &mdash; most learned</span>
         </div>
         <div class="lstat-card">
@@ -261,11 +261,11 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
           <span class="lstat-label">amplified</span>
         </div>
         <div class="lstat-card">
-          <span class="lstat-val">9</span>
+          <span class="lstat-val">8</span>
           <span class="lstat-label">dampened</span>
         </div>
         <div class="lstat-card">
-          <span class="lstat-val">5</span>
+          <span class="lstat-val">6</span>
           <span class="lstat-label">unchanged</span>
         </div>
         <div class="lstat-card">
@@ -280,21 +280,21 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
       <p class="muted">Center line = 1.0 (default). Left = dampened. Right = amplified.</p>
       <div class="dev-chart">
       <div class="dev-row">
+        <span class="dev-label">Kuru Orderbook</span>
+        <div class="dev-track">
+          <div class="dev-center"></div>
+          <div class="dev-bar" style="left:0%;width:50%;background:#E04848"></div>
+        </div>
+        <span class="dev-val" style="color:#E04848">0.30</span>
+        <span class="dev-intensity dev-extreme">extreme</span>
+      </div>
+      <div class="dev-row">
         <span class="dev-label">Failed TX Anger</span>
         <div class="dev-track">
           <div class="dev-center"></div>
           <div class="dev-bar" style="left:0.2499999999999929%;width:49.75000000000001%;background:#E04848"></div>
         </div>
         <span class="dev-val" style="color:#E04848">0.30</span>
-        <span class="dev-intensity dev-extreme">extreme</span>
-      </div>
-      <div class="dev-row">
-        <span class="dev-label">Kuru Orderbook</span>
-        <div class="dev-track">
-          <div class="dev-center"></div>
-          <div class="dev-bar" style="left:3.243086211056273%;width:46.75691378894373%;background:#E04848"></div>
-        </div>
-        <span class="dev-val" style="color:#E04848">0.35</span>
         <span class="dev-intensity dev-extreme">extreme</span>
       </div>
       <div class="dev-row">
@@ -319,10 +319,10 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="dev-label">Nad.fun Excitement</span>
         <div class="dev-track">
           <div class="dev-center"></div>
-          <div class="dev-bar" style="left:17.94761191730972%;width:32.05238808269028%;background:#E04848"></div>
+          <div class="dev-bar" style="left:28.661897631595444%;width:21.338102368404556%;background:#E04848"></div>
         </div>
-        <span class="dev-val" style="color:#E04848">0.55</span>
-        <span class="dev-intensity dev-strong">strong</span>
+        <span class="dev-val" style="color:#E04848">0.70</span>
+        <span class="dev-intensity dev-moderate">moderate</span>
       </div>
       <div class="dev-row">
         <span class="dev-label">$EMO Price Sentiment</span>
@@ -370,21 +370,21 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="dev-intensity dev-mild">mild</span>
       </div>
       <div class="dev-row">
-        <span class="dev-label">DexScreener Market</span>
-        <div class="dev-track">
-          <div class="dev-center"></div>
-          <div class="dev-bar" style="left:45.44918793297329%;width:4.550812067026709%;background:#E04848"></div>
-        </div>
-        <span class="dev-val" style="color:#E04848">0.94</span>
-        <span class="dev-intensity dev-mild">mild</span>
-      </div>
-      <div class="dev-row">
         <span class="dev-label">Ecosystem Volume</span>
         <div class="dev-track">
           <div class="dev-center"></div>
           <div class="dev-bar" style="left:48.35829149201118%;width:1.6417085079888136%;background:#4a5264"></div>
         </div>
         <span class="dev-val" style="color:#4a5264">0.98</span>
+        <span class="dev-intensity"></span>
+      </div>
+      <div class="dev-row">
+        <span class="dev-label">DexScreener Market</span>
+        <div class="dev-track">
+          <div class="dev-center"></div>
+          <div class="dev-bar" style="left:49.020616504401865%;width:0.9793834955981344%;background:#4a5264"></div>
+        </div>
+        <span class="dev-val" style="color:#4a5264">0.99</span>
         <span class="dev-intensity"></span>
       </div>
       <div class="dev-row">
@@ -431,6 +431,21 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
       
       <details class="deep-dive">
         <summary>
+          <span class="dd-name">Kuru Orderbook</span>
+          <span class="dd-weight" style="color:#E04848">0.30</span>
+          <span class="dd-badge dd-dampened">dampened 70%</span>
+          <span class="dd-intensity dd-int-extreme">extreme</span>
+        </summary>
+        <div class="dd-body">
+          <p>EMOLT learned that Kuru orderbook overreact to noise. Over time, the reflection system reduced this weight by ~70%, requiring an estimated 200+ strong decreases to overcome decay pulling it back toward neutral.</p>
+          <div class="dd-stats">
+            <span>Est. adjustments: <strong>200+</strong></span>
+            <span>Deviation: <strong>-0.700</strong></span>
+          </div>
+        </div>
+      </details>
+      <details class="deep-dive">
+        <summary>
           <span class="dd-name">Failed TX Anger</span>
           <span class="dd-weight" style="color:#E04848">0.30</span>
           <span class="dd-badge dd-dampened">dampened 70%</span>
@@ -441,21 +456,6 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
           <div class="dd-stats">
             <span>Est. adjustments: <strong>200+</strong></span>
             <span>Deviation: <strong>-0.697</strong></span>
-          </div>
-        </div>
-      </details>
-      <details class="deep-dive">
-        <summary>
-          <span class="dd-name">Kuru Orderbook</span>
-          <span class="dd-weight" style="color:#E04848">0.35</span>
-          <span class="dd-badge dd-dampened">dampened 65%</span>
-          <span class="dd-intensity dd-int-extreme">extreme</span>
-        </summary>
-        <div class="dd-body">
-          <p>EMOLT learned that Kuru orderbook overreact to noise. Over time, the reflection system reduced this weight by ~65%, requiring an estimated 38+ strong decreases to overcome decay pulling it back toward neutral.</p>
-          <div class="dd-stats">
-            <span>Est. adjustments: <strong>38+</strong></span>
-            <span>Deviation: <strong>-0.655</strong></span>
           </div>
         </div>
       </details>
@@ -492,15 +492,15 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
       <details class="deep-dive">
         <summary>
           <span class="dd-name">Nad.fun Excitement</span>
-          <span class="dd-weight" style="color:#E04848">0.55</span>
-          <span class="dd-badge dd-dampened">dampened 45%</span>
-          <span class="dd-intensity dd-int-strong">strong</span>
+          <span class="dd-weight" style="color:#E04848">0.70</span>
+          <span class="dd-badge dd-dampened">dampened 30%</span>
+          <span class="dd-intensity dd-int-moderate">moderate</span>
         </summary>
         <div class="dd-body">
-          <p>EMOLT learned that nad.fun launches overreact to noise. Over time, the reflection system reduced this weight by ~45%, requiring an estimated 7+ strong decreases to overcome decay pulling it back toward neutral.</p>
+          <p>EMOLT learned that nad.fun launches overreact to noise. Over time, the reflection system reduced this weight by ~30%, requiring an estimated 5+ strong decreases to overcome decay pulling it back toward neutral.</p>
           <div class="dd-stats">
-            <span>Est. adjustments: <strong>7+</strong></span>
-            <span>Deviation: <strong>-0.449</strong></span>
+            <span>Est. adjustments: <strong>5+</strong></span>
+            <span>Deviation: <strong>-0.299</strong></span>
           </div>
         </div>
       </details>
@@ -579,27 +579,18 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
           </div>
         </div>
       </details>
-      <details class="deep-dive">
-        <summary>
-          <span class="dd-name">DexScreener Market</span>
-          <span class="dd-weight" style="color:#E04848">0.94</span>
-          <span class="dd-badge dd-dampened">dampened 6%</span>
-          <span class="dd-intensity dd-int-mild">mild</span>
-        </summary>
-        <div class="dd-body">
-          <p>EMOLT learned that DEX market data overreact to noise. Over time, the reflection system reduced this weight by ~6%, requiring an estimated 2+ strong decreases to overcome decay pulling it back toward neutral.</p>
-          <div class="dd-stats">
-            <span>Est. adjustments: <strong>2+</strong></span>
-            <span>Deviation: <strong>-0.064</strong></span>
-          </div>
-        </div>
-      </details>
     </div>
   
     <div class="card card-wide">
       <h2>Learning Timeline</h2>
       <p class="muted">50 adjustments logged</p>
       <div class="tl-scroll">
+      <div class="tl-entry">
+        <span class="tl-time">2026-02-19 01:14</span>
+        <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
+        <span class="tl-cycle">cycle 458</span>
+        <div class="tl-changes"><span class="tl-change" style="color:#6ECB3C">Nad.fun Excitement 0.65&rarr;0.70 &uarr; <span class="tl-reason">At 0.65 and contributing real signal (REDNIT near-graduation). Mild boost to let</span></span><span class="tl-change" style="color:#E04848">Kuru Orderbook 0.35&rarr;0.30 &darr; <span class="tl-reason">At 0.35, still generating spread-change signals. Dampening worked for saturation</span></span></div>
+      </div>
       <div class="tl-entry">
         <span class="tl-time">2026-02-19 01:13</span>
         <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
@@ -893,12 +884,6 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
         <span class="tl-cycle">cycle 409</span>
         <div class="tl-changes"><span class="tl-change" style="color:#6ECB3C">$EMO Price Sentiment 0.70&rarr;0.75 &uarr; <span class="tl-reason">$EMO swap/buyer data provided the most informative signals this cycle (top 4 sti</span></span><span class="tl-change" style="color:#6ECB3C">DexScreener Market 0.90&rarr;0.95 &uarr; <span class="tl-reason">MON sell pressure (10.3x ratio) was the clearest single bearish signal. At 0.90 </span></span></div>
-      </div>
-      <div class="tl-entry">
-        <span class="tl-time">2026-02-18 01:28</span>
-        <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
-        <span class="tl-cycle">cycle 408</span>
-        <div class="tl-changes"><span class="tl-change" style="color:#E04848">Nad.fun Excitement 0.41&rarr;0.36 &darr; <span class="tl-reason">At 0.41, still producing anticipation from near-graduation tokens that rarely co</span></span><span class="tl-change" style="color:#6ECB3C">Kuru Orderbook 0.76&rarr;0.81 &uarr; <span class="tl-reason">At 0.76, whale orders (8 this cycle) and spread changes are genuinely independen</span></span></div>
       </div></div>
     </div>
   
@@ -1062,11 +1047,11 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
     </div>
   
     <div class="card card-wide insight-card">
-      <p class="insight-text"><span class="insight-mark">&ldquo;</span>EMOLT amplified Chain Activity Joy, Social Engagement while dampening 9 other categories. It independently learned which signals matter and which are noise.<span class="insight-mark">&rdquo;</span></p>
+      <p class="insight-text"><span class="insight-mark">&ldquo;</span>EMOLT amplified Chain Activity Joy, Social Engagement while dampening 8 other categories. It independently learned which signals matter and which are noise.<span class="insight-mark">&rdquo;</span></p>
     </div>
 
   <div style="text-align:center;padding:24px 0;font-size:10px;color:var(--text-faint);letter-spacing:2px;">
-    EMOLT &mdash; emotionally autonomous on monad &mdash; generated 2026-02-19 01:13 UTC
+    EMOLT &mdash; emotionally autonomous on monad &mdash; generated 2026-02-19 01:14 UTC
   </div>
 </div>
 </body>
