@@ -352,21 +352,12 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="dev-intensity dev-moderate">moderate</span>
       </div>
       <div class="dev-row">
-        <span class="dev-label">Failed TX Anger</span>
-        <div class="dev-track">
-          <div class="dev-center"></div>
-          <div class="dev-bar" style="left:38.7553480662891%;width:11.244651933710898%;background:#E04848"></div>
-        </div>
-        <span class="dev-val" style="color:#E04848">0.84</span>
-        <span class="dev-intensity dev-moderate">moderate</span>
-      </div>
-      <div class="dev-row">
         <span class="dev-label">Self Performance</span>
         <div class="dev-track">
           <div class="dev-center"></div>
-          <div class="dev-bar" style="left:41.09300310525604%;width:8.906996894743962%;background:#E04848"></div>
+          <div class="dev-bar" style="left:44.664431676684615%;width:5.335568323315387%;background:#E04848"></div>
         </div>
-        <span class="dev-val" style="color:#E04848">0.88</span>
+        <span class="dev-val" style="color:#E04848">0.93</span>
         <span class="dev-intensity dev-mild">mild</span>
       </div>
       <div class="dev-row">
@@ -383,6 +374,15 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <div class="dev-track">
           <div class="dev-center"></div>
           <div class="dev-bar" style="left:45.720889497923366%;width:4.279110502076633%;background:#E04848"></div>
+        </div>
+        <span class="dev-val" style="color:#E04848">0.94</span>
+        <span class="dev-intensity dev-mild">mild</span>
+      </div>
+      <div class="dev-row">
+        <span class="dev-label">Failed TX Anger</span>
+        <div class="dev-track">
+          <div class="dev-center"></div>
+          <div class="dev-bar" style="left:45.89820520914624%;width:4.101794790853756%;background:#E04848"></div>
         </div>
         <span class="dev-val" style="color:#E04848">0.94</span>
         <span class="dev-intensity dev-mild">mild</span>
@@ -551,31 +551,16 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
       </details>
       <details class="deep-dive">
         <summary>
-          <span class="dd-name">Failed TX Anger</span>
-          <span class="dd-weight" style="color:#E04848">0.84</span>
-          <span class="dd-badge dd-dampened">dampened 16%</span>
-          <span class="dd-intensity dd-int-moderate">moderate</span>
-        </summary>
-        <div class="dd-body">
-          <p>EMOLT learned that failed transactions overreact to noise. Over time, the reflection system reduced this weight by ~16%, requiring an estimated 4+ strong decreases to overcome decay pulling it back toward neutral.</p>
-          <div class="dd-stats">
-            <span>Est. adjustments: <strong>4+</strong></span>
-            <span>Deviation: <strong>-0.157</strong></span>
-          </div>
-        </div>
-      </details>
-      <details class="deep-dive">
-        <summary>
           <span class="dd-name">Self Performance</span>
-          <span class="dd-weight" style="color:#E04848">0.88</span>
-          <span class="dd-badge dd-dampened">dampened 12%</span>
+          <span class="dd-weight" style="color:#E04848">0.93</span>
+          <span class="dd-badge dd-dampened">dampened 7%</span>
           <span class="dd-intensity dd-int-mild">mild</span>
         </summary>
         <div class="dd-body">
-          <p>EMOLT learned that self performance overreact to noise. Over time, the reflection system reduced this weight by ~12%, requiring an estimated 3+ strong decreases to overcome decay pulling it back toward neutral.</p>
+          <p>EMOLT learned that self performance overreact to noise. Over time, the reflection system reduced this weight by ~7%, requiring an estimated 2+ strong decreases to overcome decay pulling it back toward neutral.</p>
           <div class="dd-stats">
-            <span>Est. adjustments: <strong>3+</strong></span>
-            <span>Deviation: <strong>-0.125</strong></span>
+            <span>Est. adjustments: <strong>2+</strong></span>
+            <span>Deviation: <strong>-0.075</strong></span>
           </div>
         </div>
       </details>
@@ -609,12 +594,33 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
           </div>
         </div>
       </details>
+      <details class="deep-dive">
+        <summary>
+          <span class="dd-name">Failed TX Anger</span>
+          <span class="dd-weight" style="color:#E04848">0.94</span>
+          <span class="dd-badge dd-dampened">dampened 6%</span>
+          <span class="dd-intensity dd-int-mild">mild</span>
+        </summary>
+        <div class="dd-body">
+          <p>EMOLT learned that failed transactions overreact to noise. Over time, the reflection system reduced this weight by ~6%, requiring an estimated 2+ strong decreases to overcome decay pulling it back toward neutral.</p>
+          <div class="dd-stats">
+            <span>Est. adjustments: <strong>2+</strong></span>
+            <span>Deviation: <strong>-0.057</strong></span>
+          </div>
+        </div>
+      </details>
     </div>
   
     <div class="card card-wide">
       <h2>Learning Timeline</h2>
       <p class="muted">50 adjustments logged</p>
       <div class="tl-scroll">
+      <div class="tl-entry">
+        <span class="tl-time">2026-02-19 05:25</span>
+        <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
+        <span class="tl-cycle">cycle 475</span>
+        <div class="tl-changes"><span class="tl-change" style="color:#E04848">Social Engagement 0.66&rarr;0.46 &darr; <span class="tl-reason">0% prophecy accuracy, worst predictor by 80pts. At 0.66, still too high. Every p</span></span><span class="tl-change" style="color:#E04848">DexScreener Market 0.89&rarr;0.84 &darr; <span class="tl-reason">80% accuracy justifies high weight but cross-emotion bleed (fear+sadness from sa</span></span><span class="tl-change" style="color:#6ECB3C">Failed TX Anger 0.84&rarr;0.94 &uarr; <span class="tl-reason">Anger dead 29 cycles. failedTxAnger at 0.84 is the only viable anger path. Won't</span></span></div>
+      </div>
       <div class="tl-entry">
         <span class="tl-time">2026-02-19 05:24</span>
         <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
@@ -908,12 +914,6 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
         <span class="tl-cycle">cycle 435</span>
         <div class="tl-changes"><span class="tl-change" style="color:#E04848">Kuru Orderbook 0.73&rarr;0.68 &darr; <span class="tl-reason">Kuru stacking down from 0.49 to 0.30 after previous dampening, but still 2 of to</span></span><span class="tl-change" style="color:#6ECB3C">DexScreener Market 1.16&rarr;1.21 &uarr; <span class="tl-reason">Best predictor at 77% accuracy, currently 1.16. DEX volume was top stimulus this</span></span></div>
-      </div>
-      <div class="tl-entry">
-        <span class="tl-time">2026-02-18 14:44</span>
-        <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
-        <span class="tl-cycle">cycle 434</span>
-        <div class="tl-changes"><span class="tl-change" style="color:#E04848">Kuru Orderbook 0.83&rarr;0.73 &darr; <span class="tl-reason">2nd consecutive cycle with Kuru stacking (2 of top 8 from same venue). Orderbook</span></span></div>
       </div></div>
     </div>
   
@@ -1097,7 +1097,7 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
     </div>
 
   <div style="text-align:center;padding:24px 0;font-size:10px;color:var(--text-faint);letter-spacing:2px;">
-    EMOLT &mdash; emotionally autonomous on monad &mdash; generated 2026-02-19 05:24 UTC
+    EMOLT &mdash; emotionally autonomous on monad &mdash; generated 2026-02-19 05:25 UTC
   </div>
 </div>
 </body>
