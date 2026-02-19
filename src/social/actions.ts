@@ -9,7 +9,8 @@ import {
   followAgent,
   upvotePost,
   downvotePost,
-  upvoteComment
+  upvoteComment,
+  getPost
 } from './moltbook.js';
 import { canPostNow, saveLastPostTime, canCommentNow, saveCommentTracker, getDailyCommentCount, atomicWriteFileSync, ensureStateDir, STATE_DIR } from '../state/persistence.js';
 import { loadCommentedPosts } from './threads.js';
@@ -54,6 +55,17 @@ function extractPostId(response: any): string | null {
   if (response?.post?.id) return String(response.post.id);
   if (response?.post_id) return String(response.post_id);
   return null;
+}
+
+/** Check if a post is authored by EMOLT (self-engagement = spam flag). */
+async function isSelfPost(postId: string): Promise<boolean> {
+  try {
+    const post = await getPost(postId);
+    const author = (post?.author?.name || post?.author_name || '').toLowerCase();
+    return author === 'emolt';
+  } catch {
+    return false; // if we can't check, allow it (fail open)
+  }
 }
 
 /** Random delay between 30-90 seconds to simulate human pacing between action types */
@@ -125,14 +137,33 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
       } else {
         // Load previously commented posts to prevent duplicate comments (spam flag)
         const previouslyCommented = new Set(loadCommentedPosts().map(p => p.postId));
+        // Track per-post engagement this cycle to cap at 1 top-level + 1 reply per post
+        const thisCyclePostEngagement = new Map<string, { topLevel: boolean; reply: boolean }>();
         const capped = response.comments
           .filter(c => {
             if (!c.postId) return false;
-            if (previouslyCommented.has(c.postId) && !c.parentId) {
-              // Allow threaded replies (parentId set) but block duplicate top-level comments
-              console.log(`[Moltbook] Skipping duplicate comment on post ${c.postId} (already commented)`);
-              return false;
+            const engagement = thisCyclePostEngagement.get(c.postId) || { topLevel: false, reply: false };
+            if (!c.parentId) {
+              // Top-level comment: block if already commented (this cycle or previous)
+              if (previouslyCommented.has(c.postId) || engagement.topLevel) {
+                console.log(`[Moltbook] Skipping duplicate comment on post ${c.postId} (already commented)`);
+                return false;
+              }
+              engagement.topLevel = true;
+            } else {
+              // Threaded reply: allow max 1 reply per post per cycle
+              if (engagement.reply) {
+                console.log(`[Moltbook] Skipping extra reply on post ${c.postId} (max 1 reply per post per cycle)`);
+                return false;
+              }
+              // Also block if we already replied to this post in a previous cycle
+              if (previouslyCommented.has(c.postId) && engagement.topLevel) {
+                console.log(`[Moltbook] Skipping reply on post ${c.postId} (already engaged enough)`);
+                return false;
+              }
+              engagement.reply = true;
             }
+            thisCyclePostEngagement.set(c.postId, engagement);
             return true;
           })
           .slice(0, commentStatus.maxComments);
@@ -150,6 +181,11 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
           }
           try {
             const { postId, content, parentId } = comment;
+            // Self-engagement guard: never comment on own posts (spam/ban risk)
+            if (await isSelfPost(postId)) {
+              console.log(`[Moltbook] Skipping comment on post ${postId} — self-engagement blocked`);
+              continue;
+            }
             console.log(`[Moltbook] Commenting on post ${postId}${parentId ? ` (reply to ${parentId})` : ''}`);
             if (parentId) {
               await replyToComment(postId, content, parentId);
@@ -226,16 +262,27 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
     }
   }
 
-  // Votes (upvotes/downvotes on posts and comments) — capped to avoid vote-bot flags
+  // Votes (upvotes/downvotes on posts and comments) — capped + spaced to avoid vote-bot flags
   const MAX_VOTES_PER_CYCLE = 3;
+  const VOTE_SPACING_MS = 8000; // 8 seconds between votes to look human
   if (response.votes?.length) {
     const cappedVotes = response.votes.slice(0, MAX_VOTES_PER_CYCLE);
     if (cappedVotes.length < response.votes.length) {
       console.log(`[Social] Capping votes to ${MAX_VOTES_PER_CYCLE} (requested ${response.votes.length})`);
     }
-    for (const vote of cappedVotes) {
+    for (let i = 0; i < cappedVotes.length; i++) {
+      const vote = cappedVotes[i];
+      // Spacing between votes to avoid rapid-fire bot detection
+      if (i > 0) {
+        await new Promise(r => setTimeout(r, VOTE_SPACING_MS));
+      }
       try {
         if (vote.postId) {
+          // Self-engagement guard: never vote on own posts
+          if (await isSelfPost(vote.postId)) {
+            console.log(`[Social] Skipping vote on post ${vote.postId} — self-engagement blocked`);
+            continue;
+          }
           if (vote.direction === 'up') {
             await upvotePost(vote.postId);
           } else {

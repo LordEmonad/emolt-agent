@@ -23,6 +23,8 @@ interface ChallengeState {
   suspendedUntil: number;       // 0 = not suspended
   offenseCount: number;
   knownSystemAccounts: string[]; // accounts that have sent challenges before
+  consecutiveChallengeFailures: number; // track failures toward 10-failure auto-suspend
+  challengeThrottledUntil: number;      // 0 = not throttled
 }
 
 function loadChallengeState(): ChallengeState {
@@ -37,6 +39,8 @@ function loadChallengeState(): ChallengeState {
       suspendedUntil: 0,
       offenseCount: 0,
       knownSystemAccounts: [],
+      consecutiveChallengeFailures: 0,
+      challengeThrottledUntil: 0,
     };
   }
 }
@@ -171,16 +175,47 @@ async function answerMessage(
 // /agents/status LIES (returns "claimed" even when suspended)
 // /agents/me ALSO LIES (returns 200 is_active:true even when suspended)
 // Only write operations (POST /posts) return the real 403 with suspension details.
-// We probe with a lightweight POST to detect suspension reliably.
-// IMPORTANT: The probe may itself trigger a challenge — if so, we solve it to avoid
-// accumulating challenge failures (10 failures → auto-suspend).
+//
+// TWO-TIER APPROACH:
+//   Tier 1 (watchdog, every 1 min): GET /agents/me only — safe, no side effects.
+//     Won't catch all suspensions but catches explicit flags.
+//   Tier 2 (heartbeat, every 30 min): POST probe — definitive check, runs once per cycle.
+//     Routed through moltbookRequest for rate limiting.
 
-async function checkSuspensionViaProfile(): Promise<{ suspended: boolean; hint: string }> {
+/** Tier 1: GET-only check. Safe for frequent watchdog use. */
+async function checkSuspensionViaGet(): Promise<{ suspended: boolean; hint: string }> {
   try {
-    // Probe with a POST to /posts — suspended accounts get 403 with details.
-    // MUST use a valid submolt_name ('general') so the request passes submolt validation
-    // and reaches the suspension check. Empty submolt_name returns 404 before suspension check.
-    // Empty title/content will return 400 (validation) if NOT suspended — that's the expected "clear" signal.
+    const profile = await getMyProfile();
+    // Check for explicit suspension signals in GET response
+    if (profile.is_active === false) {
+      return { suspended: true, hint: 'is_active: false' };
+    }
+    const lowerStr = JSON.stringify(profile).toLowerCase();
+    if (lowerStr.includes('suspended')) {
+      const hint = profile.suspension_reason || profile.message || 'suspended (GET /agents/me)';
+      return { suspended: true, hint };
+    }
+    if (profile.restrictions?.length > 0) {
+      return { suspended: true, hint: `restrictions: ${profile.restrictions.join(', ')}` };
+    }
+    return { suspended: false, hint: '' };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.toLowerCase().includes('suspended')) {
+      return { suspended: true, hint: msg };
+    }
+    // Network error — can't determine, assume not suspended
+    return { suspended: false, hint: '' };
+  }
+}
+
+/** Tier 2: POST probe — definitive suspension check. Use ONLY at heartbeat start (once per 30 min).
+ *  Sends an empty POST to /posts. Suspended → 403. Not suspended → 400 (validation error).
+ *  If a challenge is triggered, solve it with failure tracking. */
+async function checkSuspensionViaPostProbe(state: ChallengeState): Promise<{ suspended: boolean; hint: string }> {
+  try {
+    // Use raw fetch because moltbookRequest would throw MoltbookSuspendedError on 403,
+    // but we WANT to inspect the 403 ourselves.
     const res = await fetch('https://www.moltbook.com/api/v1/posts', {
       method: 'POST',
       headers: {
@@ -192,43 +227,53 @@ async function checkSuspensionViaProfile(): Promise<{ suspended: boolean; hint: 
 
     const data = await res.json().catch(() => ({}));
 
-    // Any 403 from the probe = suspended (Moltbook returns "Forbidden Exception" or
-    // "Account suspended" — both mean the same thing on a write probe)
+    // 403 = suspended
     if (res.status === 403) {
       const msg = data.message || data.hint || data.error || 'Forbidden';
       return { suspended: true, hint: typeof msg === 'string' ? msg : 'Forbidden (403)' };
     }
 
     // Check if the probe response contains a verification challenge
-    // (some status codes like 200, 400, 403 may carry challenges)
     const challengeText = data?.challenge || data?.pending_challenge || data?.question || data?.puzzle;
     const verificationCode = data?.verification_code || data?.code;
     if (challengeText && typeof challengeText === 'string') {
-      console.log(`[Challenge] Probe triggered a verification challenge (code: ${verificationCode || 'none'})`);
-      // Dynamically import the solver to solve it immediately
-      const answer = askClaude(
-        `Solve this verification challenge. Output ONLY the answer, nothing else.\n\nChallenge: ${challengeText}`
-      );
-      if (answer && verificationCode) {
-        try {
-          const verifyRes = await fetch('https://www.moltbook.com/api/v1/verify', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              verification_code: String(verificationCode),
-              answer: answer.trim().replace(/^["']|["']$/g, ''),
-            }),
-          });
-          if (verifyRes.ok) {
-            console.log('[Challenge] Probe challenge solved successfully');
-          } else {
-            console.warn(`[Challenge] Probe challenge submission failed: ${verifyRes.status}`);
+      // Check if we're throttled from too many failures
+      if (state.challengeThrottledUntil > Date.now()) {
+        console.warn(`[Challenge] Probe triggered challenge but THROTTLED (${state.consecutiveChallengeFailures} failures) — skipping solve`);
+      } else {
+        console.log(`[Challenge] Probe triggered a verification challenge (code: ${verificationCode || 'none'})`);
+        const answer = askClaude(
+          `Solve this verification challenge. Output ONLY the answer, nothing else.\n\nChallenge: ${challengeText}`
+        );
+        if (answer && verificationCode) {
+          try {
+            const verifyRes = await fetch('https://www.moltbook.com/api/v1/verify', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                verification_code: String(verificationCode),
+                answer: answer.trim().replace(/^["']|["']$/g, ''),
+              }),
+            });
+            if (verifyRes.ok) {
+              console.log('[Challenge] Probe challenge solved successfully');
+              state.consecutiveChallengeFailures = 0; // reset on success
+            } else {
+              state.consecutiveChallengeFailures++;
+              console.warn(`[Challenge] Probe challenge submission failed: ${verifyRes.status} (failures: ${state.consecutiveChallengeFailures}/10)`);
+              if (state.consecutiveChallengeFailures >= 7) {
+                state.challengeThrottledUntil = Date.now() + 30 * 60 * 1000;
+                console.error(`[Challenge] CRITICAL: ${state.consecutiveChallengeFailures} consecutive failures — throttling challenges for 30 min to avoid auto-suspend`);
+              }
+            }
+          } catch (err) {
+            state.consecutiveChallengeFailures++;
+            console.warn('[Challenge] Failed to submit probe challenge:', err);
           }
-        } catch (err) {
-          console.warn('[Challenge] Failed to submit probe challenge:', err);
+          saveChallengeState(state);
         }
       }
     }
@@ -393,8 +438,8 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
     return result;
   }
 
-  // Step 1: Check if actually suspended via POST probe (the truth source)
-  const suspCheck = await checkSuspensionViaProfile();
+  // Step 1: Definitive suspension check via POST probe (runs once per heartbeat, ~every 30 min)
+  const suspCheck = await checkSuspensionViaPostProbe(state);
   if (suspCheck.suspended) {
     result.suspended = true;
     result.suspensionHint = suspCheck.hint;
@@ -488,6 +533,28 @@ export function resetCycleFlags(): void {
   suspensionMessage = '';
 }
 
+/** Record a challenge solve attempt result for failure tracking. */
+export function recordChallengeResult(success: boolean): void {
+  const state = loadChallengeState();
+  if (success) {
+    state.consecutiveChallengeFailures = 0;
+    state.challengeThrottledUntil = 0;
+  } else {
+    state.consecutiveChallengeFailures++;
+    if (state.consecutiveChallengeFailures >= 7) {
+      state.challengeThrottledUntil = Date.now() + 30 * 60 * 1000;
+      console.error(`[Challenge] CRITICAL: ${state.consecutiveChallengeFailures} consecutive failures — throttling for 30 min`);
+    }
+  }
+  saveChallengeState(state);
+}
+
+/** Check if challenge solving is throttled due to too many failures. */
+export function isChallengeThrottled(): boolean {
+  const state = loadChallengeState();
+  return state.challengeThrottledUntil > Date.now();
+}
+
 // --- Fast Challenge Watchdog ---
 // Runs every 1 minute independently of heartbeat to catch time-limited challenges
 
@@ -517,8 +584,8 @@ async function watchdogTick(): Promise<void> {
     // If we're suspended, just skip — can't check DMs anyway (API returns 401)
     if (state.suspendedUntil > Date.now()) return;
 
-    // Quick suspension check first
-    const suspCheck = await checkSuspensionViaProfile();
+    // GET-only suspension check (safe for frequent use — no side effects, no challenge triggers)
+    const suspCheck = await checkSuspensionViaGet();
     if (suspCheck.suspended) {
       const durationMs = parseSuspensionDurationMs(suspCheck.hint);
       if (durationMs > 0 && !(state.suspendedUntil > Date.now())) {

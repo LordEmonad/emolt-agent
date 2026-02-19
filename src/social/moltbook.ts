@@ -1,4 +1,4 @@
-import { isSuspendedThisCycle, markSuspended } from './challenge.js';
+import { isSuspendedThisCycle, markSuspended, recordChallengeResult, isChallengeThrottled } from './challenge.js';
 import { askClaude } from '../brain/claude.js';
 
 const MOLTBOOK_BASE = 'https://www.moltbook.com/api/v1';
@@ -88,6 +88,11 @@ function extractChallengeFields(data: any): { code: string; text: string } | nul
 }
 
 async function solveInlineChallenge(challengeText: string): Promise<string | null> {
+  // Check if challenge solving is throttled due to too many failures
+  if (isChallengeThrottled()) {
+    console.warn(`[Challenge] Inline challenge detected but THROTTLED — skipping to avoid auto-suspend`);
+    return null;
+  }
   console.log(`[Challenge] Inline API challenge detected: "${challengeText.slice(0, 150)}..."`);
   const prompt = `You received an AI verification challenge from the Moltbook platform. Solve it and output ONLY the answer as a single plain text string. No JSON, no explanation, no quotes — just the answer.
 
@@ -136,13 +141,16 @@ async function submitChallengeSolution(verificationCode: string, answer: string)
     });
     if (res.ok) {
       console.log(`[Challenge] Solution ACCEPTED via /verify`);
+      recordChallengeResult(true);
       return true;
     }
     const err = await res.text().catch(() => '');
     console.warn(`[Challenge] /verify returned ${res.status}: ${err.slice(0, 300)}`);
+    recordChallengeResult(false);
     return false;
   } catch (error) {
     console.warn(`[Challenge] Failed to submit to /verify:`, error);
+    recordChallengeResult(false);
     return false;
   }
 }

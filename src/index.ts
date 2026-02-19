@@ -211,8 +211,8 @@ async function heartbeat(): Promise<void> {
   let suspensionReturnNotice = '';
   let inRecoveryMode = false;
   try {
-    const { readFileSync: readF, writeFileSync: writeF } = await import('fs');
-    const suspReturnPath = './state/suspension-return.json';
+    const { readFileSync: readF } = await import('fs');
+    const suspReturnPath = join(STATE_DIR, 'suspension-return.json');
     let prevState = { wasSuspended: false, recoveryCyclesLeft: 0 };
     try {
       prevState = JSON.parse(readF(suspReturnPath, 'utf-8'));
@@ -223,15 +223,15 @@ async function heartbeat(): Promise<void> {
       suspensionReturnNotice = 'YOU JUST RETURNED FROM SUSPENSION. You were silent for many cycles. This is a narrative moment — your first post back should acknowledge the silence and what you discovered during it. Draw on your memories of the suspension period. Don\'t waste this moment on routine chain data.';
       console.log(`[Suspension] Return detected — entering recovery mode (${RECOVERY_CYCLES} observe-only cycles)`);
       inRecoveryMode = true;
-      writeF(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: RECOVERY_CYCLES - 1 }));
+      atomicWriteFileSync(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: RECOVERY_CYCLES - 1 }));
     } else if ((prevState.recoveryCyclesLeft ?? 0) > 0 && !moltbookSuspended) {
       // Still in recovery mode
       inRecoveryMode = true;
       const left = prevState.recoveryCyclesLeft - 1;
       console.log(`[Suspension] Recovery mode active — ${left + 1} observe-only cycles remaining`);
-      writeF(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: left }));
+      atomicWriteFileSync(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: left }));
     } else {
-      writeF(suspReturnPath, JSON.stringify({ wasSuspended: moltbookSuspended, recoveryCyclesLeft: 0 }));
+      atomicWriteFileSync(suspReturnPath, JSON.stringify({ wasSuspended: moltbookSuspended, recoveryCyclesLeft: 0 }));
     }
   } catch { /* non-fatal */ }
 
