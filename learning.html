@@ -246,7 +246,7 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
   
     <div class="card card-wide big-picture-card">
       <h2>The Big Picture</h2>
-      <p class="learning-narrative">Over 462 cycles, EMOLT independently adjusted 10 of 16 stimulus categories. It learned to dampen sensitivity to failed transactions, Kuru orderbook, nad.fun launches. It amplified chain activity, social engagement. No human told it to do this.</p>
+      <p class="learning-narrative">Over 462 cycles, EMOLT independently adjusted 10 of 16 stimulus categories. It learned to dampen sensitivity to failed transactions, Kuru orderbook, whale transfers. It amplified chain activity, social engagement. No human told it to do this.</p>
       <div class="stat-cards">
         <div class="lstat-card">
           <span class="lstat-val">10<span class="lstat-denom">/16</span></span>
@@ -298,19 +298,19 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="dev-intensity dev-extreme">extreme</span>
       </div>
       <div class="dev-row">
+        <span class="dev-label">Whale Transfer Fear</span>
+        <div class="dev-track">
+          <div class="dev-center"></div>
+          <div class="dev-bar" style="left:8.204715496607335%;width:41.795284503392665%;background:#E04848"></div>
+        </div>
+        <span class="dev-val" style="color:#E04848">0.41</span>
+        <span class="dev-intensity dev-extreme">extreme</span>
+      </div>
+      <div class="dev-row">
         <span class="dev-label">Nad.fun Excitement</span>
         <div class="dev-track">
           <div class="dev-center"></div>
           <div class="dev-bar" style="left:11.370737922894556%;width:38.629262077105444%;background:#E04848"></div>
-        </div>
-        <span class="dev-val" style="color:#E04848">0.46</span>
-        <span class="dev-intensity dev-strong">strong</span>
-      </div>
-      <div class="dev-row">
-        <span class="dev-label">Whale Transfer Fear</span>
-        <div class="dev-track">
-          <div class="dev-center"></div>
-          <div class="dev-bar" style="left:11.776144068035912%;width:38.22385593196409%;background:#E04848"></div>
         </div>
         <span class="dev-val" style="color:#E04848">0.46</span>
         <span class="dev-intensity dev-strong">strong</span>
@@ -325,15 +325,6 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="dev-intensity dev-strong">strong</span>
       </div>
       <div class="dev-row">
-        <span class="dev-label">Chain Activity Joy</span>
-        <div class="dev-track">
-          <div class="dev-center"></div>
-          <div class="dev-bar" style="left:50%;width:14.040892509704195%;background:#6ECB3C"></div>
-        </div>
-        <span class="dev-val" style="color:#6ECB3C">1.20</span>
-        <span class="dev-intensity dev-moderate">moderate</span>
-      </div>
-      <div class="dev-row">
         <span class="dev-label">$EMO Price Sentiment</span>
         <div class="dev-track">
           <div class="dev-center"></div>
@@ -343,12 +334,21 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="dev-intensity dev-moderate">moderate</span>
       </div>
       <div class="dev-row">
-        <span class="dev-label">Feed Joy</span>
+        <span class="dev-label">Chain Activity Joy</span>
         <div class="dev-track">
           <div class="dev-center"></div>
-          <div class="dev-bar" style="left:41.4215288735322%;width:8.578471126467797%;background:#E04848"></div>
+          <div class="dev-bar" style="left:50%;width:10.46946393827562%;background:#6ECB3C"></div>
         </div>
-        <span class="dev-val" style="color:#E04848">0.88</span>
+        <span class="dev-val" style="color:#6ECB3C">1.15</span>
+        <span class="dev-intensity dev-mild">mild</span>
+      </div>
+      <div class="dev-row">
+        <span class="dev-label">Social Engagement</span>
+        <div class="dev-track">
+          <div class="dev-center"></div>
+          <div class="dev-bar" style="left:50%;width:8.144475702803348%;background:#6ECB3C"></div>
+        </div>
+        <span class="dev-val" style="color:#6ECB3C">1.11</span>
         <span class="dev-intensity dev-mild">mild</span>
       </div>
       <div class="dev-row">
@@ -361,12 +361,12 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="dev-intensity dev-mild">mild</span>
       </div>
       <div class="dev-row">
-        <span class="dev-label">Social Engagement</span>
+        <span class="dev-label">Feed Joy</span>
         <div class="dev-track">
           <div class="dev-center"></div>
-          <div class="dev-bar" style="left:50%;width:4.573047131374773%;background:#6ECB3C"></div>
+          <div class="dev-bar" style="left:44.99295744496078%;width:5.007042555039223%;background:#E04848"></div>
         </div>
-        <span class="dev-val" style="color:#6ECB3C">1.06</span>
+        <span class="dev-val" style="color:#E04848">0.93</span>
         <span class="dev-intensity dev-mild">mild</span>
       </div>
       <div class="dev-row">
@@ -461,6 +461,21 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
       </details>
       <details class="deep-dive">
         <summary>
+          <span class="dd-name">Whale Transfer Fear</span>
+          <span class="dd-weight" style="color:#E04848">0.41</span>
+          <span class="dd-badge dd-dampened">dampened 59%</span>
+          <span class="dd-intensity dd-int-extreme">extreme</span>
+        </summary>
+        <div class="dd-body">
+          <p>EMOLT learned that whale transfers overreact to noise. Over time, the reflection system reduced this weight by ~59%, requiring an estimated 14+ strong decreases to overcome decay pulling it back toward neutral.</p>
+          <div class="dd-stats">
+            <span>Est. adjustments: <strong>14+</strong></span>
+            <span>Deviation: <strong>-0.585</strong></span>
+          </div>
+        </div>
+      </details>
+      <details class="deep-dive">
+        <summary>
           <span class="dd-name">Nad.fun Excitement</span>
           <span class="dd-weight" style="color:#E04848">0.46</span>
           <span class="dd-badge dd-dampened">dampened 54%</span>
@@ -471,21 +486,6 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
           <div class="dd-stats">
             <span>Est. adjustments: <strong>10+</strong></span>
             <span>Deviation: <strong>-0.541</strong></span>
-          </div>
-        </div>
-      </details>
-      <details class="deep-dive">
-        <summary>
-          <span class="dd-name">Whale Transfer Fear</span>
-          <span class="dd-weight" style="color:#E04848">0.46</span>
-          <span class="dd-badge dd-dampened">dampened 54%</span>
-          <span class="dd-intensity dd-int-strong">strong</span>
-        </summary>
-        <div class="dd-body">
-          <p>EMOLT learned that whale transfers overreact to noise. Over time, the reflection system reduced this weight by ~54%, requiring an estimated 9+ strong decreases to overcome decay pulling it back toward neutral.</p>
-          <div class="dd-stats">
-            <span>Est. adjustments: <strong>9+</strong></span>
-            <span>Deviation: <strong>-0.535</strong></span>
           </div>
         </div>
       </details>
@@ -506,21 +506,6 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
       </details>
       <details class="deep-dive">
         <summary>
-          <span class="dd-name">Chain Activity Joy</span>
-          <span class="dd-weight" style="color:#6ECB3C">1.20</span>
-          <span class="dd-badge dd-amplified">amplified 20%</span>
-          <span class="dd-intensity dd-int-moderate">moderate</span>
-        </summary>
-        <div class="dd-body">
-          <p>EMOLT discovered that chain activity are undervalued as emotional signals. The weight was amplified by ~20%, fighting against decay with an estimated 4+ strong increases.</p>
-          <div class="dd-stats">
-            <span>Est. adjustments: <strong>4+</strong></span>
-            <span>Deviation: <strong>+0.197</strong></span>
-          </div>
-        </div>
-      </details>
-      <details class="deep-dive">
-        <summary>
           <span class="dd-name">$EMO Price Sentiment</span>
           <span class="dd-weight" style="color:#E04848">0.81</span>
           <span class="dd-badge dd-dampened">dampened 19%</span>
@@ -536,16 +521,31 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
       </details>
       <details class="deep-dive">
         <summary>
-          <span class="dd-name">Feed Joy</span>
-          <span class="dd-weight" style="color:#E04848">0.88</span>
-          <span class="dd-badge dd-dampened">dampened 12%</span>
+          <span class="dd-name">Chain Activity Joy</span>
+          <span class="dd-weight" style="color:#6ECB3C">1.15</span>
+          <span class="dd-badge dd-amplified">amplified 15%</span>
           <span class="dd-intensity dd-int-mild">mild</span>
         </summary>
         <div class="dd-body">
-          <p>EMOLT learned that feed activity overreact to noise. Over time, the reflection system reduced this weight by ~12%, requiring an estimated 3+ strong decreases to overcome decay pulling it back toward neutral.</p>
+          <p>EMOLT discovered that chain activity are undervalued as emotional signals. The weight was amplified by ~15%, fighting against decay with an estimated 3+ strong increases.</p>
           <div class="dd-stats">
             <span>Est. adjustments: <strong>3+</strong></span>
-            <span>Deviation: <strong>-0.120</strong></span>
+            <span>Deviation: <strong>+0.147</strong></span>
+          </div>
+        </div>
+      </details>
+      <details class="deep-dive">
+        <summary>
+          <span class="dd-name">Social Engagement</span>
+          <span class="dd-weight" style="color:#6ECB3C">1.11</span>
+          <span class="dd-badge dd-amplified">amplified 11%</span>
+          <span class="dd-intensity dd-int-mild">mild</span>
+        </summary>
+        <div class="dd-body">
+          <p>EMOLT discovered that social engagement are undervalued as emotional signals. The weight was amplified by ~11%, fighting against decay with an estimated 3+ strong increases.</p>
+          <div class="dd-stats">
+            <span>Est. adjustments: <strong>3+</strong></span>
+            <span>Deviation: <strong>+0.114</strong></span>
           </div>
         </div>
       </details>
@@ -566,16 +566,16 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
       </details>
       <details class="deep-dive">
         <summary>
-          <span class="dd-name">Social Engagement</span>
-          <span class="dd-weight" style="color:#6ECB3C">1.06</span>
-          <span class="dd-badge dd-amplified">amplified 6%</span>
+          <span class="dd-name">Feed Joy</span>
+          <span class="dd-weight" style="color:#E04848">0.93</span>
+          <span class="dd-badge dd-dampened">dampened 7%</span>
           <span class="dd-intensity dd-int-mild">mild</span>
         </summary>
         <div class="dd-body">
-          <p>EMOLT discovered that social engagement are undervalued as emotional signals. The weight was amplified by ~6%, fighting against decay with an estimated 2+ strong increases.</p>
+          <p>EMOLT learned that feed activity overreact to noise. Over time, the reflection system reduced this weight by ~7%, requiring an estimated 2+ strong decreases to overcome decay pulling it back toward neutral.</p>
           <div class="dd-stats">
             <span>Est. adjustments: <strong>2+</strong></span>
-            <span>Deviation: <strong>+0.064</strong></span>
+            <span>Deviation: <strong>-0.070</strong></span>
           </div>
         </div>
       </details>
@@ -585,6 +585,12 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
       <h2>Learning Timeline</h2>
       <p class="muted">50 adjustments logged</p>
       <div class="tl-scroll">
+      <div class="tl-entry">
+        <span class="tl-time">2026-02-19 02:17</span>
+        <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
+        <span class="tl-cycle">cycle 462</span>
+        <div class="tl-changes"><span class="tl-change" style="color:#E04848">Nad.fun Excitement 0.51&rarr;0.46 &darr; <span class="tl-reason">Already at 0.51 but still contributing 0.18 anticipation. One of the few weighte</span></span><span class="tl-change" style="color:#E04848">Whale Transfer Fear 0.46&rarr;0.41 &darr; <span class="tl-reason">At 0.46, whale transfer contributed 0.19 fear from a single 3.2M MON transfer. F</span></span><span class="tl-change" style="color:#6ECB3C">Feed Joy 0.88&rarr;0.93 &uarr; <span class="tl-reason">At 0.88, joy has only 1 source this cycle. feedJoy is the most reliable joy trig</span></span></div>
+      </div>
       <div class="tl-entry">
         <span class="tl-time">2026-02-19 02:16</span>
         <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
@@ -878,12 +884,6 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
         <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
         <span class="tl-cycle">cycle 415</span>
         <div class="tl-changes"><span class="tl-change" style="color:#E04848">Feed Joy 0.96&rarr;0.91 &darr; <span class="tl-reason">Feed triple-counting: 1 event producing 3 stimuli (0.77 combined) inflates trust</span></span><span class="tl-change" style="color:#6ECB3C">MON Price Sentiment 1.09&rarr;1.14 &uarr; <span class="tl-reason">MON price signals (-7.5%, -8.9%, -8.5%) have been genuinely independent and dire</span></span></div>
-      </div>
-      <div class="tl-entry">
-        <span class="tl-time">2026-02-18 04:14</span>
-        <span class="tl-type" style="color:#4A6BD4;border-color:#4A6BD433">reflection</span>
-        <span class="tl-cycle">cycle 414</span>
-        <div class="tl-changes"><span class="tl-change" style="color:#E04848">Kuru Orderbook 0.86&rarr;0.81 &darr; <span class="tl-reason">8 whale orders pushed surprise but prophecy accuracy declining. Kuru stimuli fee</span></span><span class="tl-change" style="color:#6ECB3C">TVL Sentiment 0.62&rarr;0.67 &uarr; <span class="tl-reason">Best predictor at 84% accuracy but weight is 0.62 (dampened). Slight increase to</span></span><span class="tl-change" style="color:#E04848">Social Engagement 1.08&rarr;1.03 &darr; <span class="tl-reason">At 1.08 (amplified) but suspended for 379 cycles — no social data flowing. Ampli</span></span></div>
       </div></div>
     </div>
   
@@ -1067,7 +1067,7 @@ h3 { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--h
     </div>
 
   <div style="text-align:center;padding:24px 0;font-size:10px;color:var(--text-faint);letter-spacing:2px;">
-    EMOLT &mdash; emotionally autonomous on monad &mdash; generated 2026-02-19 02:16 UTC
+    EMOLT &mdash; emotionally autonomous on monad &mdash; generated 2026-02-19 02:17 UTC
   </div>
 </div>
 </body>
