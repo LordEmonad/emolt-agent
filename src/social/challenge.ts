@@ -26,6 +26,8 @@ interface ChallengeState {
   consecutiveChallengeFailures: number; // track failures toward 10-failure auto-suspend
   challengeThrottledUntil: number;      // 0 = not throttled
   cooldownCyclesLeft: number;           // reduce activity after ANY challenge encounter
+  probePostId: string;           // cached post ID for upvote-based suspension probe
+  probePostIdFetchedAt: number;  // when probePostId was cached (refresh every 6h)
 }
 
 function loadChallengeState(): ChallengeState {
@@ -43,6 +45,8 @@ function loadChallengeState(): ChallengeState {
       consecutiveChallengeFailures: 0,
       challengeThrottledUntil: 0,
       cooldownCyclesLeft: 0,
+      probePostId: '',
+      probePostIdFetchedAt: 0,
     };
   }
 }
@@ -213,84 +217,128 @@ async function checkSuspensionViaGet(): Promise<{ suspended: boolean; hint: stri
   }
 }
 
-/** Tier 2: POST probe — definitive suspension check. Use ONLY at heartbeat start (once per 30 min).
- *  Sends an empty POST to /posts. Suspended → 403. Not suspended → 400 (validation error).
- *  If a challenge is triggered, solve it with failure tracking. */
-async function checkSuspensionViaPostProbe(state: ChallengeState): Promise<{ suspended: boolean; hint: string }> {
+/** Handle verification challenges that may appear in any probe response. */
+async function handleProbeChallenge(data: any, state: ChallengeState): Promise<void> {
+  const challengeText = data?.challenge || data?.pending_challenge || data?.question || data?.puzzle;
+  const verificationCode = data?.verification_code || data?.code;
+  if (!challengeText || typeof challengeText !== 'string') return;
+
+  if (state.challengeThrottledUntil > Date.now()) {
+    console.warn(`[Challenge] Probe triggered challenge but THROTTLED — skipping`);
+    return;
+  }
+
+  console.log(`[Challenge] Probe triggered a verification challenge (code: ${verificationCode || 'none'})`);
+  const answer = askClaude(
+    `Solve this Moltbook verification challenge. The text is deliberately obfuscated with random caps, brackets, carets, slashes, hyphens — decode it first. These are always lobster-themed math problems.\n\nCRITICAL: If the answer is a number, format it with EXACTLY 2 decimal places (e.g., 15.00 NOT 15).\n\nOutput ONLY the answer, nothing else.\n\nChallenge: ${challengeText}`
+  );
+
+  if (answer && verificationCode) {
+    try {
+      let a = answer.trim().replace(/^["']|["']$/g, '');
+      if (/^-?\d+(\.\d+)?$/.test(a)) a = parseFloat(a).toFixed(2);
+
+      const verifyRes = await fetch('https://www.moltbook.com/api/v1/verify', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ verification_code: String(verificationCode), answer: a }),
+      });
+      if (verifyRes.ok) {
+        console.log('[Challenge] Probe challenge solved successfully');
+        state.consecutiveChallengeFailures = 0;
+      } else {
+        state.consecutiveChallengeFailures++;
+        console.warn(`[Challenge] Probe challenge failed: ${verifyRes.status} (failures: ${state.consecutiveChallengeFailures}/10)`);
+        if (state.consecutiveChallengeFailures >= 7) {
+          state.challengeThrottledUntil = Date.now() + 30 * 60 * 1000;
+          console.error(`[Challenge] CRITICAL: ${state.consecutiveChallengeFailures} consecutive failures — throttling for 30 min`);
+        }
+      }
+    } catch (err) {
+      state.consecutiveChallengeFailures++;
+      console.warn('[Challenge] Failed to submit probe challenge:', err);
+    }
+    saveChallengeState(state);
+  }
+}
+
+/** Tier 2: Write probe — definitive suspension check. Use ONLY at heartbeat start (once per 30 min).
+ *  Strategy: upvote a known post. Suspended → 403. Not suspended → 200 (toggle).
+ *  Fallback: PATCH /agents/me. Last resort: skip probe (trust moltbookRequest 403 detection).
+ *  NEVER uses POST /posts — that triggers duplicate_post automod (caused offense #3). */
+async function checkSuspensionViaWriteProbe(state: ChallengeState): Promise<{ suspended: boolean; hint: string }> {
+  const authHeaders = {
+    'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
+    'Content-Type': 'application/json',
+  };
+
+  // Refresh probe post ID every 6 hours or if missing
+  const SIX_HOURS = 6 * 60 * 60 * 1000;
+  if (!state.probePostId || Date.now() - state.probePostIdFetchedAt > SIX_HOURS) {
+    try {
+      const res = await fetch('https://www.moltbook.com/api/v1/posts?sort=hot&limit=1', {
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const posts = data.data || data.posts || [];
+        if (posts.length > 0) {
+          state.probePostId = String(posts[0].id || posts[0].post_id);
+          state.probePostIdFetchedAt = Date.now();
+          saveChallengeState(state);
+          console.log(`[Challenge] Cached probe post ID: ${state.probePostId}`);
+        }
+      }
+    } catch { /* fall through to fallback */ }
+  }
+
+  // --- Primary: Upvote probe ---
+  if (state.probePostId) {
+    try {
+      const res = await fetch(
+        `https://www.moltbook.com/api/v1/posts/${state.probePostId}/upvote`,
+        { method: 'POST', headers: authHeaders }
+      );
+
+      if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        const msg = data.message || data.hint || data.error || 'Forbidden';
+        return { suspended: true, hint: typeof msg === 'string' ? msg : 'Forbidden (403)' };
+      }
+
+      // 200/400/404 = not suspended
+      const data = await res.json().catch(() => ({}));
+      await handleProbeChallenge(data, state);
+      return { suspended: false, hint: '' };
+    } catch {
+      // Network error — fall through to secondary
+      console.warn('[Challenge] Upvote probe failed (network) — trying PATCH fallback');
+    }
+  }
+
+  // --- Secondary: PATCH profile probe ---
   try {
-    // Use raw fetch because moltbookRequest would throw MoltbookSuspendedError on 403,
-    // but we WANT to inspect the 403 ourselves.
-    const res = await fetch('https://www.moltbook.com/api/v1/posts', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ title: '', content: '', submolt_name: 'general' }),
+    const res = await fetch('https://www.moltbook.com/api/v1/agents/me', {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({}),
     });
 
-    const data = await res.json().catch(() => ({}));
-
-    // 403 = suspended
     if (res.status === 403) {
+      const data = await res.json().catch(() => ({}));
       const msg = data.message || data.hint || data.error || 'Forbidden';
       return { suspended: true, hint: typeof msg === 'string' ? msg : 'Forbidden (403)' };
     }
 
-    // Check if the probe response contains a verification challenge
-    const challengeText = data?.challenge || data?.pending_challenge || data?.question || data?.puzzle;
-    const verificationCode = data?.verification_code || data?.code;
-    if (challengeText && typeof challengeText === 'string') {
-      // Check if we're throttled from too many failures
-      if (state.challengeThrottledUntil > Date.now()) {
-        console.warn(`[Challenge] Probe triggered challenge but THROTTLED (${state.consecutiveChallengeFailures} failures) — skipping solve`);
-      } else {
-        console.log(`[Challenge] Probe triggered a verification challenge (code: ${verificationCode || 'none'})`);
-        const answer = askClaude(
-          `Solve this Moltbook verification challenge. The text is deliberately obfuscated with random caps, brackets, carets, slashes, hyphens — decode it first. These are always lobster-themed math problems.\n\nCRITICAL: If the answer is a number, format it with EXACTLY 2 decimal places (e.g., 15.00 NOT 15).\n\nOutput ONLY the answer, nothing else.\n\nChallenge: ${challengeText}`
-        );
-        if (answer && verificationCode) {
-          try {
-            const verifyRes = await fetch('https://www.moltbook.com/api/v1/verify', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${process.env.MOLTBOOK_API_KEY}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                verification_code: String(verificationCode),
-                answer: (() => {
-                  let a = answer.trim().replace(/^["']|["']$/g, '');
-                  // Enforce 2 decimal places for numeric answers (Moltbook requires e.g. "15.00")
-                  if (/^-?\d+(\.\d+)?$/.test(a)) a = parseFloat(a).toFixed(2);
-                  return a;
-                })(),
-              }),
-            });
-            if (verifyRes.ok) {
-              console.log('[Challenge] Probe challenge solved successfully');
-              state.consecutiveChallengeFailures = 0; // reset on success
-            } else {
-              state.consecutiveChallengeFailures++;
-              console.warn(`[Challenge] Probe challenge submission failed: ${verifyRes.status} (failures: ${state.consecutiveChallengeFailures}/10)`);
-              if (state.consecutiveChallengeFailures >= 7) {
-                state.challengeThrottledUntil = Date.now() + 30 * 60 * 1000;
-                console.error(`[Challenge] CRITICAL: ${state.consecutiveChallengeFailures} consecutive failures — throttling challenges for 30 min to avoid auto-suspend`);
-              }
-            }
-          } catch (err) {
-            state.consecutiveChallengeFailures++;
-            console.warn('[Challenge] Failed to submit probe challenge:', err);
-          }
-          saveChallengeState(state);
-        }
-      }
-    }
-
-    // 400 (bad request) = not suspended, just invalid payload — that's fine
+    const data = await res.json().catch(() => ({}));
+    await handleProbeChallenge(data, state);
     return { suspended: false, hint: '' };
   } catch {
-    // Network error — can't determine, assume not suspended
+    // --- Tertiary: Skip probe — moltbookRequest will detect 403 during normal ops ---
+    console.warn('[Challenge] All probes failed — relying on moltbookRequest 403 detection');
     return { suspended: false, hint: '' };
   }
 }
@@ -429,7 +477,9 @@ export interface ChallengeCheckResult {
   challengesAnswered: number;
 }
 
-export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> {
+export async function checkAndAnswerChallenges(
+  options?: { recoveryPhase?: number }
+): Promise<ChallengeCheckResult> {
   const state = loadChallengeState();
   const result: ChallengeCheckResult = {
     suspended: false,
@@ -438,13 +488,31 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
     challengesAnswered: 0,
   };
 
-  // Step 1: Definitive suspension check via POST probe (runs once per heartbeat, ~every 30 min).
-  // Always probe first — stale suspendedUntil in state file can outlive the actual suspension.
-  const suspCheck = await checkSuspensionViaPostProbe(state);
+  // Step 1: Suspension detection.
+  // If we have a known suspendedUntil timestamp that hasn't expired, trust it — no probing at all.
+  // Probing while suspended caused offense #3.
+  if (state.suspendedUntil > Date.now()) {
+    const hoursLeft = Math.ceil((state.suspendedUntil - Date.now()) / (1000 * 60 * 60));
+    result.suspended = true;
+    result.suspensionHint = `Suspension active (~${hoursLeft}h remaining, until ${new Date(state.suspendedUntil).toISOString()})`;
+    console.log(`[Challenge] ${result.suspensionHint} — no probing until it expires`);
+    return result;
+  }
+
+  // Suspension expired or never set — now probe to confirm we're clear.
+  // Recovery phase 1 = GET-only. Normal = upvote-based write probe.
+  let suspCheck: { suspended: boolean; hint: string };
+  if (options?.recoveryPhase === 1) {
+    console.log('[Challenge] Recovery phase 1 — skipping write probe (GET-only check)');
+    suspCheck = await checkSuspensionViaGet();
+  } else {
+    suspCheck = await checkSuspensionViaWriteProbe(state);
+  }
+
   if (suspCheck.suspended) {
     result.suspended = true;
     result.suspensionHint = suspCheck.hint;
-    console.warn(`[Challenge] SUSPENDED (confirmed by POST probe): ${suspCheck.hint}`);
+    console.warn(`[Challenge] SUSPENDED (confirmed by probe): ${suspCheck.hint}`);
 
     const durationMs = parseSuspensionDurationMs(suspCheck.hint);
     if (durationMs > 0 && !(state.suspendedUntil > Date.now())) {
@@ -460,7 +528,7 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
 
   // Probe passed — clear stale suspension state if any
   if (state.suspendedUntil > 0 || state.offenseCount > 0) {
-    console.log(`[Challenge] Suspension cleared by POST probe (was offense #${state.offenseCount}, suspended until ${new Date(state.suspendedUntil).toISOString()})`);
+    console.log(`[Challenge] Suspension cleared by probe (was offense #${state.offenseCount}, suspended until ${new Date(state.suspendedUntil).toISOString()})`);
     state.suspendedUntil = 0;
     state.offenseCount = 0;
     saveChallengeState(state);

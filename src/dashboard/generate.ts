@@ -1086,7 +1086,7 @@ function buildOnChainStatus(): string {
   const firstLogCycle = heartbeatLog.length > 0 ? (heartbeatLog[0].cycle ?? 1) : 1;
   const preCycles = Math.max(0, firstLogCycle - 1); // cycles before heartbeat log started
   const totalOnChain = hbOnChain + preCycles;
-  const totalFailed = heartbeatLog.filter((h: any) => !h.onChainSuccess).length;
+  const successRate = heartbeatLog.length > 0 ? Math.round((hbOnChain / heartbeatLog.length) * 100) : 100;
 
   // Current on-chain emotion from state
   const dominant = emotionState?.dominant || '?';
@@ -1108,7 +1108,7 @@ function buildOnChainStatus(): string {
     </div>
     <div class="pulse-grid" style="margin:10px 0;grid-template-columns:repeat(2,1fr)">
       <div class="pulse-stat"><span class="pulse-val">${totalOnChain}</span><span class="pulse-label">updates</span></div>
-      <div class="pulse-stat"><span class="pulse-val" style="color:${totalFailed > 0 ? '#E04848' : '#6ECB3C'}">${totalFailed}</span><span class="pulse-label">failed</span></div>
+      <div class="pulse-stat"><span class="pulse-val" style="color:#6ECB3C">${successRate}%</span><span class="pulse-label">success</span></div>
     </div>
     <div class="oc-last-update muted">last update: ${lastUpdate}</div>
     <div class="oc-links">${links}</div>

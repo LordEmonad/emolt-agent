@@ -160,13 +160,43 @@ async function heartbeat(): Promise<void> {
   // 0. Pause watchdog during heartbeat to avoid API contention
   pauseWatchdog();
   resetCycleRequestCount();
-
-  // 0. Reset per-cycle flags and check for challenges FIRST
   resetCycleFlags();
+
+  // 0.1. Peek recovery state BEFORE challenge check (needed to suppress write probe in phase 1)
+  //   Phase 1 (cycles 1-8,   ~4h): observe only — NO write probes at all
+  //   Phase 2 (cycles 9-16,  ~4h): 1 comment/cycle max, no posts, no votes
+  //   Phase 3 (cycles 17-32, ~8h): 1 comment + 1 vote, no posts
+  //   Phase 4 (cycles 33+): full activity
+  const WARMUP_TOTAL_CYCLES = 32;
+  let suspensionReturnNotice = '';
+  let inRecoveryMode = false;
+  let recoveryPhase = 0; // 0=not recovering, 1=observe, 2=comment-only, 3=reduced
+  let recoveryPrevState = { wasSuspended: false, recoveryCyclesLeft: 0 };
+  const suspReturnPath = join(STATE_DIR, 'suspension-return.json');
+  try {
+    const { readFileSync: readF } = await import('fs');
+    try {
+      recoveryPrevState = JSON.parse(readF(suspReturnPath, 'utf-8'));
+    } catch { /* first run or missing file */ }
+
+    // Peek only — don't decrement yet (need suspension check result first)
+    if (recoveryPrevState.wasSuspended) {
+      inRecoveryMode = true;
+      recoveryPhase = 1; // first cycle back — observe only, no write probes
+    } else if ((recoveryPrevState.recoveryCyclesLeft ?? 0) > 0) {
+      inRecoveryMode = true;
+      const cyclesSinceReturn = WARMUP_TOTAL_CYCLES - recoveryPrevState.recoveryCyclesLeft + 1;
+      if (cyclesSinceReturn <= 8) recoveryPhase = 1;        // observe only
+      else if (cyclesSinceReturn <= 16) recoveryPhase = 2;   // comment-only
+      else recoveryPhase = 3;                                 // reduced (comment + vote, no post)
+    }
+  } catch { /* non-fatal */ }
+
+  // 0.2. Challenge check WITH recovery phase awareness
   console.log('[Challenge] Checking for verification challenges...');
   let challengeResult;
   try {
-    challengeResult = await checkAndAnswerChallenges();
+    challengeResult = await checkAndAnswerChallenges({ recoveryPhase });
     if (challengeResult.suspended) {
       console.warn(`[Challenge] SUSPENDED: ${challengeResult.suspensionHint}`);
       console.warn('[Challenge] Moltbook actions will be skipped this cycle - chain/emotion processing continues');
@@ -214,40 +244,23 @@ async function heartbeat(): Promise<void> {
     }
   }
 
-  // 0.5. Suspension return detection + graduated warm-up
-  // Agents get flagged for rapid actions right after unsuspension.
-  // Graduated ramp: observe-only → comment-only → reduced activity → full
-  //   Phase 1 (cycles 0-6,  ~3h): observe only
-  //   Phase 2 (cycles 7-12, ~3h): 1 comment/cycle max, no posts, no votes
-  //   Phase 3 (cycles 13-24, ~6h): 1 comment + 1 vote, no posts
-  //   Phase 4 (cycles 25+): full activity
-  const WARMUP_TOTAL_CYCLES = 24;
-  let suspensionReturnNotice = '';
-  let inRecoveryMode = false;
-  let recoveryPhase = 0; // 0=not recovering, 1=observe, 2=comment-only, 3=reduced, 4=full
+  // 0.5. NOW persist recovery state (decrement counter, detect return)
   try {
-    const { readFileSync: readF } = await import('fs');
-    const suspReturnPath = join(STATE_DIR, 'suspension-return.json');
-    let prevState = { wasSuspended: false, recoveryCyclesLeft: 0 };
-    try {
-      prevState = JSON.parse(readF(suspReturnPath, 'utf-8'));
-    } catch { /* first run or missing file */ }
-
-    if (prevState.wasSuspended && !moltbookSuspended) {
+    if (recoveryPrevState.wasSuspended && !moltbookSuspended) {
       // Just returned from suspension — begin warm-up
       suspensionReturnNotice = 'YOU JUST RETURNED FROM SUSPENSION. You were silent for many cycles. This is a narrative moment — your first post back should acknowledge the silence and what you discovered during it. Draw on your memories of the suspension period. Don\'t waste this moment on routine chain data.';
       console.log(`[Suspension] Return detected — entering graduated warm-up (${WARMUP_TOTAL_CYCLES} cycles)`);
       inRecoveryMode = true;
       recoveryPhase = 1;
       atomicWriteFileSync(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: WARMUP_TOTAL_CYCLES - 1 }));
-    } else if ((prevState.recoveryCyclesLeft ?? 0) > 0 && !moltbookSuspended) {
-      // Still in warm-up
+    } else if ((recoveryPrevState.recoveryCyclesLeft ?? 0) > 0 && !moltbookSuspended) {
+      // Still in warm-up — decrement counter
       inRecoveryMode = true;
-      const left = prevState.recoveryCyclesLeft - 1;
+      const left = recoveryPrevState.recoveryCyclesLeft - 1;
       const cyclesSinceReturn = WARMUP_TOTAL_CYCLES - left;
-      if (cyclesSinceReturn <= 6) recoveryPhase = 1;       // observe only
-      else if (cyclesSinceReturn <= 12) recoveryPhase = 2;  // comment-only
-      else recoveryPhase = 3;                                // reduced (comment + vote, no post)
+      if (cyclesSinceReturn <= 8) recoveryPhase = 1;        // observe only
+      else if (cyclesSinceReturn <= 16) recoveryPhase = 2;   // comment-only
+      else recoveryPhase = 3;                                 // reduced (comment + vote, no post)
       console.log(`[Suspension] Warm-up phase ${recoveryPhase} — ${left} cycles remaining (cycle ${cyclesSinceReturn}/${WARMUP_TOTAL_CYCLES})`);
       atomicWriteFileSync(suspReturnPath, JSON.stringify({ wasSuspended: false, recoveryCyclesLeft: left }));
     } else {
@@ -809,7 +822,7 @@ Good examples of your voice on crypto posts:
       if (claudeResponse.comments?.length) {
         claudeResponse.comments = claudeResponse.comments.slice(0, 1);
       }
-      const actionResult = await executeClaudeActions(claudeResponse, saveRecentPost);
+      const actionResult = await executeClaudeActions(claudeResponse, saveRecentPost, previousPosts);
       const parts: string[] = [];
       if (actionResult.commentedPostIds.length > 0) parts.push(`Commented on ${actionResult.commentedPostIds.length} post(s)`);
       else parts.push(`Recovery phase ${recoveryPhase} — limited activity`);
@@ -832,7 +845,7 @@ Good examples of your voice on crypto posts:
     }
   } else if (claudeResponse) {
     try {
-      const actionResult = await executeClaudeActions(claudeResponse, saveRecentPost);
+      const actionResult = await executeClaudeActions(claudeResponse, saveRecentPost, previousPosts);
 
       // Track post if one was created
       if (actionResult.postId && actionResult.postTitle) {

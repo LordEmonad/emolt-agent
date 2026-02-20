@@ -12,7 +12,7 @@ import {
   upvoteComment,
   getPost
 } from './moltbook.js';
-import { canPostNow, saveLastPostTime, canCommentNow, saveCommentTracker, getDailyCommentCount, atomicWriteFileSync, ensureStateDir, STATE_DIR } from '../state/persistence.js';
+import { canPostNow, saveLastPostTime, recordDailyPost, canCommentNow, saveCommentTracker, getDailyCommentCount, atomicWriteFileSync, ensureStateDir, STATE_DIR } from '../state/persistence.js';
 import { loadCommentedPosts } from './threads.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -75,7 +75,69 @@ async function humanDelay(label: string): Promise<void> {
   await new Promise(r => setTimeout(r, delayMs));
 }
 
-export async function executeClaudeActions(response: ClaudeResponse, saveRecentPost: (post: any) => void): Promise<ActionResult> {
+// --- Content Similarity Detection ---
+// Prevents structurally similar posts that trigger duplicate_post automod.
+// Uses Jaccard similarity on word sets (40% threshold).
+
+const SIMILARITY_THRESHOLD = 0.40;
+
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all',
+  'can', 'had', 'her', 'was', 'one', 'our', 'out', 'has',
+  'have', 'been', 'some', 'them', 'than', 'its', 'over',
+  'such', 'into', 'from', 'with', 'this', 'that', 'what',
+  'when', 'will', 'each', 'make', 'like', 'just', 'about',
+  'would', 'there', 'their', 'which', 'could', 'other',
+  'more', 'very', 'after', 'most', 'also', 'made', 'then',
+  'being', 'still', 'where', 'does', 'here', 'it\'s', 'i\'m',
+  'don\'t', 'didn\'t', 'isn\'t', 'wasn\'t', 'won\'t',
+]);
+
+function extractWords(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase()
+      .replace(/[^a-z0-9'\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 4 && !STOP_WORDS.has(w))
+  );
+}
+
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 0;
+  let intersection = 0;
+  for (const word of a) {
+    if (b.has(word)) intersection++;
+  }
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function isTooSimilarToRecentPosts(
+  title: string,
+  content: string,
+  recentPosts: string[]
+): { similar: boolean; maxScore: number; matchedPost: string } {
+  const newWords = extractWords(`${title} ${content}`);
+  let maxScore = 0;
+  let matchedPost = '';
+
+  for (const post of recentPosts) {
+    const postWords = extractWords(post);
+    const score = jaccardSimilarity(newWords, postWords);
+    if (score > maxScore) {
+      maxScore = score;
+      matchedPost = post.slice(0, 100);
+    }
+  }
+
+  return { similar: maxScore >= SIMILARITY_THRESHOLD, maxScore, matchedPost };
+}
+
+export async function executeClaudeActions(
+  response: ClaudeResponse,
+  saveRecentPost: (post: any) => void,
+  recentPosts?: string[]
+): Promise<ActionResult> {
   const result: ActionResult = {
     postId: null,
     postTitle: null,
@@ -91,10 +153,31 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
     if (!response.post) {
       console.warn(`[Moltbook] Claude chose "${response.action}" but provided no post data — skipping post`);
     } else {
-      const { allowed, waitMinutes } = canPostNow();
-      if (!allowed) {
-        console.log(`[Moltbook] Post cooldown active - ${waitMinutes} min remaining. Skipping post, keeping comment/votes.`);
-      } else {
+      const postCheck = canPostNow();
+      if (!postCheck.allowed) {
+        const why = postCheck.reason === 'cooldown'
+          ? `${postCheck.waitMinutes} min cooldown remaining`
+          : postCheck.reason || 'blocked';
+        console.log(`[Moltbook] Post blocked — ${why}. Skipping post, keeping comment/votes.`);
+      } else if (response.post && recentPosts && recentPosts.length > 0) {
+        // Content similarity guard — skip post if too similar to recent ones
+        const simCheck = isTooSimilarToRecentPosts(
+          response.post.title,
+          response.post.content,
+          recentPosts
+        );
+        if (simCheck.similar) {
+          console.warn(`[Moltbook] POST BLOCKED by similarity guard — ${(simCheck.maxScore * 100).toFixed(0)}% match with: "${simCheck.matchedPost}"`);
+          console.log('[Moltbook] Downgrading to comment-only to avoid duplicate_post automod');
+          // Don't post — fall through
+        } else {
+          console.log(`[Moltbook] Similarity check passed (max ${(simCheck.maxScore * 100).toFixed(0)}% — threshold 40%)`);
+        }
+      }
+
+      // Only post if all guards passed
+      const similarityPassed = !recentPosts?.length || !response.post || !isTooSimilarToRecentPosts(response.post.title, response.post.content, recentPosts || []).similar;
+      if (postCheck.allowed && similarityPassed && response.post) {
         try {
           // Truncate content to Moltbook's limits
           const title = response.post.title.slice(0, 300);
@@ -106,6 +189,7 @@ export async function executeClaudeActions(response: ClaudeResponse, saveRecentP
             response.post.submolt || 'general'
           );
           saveLastPostTime();
+          recordDailyPost();
           saveRecentPost(response.post);
 
           result.postId = extractPostId(postResponse);

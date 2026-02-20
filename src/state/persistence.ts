@@ -202,7 +202,7 @@ export function savePreviousStarCount(stars: number): void {
 
 // --- Last Post Time (rate limit guard) ---
 
-const POST_COOLDOWN_MS = 62 * 60 * 1000; // 62 minutes - post every other heartbeat to avoid spam flags
+const POST_COOLDOWN_MS = 180 * 60 * 1000; // 3 hours - strict spacing to avoid duplicate_post automod
 
 export function loadLastPostTime(): number {
   try {
@@ -218,14 +218,61 @@ export function saveLastPostTime(): void {
   atomicWriteFileSync(LAST_POST_TIME_FILE, JSON.stringify({ timestamp: Date.now() }, null, 2));
 }
 
-export function canPostNow(): { allowed: boolean; waitMinutes: number } {
+export function canPostNow(): { allowed: boolean; waitMinutes: number; reason?: string } {
+  // Check daily cap first
+  if (isDailyPostCapReached()) {
+    return { allowed: false, waitMinutes: 0, reason: `daily cap reached (${DAILY_POST_CAP}/day)` };
+  }
+  // Then check cooldown
   const lastPost = loadLastPostTime();
   const elapsed = Date.now() - lastPost;
   if (elapsed >= POST_COOLDOWN_MS) {
     return { allowed: true, waitMinutes: 0 };
   }
   const remaining = POST_COOLDOWN_MS - elapsed;
-  return { allowed: false, waitMinutes: Math.ceil(remaining / 60000) };
+  return { allowed: false, waitMinutes: Math.ceil(remaining / 60000), reason: 'cooldown' };
+}
+
+// --- Daily Post Cap ---
+// Max 4 posts per 24h to avoid duplicate_post automod (offense #1 was 9 posts in 12h)
+
+const DAILY_POST_CAP = 4;
+const DAILY_POST_TRACKER_FILE = join(STATE_DIR, 'daily-post-tracker.json');
+
+interface DailyPostTracker {
+  date: string;        // YYYY-MM-DD
+  count: number;
+  timestamps: number[];
+}
+
+function loadDailyPostTracker(): DailyPostTracker {
+  try {
+    const data = readFileSync(DAILY_POST_TRACKER_FILE, 'utf-8');
+    const tracker = JSON.parse(data);
+    const today = new Date().toISOString().slice(0, 10);
+    if (tracker.date !== today) {
+      return { date: today, count: 0, timestamps: [] };
+    }
+    return tracker;
+  } catch {
+    return { date: new Date().toISOString().slice(0, 10), count: 0, timestamps: [] };
+  }
+}
+
+export function recordDailyPost(): void {
+  ensureStateDir();
+  const tracker = loadDailyPostTracker();
+  tracker.count++;
+  tracker.timestamps.push(Date.now());
+  atomicWriteFileSync(DAILY_POST_TRACKER_FILE, JSON.stringify(tracker, null, 2));
+}
+
+export function getDailyPostCount(): number {
+  return loadDailyPostTracker().count;
+}
+
+export function isDailyPostCapReached(): boolean {
+  return loadDailyPostTracker().count >= DAILY_POST_CAP;
 }
 
 // --- Comment Rate Limiting ---

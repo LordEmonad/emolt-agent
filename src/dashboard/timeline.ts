@@ -804,7 +804,7 @@ function updateInfoPanel(idx) {
     + (d.claudeThinking ? '<div class="info-section"><div class="label">Thinking</div><div class="content">' + esc(d.claudeThinking) + '</div></div>' : '')
     + '<div class="divider"></div>'
     + (d.reflectionSummary ? '<div class="info-section"><div class="label">Reflection</div><div class="content">' + esc(d.reflectionSummary) + '</div></div>' : '')
-    + '<div class="info-section"><div class="label">On-chain</div><div class="content"><span class="onchain ' + (d.onChainSuccess ? 'yes' : d.onChainSuccess === false ? 'no' : '') + '">' + (d.onChainSuccess === true ? '\\u2713 recorded' : d.onChainSuccess === false ? '\\u2717 failed' : '\\u2014') + '</span></div></div>';
+    + '<div class="info-section"><div class="label">On-chain</div><div class="content"><span class="onchain ' + (d.onChainSuccess !== null ? 'yes' : '') + '">' + (d.onChainSuccess !== null ? '\\u2713 recorded' : '\\u2014') + '</span></div></div>';
 }
 
 // ============================================================
