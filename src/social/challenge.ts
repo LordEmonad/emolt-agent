@@ -438,21 +438,13 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
     challengesAnswered: 0,
   };
 
-  // Check if we know we're suspended (from a previous cycle)
-  if (state.suspendedUntil > Date.now()) {
-    result.suspended = true;
-    const hoursLeft = Math.ceil((state.suspendedUntil - Date.now()) / (1000 * 60 * 60));
-    result.suspensionHint = `Suspension active (~${hoursLeft}h remaining)`;
-    console.log(`[Challenge] ${result.suspensionHint} - skipping Moltbook actions`);
-    return result;
-  }
-
-  // Step 1: Definitive suspension check via POST probe (runs once per heartbeat, ~every 30 min)
+  // Step 1: Definitive suspension check via POST probe (runs once per heartbeat, ~every 30 min).
+  // Always probe first — stale suspendedUntil in state file can outlive the actual suspension.
   const suspCheck = await checkSuspensionViaPostProbe(state);
   if (suspCheck.suspended) {
     result.suspended = true;
     result.suspensionHint = suspCheck.hint;
-    console.warn(`[Challenge] SUSPENDED: ${suspCheck.hint}`);
+    console.warn(`[Challenge] SUSPENDED (confirmed by POST probe): ${suspCheck.hint}`);
 
     const durationMs = parseSuspensionDurationMs(suspCheck.hint);
     if (durationMs > 0 && !(state.suspendedUntil > Date.now())) {
@@ -468,7 +460,7 @@ export async function checkAndAnswerChallenges(): Promise<ChallengeCheckResult> 
 
   // Probe passed — clear stale suspension state if any
   if (state.suspendedUntil > 0 || state.offenseCount > 0) {
-    console.log(`[Challenge] Suspension cleared (was offense #${state.offenseCount}, suspended until ${new Date(state.suspendedUntil).toISOString()})`);
+    console.log(`[Challenge] Suspension cleared by POST probe (was offense #${state.offenseCount}, suspended until ${new Date(state.suspendedUntil).toISOString()})`);
     state.suspendedUntil = 0;
     state.offenseCount = 0;
     saveChallengeState(state);
